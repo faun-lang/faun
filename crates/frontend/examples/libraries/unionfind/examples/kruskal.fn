@@ -1,0 +1,37 @@
+# Kruskal's minimum spanning forest, observed from outside: edges taken
+# cheapest first, each kept where its ends are still in different sets.
+
+package {
+  uses: {
+    unionfind: "../src/unionfind"
+  }
+}
+
+import unionfind {UnionFind}
+
+Edge = {from: Nat, to: Nat, weight: Nat}
+
+# The edges of a cheapest forest spanning `count` nodes, cheapest first.
+spanning : (Nat, List(Edge)) -> List(Edge)
+spanning(count, edges) -> (
+  (_, kept) = edges.sort_on(|edge| edge.weight).fold((UnionFind.of_count(count), []), |(forest, kept), edge| (
+    (joined, forest) = forest.same(edge.from, edge.to)
+    if joined then (forest, kept) else (forest.union(edge.from, edge.to), [edge, *kept])
+  ))
+  kept.reverse()
+)
+
+total : List(Edge) -> Nat
+total(edges) -> edges.map(|edge| edge.weight).sum()
+
+# Wikipedia's example graph, its seven nodes A to G as 0 to 6.
+example : List(Edge)
+example = [
+  (0, 1, 7), (0, 3, 5), (1, 2, 8), (1, 3, 9), (1, 4, 7), (2, 4, 5),
+  (3, 4, 15), (3, 5, 6), (4, 5, 8), (4, 6, 9), (5, 6, 11),
+].map(|(from, to, weight)| {from, to, weight})
+
+expect total(spanning(7, example)) == 39 & spanning(7, example).len() == 6
+expect spanning(7, example).take(2).map(|edge| (edge.from, edge.to)) == [(0, 3), (2, 4)]
+# Two islands span as two trees: one edge fewer than the nodes for each.
+expect spanning(4, [{from: 0, to: 1, weight: 3}, {from: 2, to: 3, weight: 1}]).len() == 2

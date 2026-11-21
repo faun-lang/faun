@@ -1,0 +1,116 @@
+# Disjoint sets over the naturals below a count, after Tarjan's union-find:
+# each set is a tree whose root names it, kept as a list of parents, a root
+# being its own parent. A union hangs the smaller tree under the larger,
+# and a find halves the path it walks, each node it passes pointed at its
+# grandparent, so a run of operations costs next to nothing beyond its
+# length.
+#
+# A find changes the forest, so it answers the forest beside the root, and
+# a caller threads it on as it threads a heap. A forest nothing else holds
+# is written where it lies. `root` reads without halving, for a forest
+# only looked at.
+
+package {}
+
+export {UnionFind}
+
+UnionFind : {parent: List(Nat), size: List(Nat), sets: Nat}.(
+  # `count` elements, each a set of its own.
+  of_count : Nat -> UnionFind
+  of_count(count) -> UnionFind({parent: List.range(count), size: List.repeat(1, count), sets: count})
+
+  # How many elements there are, in every set together.
+  len : UnionFind -> Nat
+  len(UnionFind({parent, *})) -> parent.len()
+
+  # How many sets there are.
+  sets : UnionFind -> Nat
+  sets(UnionFind({sets, *})) -> sets
+
+  # The root of `element`'s set, and the forest with the path to it halved.
+  # An element past the end is a set of its own, and its own root.
+  find : (UnionFind, Nat) -> (Nat, UnionFind)
+  find(UnionFind({parent, size, sets}), element) -> (
+    (root, parent) = halved(parent, element)
+    (root, UnionFind({parent, size, sets}))
+  )
+
+  # The root of `element`'s set, the forest left as it is.
+  root : (UnionFind, Nat) -> Nat
+  root(UnionFind({parent, *}), element) -> climbed(parent, element)
+
+  # Whether `a` and `b` are in one set, and the forest after finding both.
+  same : (UnionFind, Nat, Nat) -> (Bool, UnionFind)
+  same(forest, a, b) -> (
+    (left, forest) = forest.find(a)
+    (right, forest) = forest.find(b)
+    (left == right, forest)
+  )
+
+  # The forest with the sets of `a` and `b` made one. Where they are one
+  # already, or either is past the end, nothing changes.
+  union : (UnionFind, Nat, Nat) -> UnionFind
+  union(forest, a, b) -> (
+    (left, forest) = forest.find(a)
+    (right, forest) = forest.find(b)
+    UnionFind({parent, size, sets}) = forest
+    if left == right | left >= parent.len() | right >= parent.len() return forest
+    small = size.get(left).ok_or(1)
+    large = size.get(right).ok_or(1)
+    (child, top) = if small <= large then (left, right) else (right, left)
+    UnionFind({parent: parent.put(child, top), size: size.put(top, small + large), sets: sets - 1})
+  )
+
+  # How many elements share `element`'s set.
+  size_of : (UnionFind, Nat) -> Nat
+  size_of(forest, element) -> (
+    UnionFind({size, *}) = forest
+    size.get(forest.root(element)).ok_or(1)
+  )
+
+  # Every set, each its elements in order, the sets in the order of their
+  # least elements.
+  groups : UnionFind -> List(List(Nat))
+  groups(forest) -> Map.grouped(List.range(forest.len()), |element| forest.root(element)).values()
+)
+
+# The root above `element`, each node passed pointed at its grandparent.
+halved : (List(Nat), Nat) -> (Nat, List(Nat))
+halved(parent, element) -> (
+  above = parent.get(element).ok_or(element)
+  if above == element return (element, parent)
+  grand = parent.get(above).ok_or(above)
+  halved(parent.put(element, grand), grand)
+)
+
+climbed : (List(Nat), Nat) -> Nat
+climbed(parent, element) -> (
+  above = parent.get(element).ok_or(element)
+  if above == element then element else climbed(parent, above)
+)
+
+expect UnionFind.of_count(4).sets() == 4 & UnionFind.of_count(0).groups() == []
+expect UnionFind.of_count(3).groups() == [[0], [1], [2]]
+expect (
+  forest = UnionFind.of_count(6).union(0, 1).union(2, 3).union(1, 3)
+  forest.sets() == 3 & forest.groups() == [[0, 1, 2, 3], [4], [5]] & forest.size_of(2) == 4
+)
+expect (
+  forest = UnionFind.of_count(5).union(4, 0).union(3, 4)
+  (together, forest) = forest.same(0, 3)
+  (apart, forest) = forest.same(0, 1)
+  together & !apart & forest.size_of(1) == 1
+)
+# A union of a set with itself, or with an element past the end, changes
+# nothing.
+expect (
+  forest = UnionFind.of_count(3).union(0, 1)
+  forest.union(1, 0).sets() == 2 & forest.union(0, 7).sets() == 2 & forest.root(7) == 7
+)
+# Finding halves a path: a chain of unions, each hung under the larger,
+# keeps every element within a step or two of its root once found.
+expect (
+  forest = List.range(15).fold(UnionFind.of_count(16), |forest, n| forest.union(n, n + 1))
+  (root, forest) = forest.find(0)
+  forest.sets() == 1 & List.range(16).all(|n| forest.root(n) == root)
+)

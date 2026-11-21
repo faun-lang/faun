@@ -1,0 +1,34 @@
+# Union-find as a benchmark: `count` elements joined by `count` unions of
+# scattered pairs, each pair asked first whether it is joined already,
+# answering how many sets are left, how many pairs were joined already, and
+# how large nought's set is.
+
+package {
+  uses: {
+    unionfind: "../src/unionfind"
+  }
+}
+
+import unionfind {UnionFind}
+
+# The `index`th pair of elements below `count`: one stepping by a prime,
+# the other by squares, so the pairs make a graph with many components.
+pair : (Nat, Nat) -> (Nat, Nat)
+pair(index, count) -> (index * 7919 % count, index * index % count)
+
+Tally = {sets: Nat, joined: Nat, first: Nat}
+
+app : {args: List(Str)} -> Result(Tally, [Malformed])
+app({args}) -> (
+  count = Nat.from_str(args.get(1).ok_or("100000"))?
+  (forest, joined) = List.range(count).fold((UnionFind.of_count(count), 0), |(forest, joined), index| (
+    (a, b) = pair(index, count)
+    (same, forest) = forest.same(a, b)
+    (forest.union(a, b), joined + same.to_nat())
+  ))
+  Ok({sets: forest.sets(), joined, first: forest.size_of(0)})
+)
+
+main!(host) -> host.run!(app)
+
+expect app({args: ["connect", "10"]}).map_ok(|{sets, *}| sets > 0 & sets < 10) == Ok(True)
