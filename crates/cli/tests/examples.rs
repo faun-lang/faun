@@ -454,6 +454,40 @@ fn shifts(name: &str, width: u32) -> String {
     )
 }
 
+/// A record has no `cmp`, and the refusal's help names the two ways to
+/// order records: by a key, or in a type over the record that writes its
+/// `cmp`. Both sort alike on every target, ties left in the order given.
+#[test]
+fn records_sort_by_a_key_or_a_written_cmp_everywhere() {
+    let package = support::Package::new(
+        "record-sort",
+        "Item : {id: Nat, score: Nat}.(
+           cmp : (Item, Item) -> Order
+           cmp(Item(a), Item(b)) -> a.score.cmp(b.score).or(a.id.cmp(b.id))
+         )
+
+         items : Nat -> List({id: Nat, score: Nat})
+         items(n) -> List.range(n).map(|i| {id: i, score: i * 7 % 5})
+
+         main! : Host -> []
+         main!(host) -> (
+           n = 8 + host.args.len()
+           keyed = items(n).sort_on(|r| r.score).map(|r| r.id)
+           written = items(n).map(|r| Item(r)).sort().map(|Item(r)| r.id)
+           host.println!(\"${keyed} ${written == keyed}\")
+           host.exit!(0)
+         )",
+    );
+    for target in MACHINES {
+        let (status, written, said) = run_on(target, &package.entry(), b"");
+        assert_eq!(
+            (status, written.as_str()),
+            (Some(0), "[0, 5, 3, 8, 1, 6, 4, 2, 7] True\n"),
+            "{target}: {said}"
+        );
+    }
+}
+
 /// Every target `faun run` builds for.
 const MACHINES: [&str; 3] = ["x86_64-linux", "wasm32-wasi", "mos6502-sim65"];
 

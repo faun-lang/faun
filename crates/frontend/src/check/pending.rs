@@ -13,9 +13,19 @@ use super::{
     PendingTag, Places, Reach, Reading, apply_signature, failure,
 };
 use crate::blessed::{self, NumeralType};
+use crate::declarations as n;
 use crate::diagnostic::{Advised, Refusal, counted};
 use crate::hir as h;
 use crate::{ModuleId, Symbol};
+
+/// A record a declared type holds in a constructor's fields.
+struct Held {
+    constructor: Symbol,
+    /// Whether it is the record the type wraps.
+    wraps: bool,
+    /// Its first field, in the order of their names.
+    first: Option<Symbol>,
+}
 
 /// How far a pass over pending methods goes with one whose receiver is
 /// not yet known.
@@ -1129,6 +1139,9 @@ impl Checker<'_> {
                             }
                             // A signature's variable has only what its bounds give.
                             Ty::Rigid(_) => self.unbounded(&pending),
+                            receiver if let Some(refused) = self.unordered(&pending, &receiver) => {
+                                refused
+                            }
                             receiver => {
                                 let message = format!(
                                     "`{}` has no field or method `{name}`",
@@ -1217,6 +1230,14 @@ impl Checker<'_> {
             format!("{name}({})", variables.join(", "))
         };
         let is = |derived: Option<Symbol>| derived == Some(member);
+        // A record has no order, so `cmp` is not derived from one: the
+        // type writes its own.
+        if is(self.prelude.cmp) && self.held_record(data).is_some() {
+            return Some(format!(
+                "`{name}` holds a record, which has no order: {}",
+                self.write_cmp(data)
+            ));
+        }
         let (shape, bound): (String, fn(&str) -> String) = if is(self.prelude.equals) {
             (format!("({ty}, {ty}) -> Bool"), |a| {
                 format!("Equatable({a})")
@@ -1247,6 +1268,115 @@ impl Checker<'_> {
         Some(format!(
             "declare `{member} : {shape}{bounds}` with no body in `{name}`'s block to derive it"
         ))
+    }
+
+    /// A record asked for its `cmp`, which no record has, since nothing in
+    /// `{name, age}` says which field comes first. Asked by a `cmp` a
+    /// type derives, it is that type that cannot have one derived, and
+    /// writes its own; asked elsewhere, the order is by a key.
+    fn unordered(&self, pending: &PendingMethod, receiver: &Ty) -> Option<Refusal> {
+        let Ty::Record(fields, _) = receiver else {
+            return None;
+        };
+        if self.prelude.cmp != Some(pending.name) {
+            return None;
+        }
+        let record = show(receiver, self.symbols);
+        // A derived member's clauses are written at its signature, where
+        // nothing else is.
+        let at = (pending.module, pending.span);
+        let deriving = self
+            .methods
+            .values()
+            .flatten()
+            .find(|method| self.defined.get(&method.target) == Some(&at))
+            .and_then(|method| self.data.get(&method.owner));
+        if let Some(data) = deriving {
+            let message = format!(
+                "`{}`'s `cmp` cannot be derived: it holds `{record}`, and a record has no order",
+                self.symbols.spelling(data.name)
+            );
+            let help = self.write_cmp(data);
+            return Some(failure(pending.module, pending.span, message).help(help));
+        }
+        let message = format!("`{record}` has no field or method `cmp`");
+        let help = self.key(fields).map_or_else(
+            || "a record has no order: wrap it in a type whose block writes `cmp`".to_owned(),
+            |key| format!(
+                "a record has no order: order by a key, as `sort_on(|r| {key})` does, or wrap it in a type whose block writes `cmp`"
+            ),
+        );
+        Some(failure(pending.module, pending.span, message).help(help))
+    }
+
+    /// The names of a record's `fields`, in their order.
+    fn named(&self, fields: &[(Symbol, Ty)]) -> Vec<Symbol> {
+        let mut names: Vec<_> = fields.iter().map(|(name, _)| *name).collect();
+        names.sort_by(|a, b| self.symbols.order(*a, *b));
+        names
+    }
+
+    /// A key that orders records of `fields`: the first field, or a tuple
+    /// of the first two, in the order of their names; none for `{}`.
+    fn key(&self, fields: &[(Symbol, Ty)]) -> Option<String> {
+        let names: Vec<_> = self
+            .named(fields)
+            .into_iter()
+            .take(2)
+            .map(|name| format!("r.{}", self.symbols.spelling(name)))
+            .collect();
+        match names.as_slice() {
+            [] => None,
+            [one] => Some(one.clone()),
+            _ => Some(format!("({})", names.join(", "))),
+        }
+    }
+
+    /// A record `data` holds as one of a constructor's fields.
+    fn held_record(&self, data: &n::Data) -> Option<Held> {
+        let wrapper = data
+            .wrapper
+            .iter()
+            .map(|wrapper| (wrapper.constructor, true));
+        let constructors = data
+            .constructors
+            .iter()
+            .map(|constructor| (constructor.name, false));
+        wrapper
+            .chain(constructors)
+            .find_map(|(constructor, wraps)| {
+                let scheme = self.constructors.get(&constructor)?;
+                let Ty::Function(fields, _) = &scheme.ty else {
+                    return None;
+                };
+                fields.iter().find_map(|field| match field {
+                    Ty::Record(fields, None) => Some(Held {
+                        constructor,
+                        wraps,
+                        first: self.named(fields).first().copied(),
+                    }),
+                    _ => None,
+                })
+            })
+    }
+
+    /// How a type holding a record has a `cmp`: it writes one, ordering
+    /// by the fields its domain orders by, as a wrapper's example shows.
+    fn write_cmp(&self, data: &n::Data) -> String {
+        let name = self.symbols.spelling(data.name);
+        let example = self.held_record(data).and_then(|held| {
+            let field = self.symbols.spelling(held.first?);
+            let constructor = self.symbols.spelling(held.constructor);
+            held.wraps.then(|| {
+                format!(
+                    ", as `cmp({constructor}(a), {constructor}(b)) -> a.{field}.cmp(b.{field})`"
+                )
+            })
+        });
+        format!(
+            "write `cmp`'s clauses in `{name}`'s block{}",
+            example.unwrap_or_default()
+        )
     }
 
     /// A member asked of a value whose type nothing decides, where more

@@ -1,0 +1,7 @@
+error: `Item`'s `cmp` cannot be derived: it holds `{id: Nat, score: Nat}`, and a record has no order
+ --> a_type_over_an_aliased_record_derives_no_cmp.fn:4:3
+  |
+4 |   cmp : (Item, Item) -> Order
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: write `cmp`'s clauses in `Item`'s block, as `cmp(Item(a), Item(b)) -> a.id.cmp(b.id)`

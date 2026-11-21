@@ -1,0 +1,5 @@
+Fields = {id: Nat, score: Nat}
+
+Item : Fields.(
+  cmp : (Item, Item) -> Order
+)

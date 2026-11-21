@@ -1,0 +1,7 @@
+error: `{id: Nat, score: Nat}` has no field or method `cmp`
+ --> a_list_of_records_is_sorted_on_a_key.fn:4:18
+  |
+4 | ranked(items) -> items.sort()
+  |                  ^^^^^^^^^^^^
+  |
+  = help: a record has no order: order by a key, as `sort_on(|r| (r.id, r.score))` does, or wrap it in a type whose block writes `cmp`

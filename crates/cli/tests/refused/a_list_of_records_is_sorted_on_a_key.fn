@@ -1,0 +1,4 @@
+import std.host {Host}
+
+ranked : List({id: Nat, score: Nat}) -> List({id: Nat, score: Nat})
+ranked(items) -> items.sort()
