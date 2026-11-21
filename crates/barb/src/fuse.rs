@@ -182,7 +182,9 @@ impl Fusion<'_> {
     /// whatever its step worked out. Its call may stand inside matches
     /// ending the step, each way through them pushing and going on, or
     /// going on with `acc` as it came, as a filter does, so long as one
-    /// pushes. What it walks may be a number, `zero` and
+    /// pushes. Built front to back, a way may instead stop, answering `acc`
+    /// as the empty arm does, as `map2` stops where its second list runs
+    /// out. What it walks may be a number, `zero` and
     /// `succ(rest)` for `empty` and `push(x, rest)`; and where it pushes a
     /// parameter it hands itself as it came, it may answer `acc` itself
     /// having pushed in front.
@@ -241,11 +243,15 @@ impl Fusion<'_> {
         // with, either pushes one element onto it and goes on, or goes on
         // with it as it came, pushing nothing: a filter's step. What it
         // goes on walking is its own affair: the consumer is handed what
-        // it pushed, wherever that came from.
+        // it pushed, wherever that came from. Built front to back, a way
+        // may also stop early, answering the accumulator as the empty arm
+        // does: `map2` running out of its second list.
         let push_body = push_arm.body;
         let fields = self.program.fields(push).len();
         let mut ways = Vec::new();
-        self.ways(id, push_body, arity + fields, &mut ways)?;
+        let mut stops = 0;
+        let stopping = ended.is_none().then_some((acc, &mut stops));
+        self.ways(id, push_body, arity + fields, &mut ways, stopping)?;
         let reversed =
             ended.is_some_and(|(reverse, _)| super::sequence::reverses(self.program, reverse));
         let mut pushing_ways = 0;
@@ -274,19 +280,21 @@ impl Fusion<'_> {
         }
         // Nothing else reads the accumulator: each way reads it once.
         let reads = self.reads(push_body, acc) + self.reads(nil_arm.body, acc);
-        (pushing_ways > 0 && reads == ways.len() + 1).then_some(Producer { list, acc })
+        (pushing_ways > 0 && reads == ways.len() + stops + 1).then_some(Producer { list, acc })
     }
 
     /// Each way through a producer's step `body`, whose first binding is at
     /// `base`, down the matches it ends with to a call of `id` itself: the
     /// body ending in the call, its first binding's level, and the call's
-    /// arguments. Nothing where a way ends otherwise.
+    /// arguments. A way answering the parameter `stopping` names, counted
+    /// there, stops early; nothing where a way ends otherwise.
     fn ways(
         &self,
         id: FnId,
         body: Body,
         base: usize,
         ways: &mut Vec<(Body, usize, super::Range)>,
+        mut stopping: Option<(usize, &mut usize)>,
     ) -> Option<()> {
         let inner = base + self.program.bindings(body.bindings).len();
         match self.program.expr(body.tail) {
@@ -297,10 +305,15 @@ impl Fusion<'_> {
                 ways.push((body, base, args));
                 Some(())
             }
+            Expr::Atom(Atom(answer)) => {
+                let (acc, stops) = stopping?;
+                (answer.index() == acc).then(|| *stops += 1)
+            }
             Expr::Match(_, arms) => {
                 for arm in self.program.arms(arms).to_vec() {
                     let fields = self.program.fields(arm.ctor).len();
-                    self.ways(id, arm.body, inner + fields, ways)?;
+                    let again = stopping.as_mut().map(|(acc, stops)| (*acc, &mut **stops));
+                    self.ways(id, arm.body, inner + fields, ways, again)?;
                 }
                 Some(())
             }
@@ -474,7 +487,7 @@ impl Fusion<'_> {
                 let locals = pair.c_locals.clone();
                 copy::body(self.program, c_nil.body, locals, pair.arity, None)
             } else {
-                self.step(&pair, p_step, c_step)
+                self.step(&pair, p_step, (c_step, c_nil))
             };
             arms.push(Arm {
                 ctor: arm.ctor,
@@ -540,28 +553,42 @@ impl Fusion<'_> {
     /// The fused walk's step: the producer's step, but for its push and its
     /// call, then the consumer's step on the element it would have pushed,
     /// going on with the fused walk wherever the consumer went on with
-    /// itself.
-    fn step(&mut self, pair: &Pair, p_step: Arm, c_step: Arm) -> Body {
+    /// itself, and ending as the consumer ends wherever the producer stops
+    /// early.
+    fn step(&mut self, pair: &Pair, p_step: Arm, (c_step, c_nil): (Arm, Arm)) -> Body {
         let arity = pair.arity;
         let fields = self.program.fields(p_step.ctor).len();
         let mut locals = pair.p_locals.clone();
         locals.extend((0..fields).map(|at| Atom(Local::at(arity + at))));
-        self.step_body(pair, p_step.body, locals, arity + fields, (REST, c_step))
+        self.step_body(
+            pair,
+            p_step.body,
+            locals,
+            arity + fields,
+            (REST, c_step, c_nil),
+        )
     }
 
     /// The producer's step `body`, whose locals so far `locals` maps, its
     /// first binding at `level` in the fused walk: down through each match
     /// it ends with, to each way that pushes and goes on, which goes on as
     /// the consumer's step instead, and each that goes on pushing nothing,
-    /// which goes on as the fused walk with the consumer's state as it was.
+    /// which goes on as the fused walk with the consumer's state as it was,
+    /// and each that stops, answering what it built, which ends as the
+    /// consumer does on the empty list.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "each way a producer's step ends is one arm of the match on its tail"
+    )]
     fn step_body(
         &mut self,
         pair: &Pair,
         body: Body,
         mut locals: Vec<Atom>,
         level: usize,
-        (rest, c_step): (Atom, Arm),
+        consumer: (Atom, Arm, Arm),
     ) -> Body {
+        let (rest, c_step, c_nil) = consumer;
         let mut scope = Scope::at(level);
         let tail = self.program.expr(body.tail);
         if let Expr::Call(_, again) = tail {
@@ -585,11 +612,11 @@ impl Fusion<'_> {
                     let fields = self.program.fields(arm.ctor).len();
                     let mut inner = locals.clone();
                     inner.extend((0..fields).map(|at| Atom(Local::at(scope.level + at))));
-                    let taken =
-                        self.step_body(pair, arm.body, inner, scope.level + fields, (rest, c_step));
+                    let body =
+                        self.step_body(pair, arm.body, inner, scope.level + fields, consumer);
                     rebuilt.push(Arm {
                         ctor: arm.ctor,
-                        body: taken,
+                        body,
                     });
                 }
                 let arms = self.program.terms.hold_arms(&rebuilt);
@@ -599,7 +626,11 @@ impl Fusion<'_> {
                     Expr::Match(locals[on.0.index()], arms),
                 )
             }
-            _ => unreachable!("a producer's step ends in matches, then its call"),
+            Expr::Atom(_) => {
+                let locals = pair.c_locals.clone();
+                copy::into(self.program, c_nil.body, locals, &mut scope, None)
+            }
+            _ => unreachable!("a producer's step ends in matches, then its call or its answer"),
         };
         copy::close(self.program, scope, answer)
     }
