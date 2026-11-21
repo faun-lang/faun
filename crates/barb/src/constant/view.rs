@@ -57,13 +57,6 @@ impl std::fmt::Display for TooWide {
 }
 impl std::error::Error for TooWide {}
 
-/// A byte view is a capability, not another kind of constant.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ByteView<'a> {
-    Borrowed(&'a [u8]),
-    NeedsDecoding,
-}
-
 impl NaturalView<'_> {
     /// # Errors
     /// If this natural exceeds `u64`. No constructor chain is expanded.
@@ -83,17 +76,6 @@ impl<'a> SpineView<'a> {
     #[must_use]
     pub fn length(self) -> BigUint {
         read_natural(self.0.bytes).0
-    }
-
-    /// Borrow the encoded elements when each occupies exactly one byte.
-    #[must_use]
-    pub fn byte_slice(self) -> ByteView<'a> {
-        let (count, at) = read_u64(self.0.bytes);
-        let payload = &self.0.bytes[at..];
-        match count.and_then(|count| usize::try_from(count).ok()) {
-            Some(count) if payload.len() == count => ByteView::Borrowed(payload),
-            _ => ByteView::NeedsDecoding,
-        }
     }
 
     /// Decode a spine whose one element field is a natural no greater than

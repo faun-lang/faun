@@ -301,11 +301,6 @@ impl Program {
         self.terms.arms(range)
     }
 
-    #[must_use]
-    pub fn known_bytes(&self, id: ConstId) -> &[u8] {
-        self.constants.bytes(id)
-    }
-
     /// A constant carries its own type; callers cannot reinterpret its bytes.
     #[must_use]
     pub fn constant(&self, value: ConstId) -> Constant<'_> {

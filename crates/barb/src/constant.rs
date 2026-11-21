@@ -33,9 +33,7 @@ pub use checked::ConstructionError;
 pub(super) use checked::DecodeError;
 pub(super) use pool::ConstantPool;
 pub(super) use view::natural_size;
-pub use view::{
-    ByteView, Constant, ConstantView, ConstructorView, NaturalView, SpineView, TooWide,
-};
+pub use view::{Constant, ConstantView, ConstructorView, NaturalView, SpineView, TooWide};
 
 /// An owned, validated constant. Only the codec may create one.
 #[derive(Clone, Debug)]

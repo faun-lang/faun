@@ -156,8 +156,8 @@ pub(crate) use budget::FoldLimits;
 pub use budget::LimitExceeded;
 pub use builder::Builder;
 pub use constant::{
-    ByteView, Constant, ConstantView, ConstructionError, ConstructorView, NaturalView, SpineView,
-    TooWide, Value,
+    Constant, ConstantView, ConstructionError, ConstructorView, NaturalView, SpineView, TooWide,
+    Value,
 };
 pub use ranges::{Assumed, bounds_of_constants};
 // `Shape` is how the constant codec reads an encoding, which is a different

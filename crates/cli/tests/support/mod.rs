@@ -327,11 +327,6 @@ fn run_on(barb: &mut barb::Program, streams: &mut Streams, fuel: u64) -> u32 {
         .0
 }
 
-/// The same, and how much of `fuel` it spent.
-fn run_spending(barb: &mut barb::Program, streams: &mut Streams, fuel: u64) -> (u32, u64) {
-    try_run_spending(barb, streams, fuel).unwrap_or_else(|error| panic!("{error:?}"))
-}
-
 /// The status, or why the interpreter stopped short.
 fn try_run_on(barb: &mut barb::Program, streams: &mut Streams, fuel: u64) -> Result<u32, Error> {
     try_run_spending(barb, streams, fuel).map(|(status, _)| status)
