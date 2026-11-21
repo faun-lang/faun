@@ -1,0 +1,128 @@
+# A persistent min-heap that merges, after Okasaki's leftist heaps: a tree
+# whose every node costs no more than its children, and whose left child's
+# right spine is at least as long as its right child's. Merging walks two
+# right spines, which are logarithmically short, so two heaps become one in
+# logarithmic time, and a push and a pop are each a merge.
+#
+# Where the `heap` library keeps one list written in place, this one is a
+# tree of cells, and an old version stays whole beside every new one: a
+# heap kept and pushed onto again costs only the path it changes, and two
+# heaps of any size merge without either being copied.
+
+package {}
+
+export {Leftist}
+
+Leftist(k, v) : [Empty, Node(Nat, k, v, Leftist(k, v), Leftist(k, v))].(
+  # The heap holding nothing.
+  empty : Leftist(k, v)
+  empty = Empty
+
+  is_empty : Leftist(k, v) -> Bool
+  is_empty(Empty) -> True
+  is_empty(Node(_, _, _, _, _)) -> False
+
+  # How many entries it holds, counted by walking every node.
+  len : Leftist(k, v) -> Nat
+  len(Empty) -> 0
+  len(Node(_, _, _, left, right)) -> 1 + left.len() + right.len()
+
+  # One heap of every entry of both.
+  merge : (Leftist(k, v), Leftist(k, v)) -> Leftist(k, v) where Ordered(k)
+  merge(Empty, heap) -> heap
+  merge(heap, Empty) -> heap
+  merge(Node(_, ka, va, left, right), b is Node(_, kb, _, _, _)) if ka <= kb -> joined(ka, va, left, merge(right, b))
+  merge(a, Node(_, kb, vb, left, right)) -> joined(kb, vb, left, merge(a, right))
+
+  # The heap holding `value` too, at `key`.
+  push : (Leftist(k, v), k, v) -> Leftist(k, v) where Ordered(k)
+  push(heap, key, value) -> merge(heap, Node(1, key, value, Empty, Empty))
+
+  # The cheapest entry, without taking it off.
+  peek : Leftist(k, v) -> Result((k, v), [Empty])
+  peek(Empty) -> Err(Empty)
+  peek(Node(_, key, value, _, _)) -> Ok((key, value))
+
+  # The cheapest entry and the heap without it. Of entries at one key,
+  # which comes first is not said.
+  pop : Leftist(k, v) -> Result({key: k, value: v, rest: Leftist(k, v)}, [Empty]) where Ordered(k)
+  pop(Empty) -> Err(Empty)
+  pop(Node(_, key, value, left, right)) -> Ok({key, value, rest: merge(left, right)})
+
+  # The heap of `entries`, each `(key, value)`, built by merging pairs of
+  # heaps, each round halving how many there are, so it takes linear time.
+  of_list : List((k, v)) -> Leftist(k, v) where Ordered(k)
+  of_list(entries) -> merged_all(entries.map(|(key, value)| Node(1, key, value, Empty, Empty)))
+
+  # The entries cheapest first: every pop, in turn.
+  to_list : Leftist(k, v) -> List((k, v)) where Ordered(k)
+  to_list(heap) -> drained(heap, []).reverse()
+)
+
+# The right spine's length: how many steps down the right to an empty heap.
+rank : Leftist(k, v) -> Nat
+rank(Empty) -> 0
+rank(Node(r, _, _, _, _)) -> r
+
+# A node over two heaps, the one with the longer right spine on the left.
+joined : (k, v, Leftist(k, v), Leftist(k, v)) -> Leftist(k, v)
+joined(key, value, a, b) if rank(a) >= rank(b) -> Node(rank(b) + 1, key, value, a, b)
+joined(key, value, a, b) -> Node(rank(a) + 1, key, value, b, a)
+
+# Every heap merged into one, neighbours a pair at a time.
+merged_all : List(Leftist(k, v)) -> Leftist(k, v) where Ordered(k)
+merged_all([]) -> Empty
+merged_all([one]) -> one
+merged_all(heaps) -> merged_all(paired(heaps))
+
+paired : List(Leftist(k, v)) -> List(Leftist(k, v)) where Ordered(k)
+paired([a, b, *rest]) -> [a.merge(b), *paired(rest)]
+paired(rest) -> rest
+
+drained : (Leftist(k, v), List((k, v))) -> List((k, v)) where Ordered(k)
+drained(heap, found) -> (
+  heap.pop() is Ok({key, value, rest}) else return found
+  drained(rest, [(key, value), *found])
+)
+
+nothing : Leftist(Nat, Str)
+nothing = Leftist.empty
+
+expect nothing.pop().is_err() & nothing.peek() == Err(Empty) & nothing.is_empty() & nothing.len() == 0
+expect (
+  heap = Leftist.of_list([(5, "e"), (1, "a"), (4, "d"), (2, "b"), (3, "c")])
+  heap.len() == 5 & heap.peek() == Ok((1, "a")) & heap.to_list().map(|(_, name)| name) == ["a", "b", "c", "d", "e"]
+)
+expect (
+  keys = [9, 4, 7, 1, 8, 2, 6, 3, 5, 0, 4, 7]
+  Leftist.of_list(keys.map(|key| (key, {}))).to_list().map(|(key, _)| key) == keys.sort()
+)
+# Two heaps merge into one holding both, and each is still itself after.
+expect (
+  odd = Leftist.of_list([(5, 5), (1, 1), (3, 3)])
+  even = nothing.push(4, "four").push(2, "two")
+  both = odd.merge(Leftist.of_list([(4, 4), (2, 2)]))
+  both.to_list().map(|(key, _)| key) == [1, 2, 3, 4, 5] & odd.len() == 3 & even.peek() == Ok((2, "two"))
+)
+# A version kept is a heap of its own: pushing onto a popped heap leaves
+# the heap it came from as it was.
+expect (
+  heap = Leftist.of_list([(4, 4), (2, 2), (6, 6)])
+  heap.pop().map_ok(|{key, rest, *}| (key, rest.push(1, 1).push(5, 5).to_list().map(|(k, _)| k), heap.len()))
+    == Ok((2, [1, 4, 5, 6], 3))
+)
+# Every node's right spine is no longer than its left's, however it was built.
+expect List.range(40).fold(nothing, |heap, n| heap.push(n * 37 % 41, "")).to_list().len() == 40
+expect leftist(List.range(40).fold(nothing, |heap, n| heap.push(n * 37 % 41, "")))
+expect leftist(Leftist.of_list(List.range(33).map(|n| (n * 7 % 33, {}))))
+
+# Whether every node keeps the leftist rule, and costs no more than its
+# children.
+leftist : Leftist(Nat, v) -> Bool
+leftist(Empty) -> True
+leftist(Node(r, key, _, left, right)) ->
+  rank(left) >= rank(right) & r == rank(right) + 1 & below(key, left) & below(key, right) & leftist(left) & leftist(right)
+
+below : (Nat, Leftist(Nat, v)) -> Bool
+below(_, Empty) -> True
+below(key, Node(_, other, _, _, _)) -> key <= other
