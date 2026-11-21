@@ -1,0 +1,5 @@
+error: this record names `x` twice
+ --> a_record_names_each_field_once.fn:2:26
+  |
+2 | point(n) -> {x: n, y: n, x: 0}
+  |                          ^ named again here

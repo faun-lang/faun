@@ -146,7 +146,8 @@ mod unify;
 use components::{binary_member, components, unary_member};
 use joins::{Join, Meeting, PendingWay, Ways};
 use unify::{
-    Infer, Mismatch, Scheme, Ty, free_scheme, free_variables, public_type, show, substitute,
+    Infer, Mismatch, Scheme, Ty, free_scheme, free_variables, public_type, show, show_apart,
+    substitute,
 };
 
 /// Infer every definition, check declared signatures, resolve methods, and
@@ -2173,6 +2174,7 @@ impl Checker<'_> {
                     show(&self.infer.resolve(&answer), self.symbols)
                 ),
             )
+            .help("answer a `Result` here, or take the value apart with `is` rather than `?`")
         })?;
         self.infer
             .subsume(&error, &answered_error)
@@ -2230,8 +2232,7 @@ impl Checker<'_> {
         }
         let actual = self.infer.resolve(actual);
         let nothing = matches!(&actual, Ty::Record(fields, None) if fields.is_empty());
-        let expected = show(&self.infer.resolve(expected), self.symbols);
-        let actual = show(&actual, self.symbols);
+        let (expected, actual) = show_apart(&self.infer.resolve(expected), &actual, self.symbols);
         let error = failure(module, span, "mismatched types");
         let error = error.label(format!("expected `{expected}`, found `{actual}`"));
         let error = if nothing {
@@ -2318,26 +2319,23 @@ fn apply_signature(
     };
     for (at, (argument, parameter)) in given.into_iter().zip(parameters.iter()).enumerate() {
         let at = at + usize::from(through_type);
-        infer
-            .unify(argument, parameter)
-            .map_err(|_| Misfit::Argument {
-                at,
-                wanted: show(&infer.resolve(parameter), symbols),
-                given: show(&infer.resolve(argument), symbols),
-            })?;
+        infer.unify(argument, parameter).map_err(|_| {
+            let (wanted, given) =
+                show_apart(&infer.resolve(parameter), &infer.resolve(argument), symbols);
+            Misfit::Argument { at, wanted, given }
+        })?;
     }
     let wanted = infer.resolve(&pending.result);
-    infer
-        .unify(&pending.result, &result)
-        .map_err(|reason| match reason {
-            Mismatch::NotAmong { .. } => Misfit::Said(reason.describe(symbols)),
-            _ => Misfit::Said(format!(
-                "`{}` answers `{}`, where `{}` is wanted",
-                symbols.text(pending.name),
-                show(&infer.resolve(&result), symbols),
-                show(&wanted, symbols)
-            )),
-        })?;
+    infer.unify(&pending.result, &result).map_err(|reason| {
+        if let Mismatch::NotAmong { .. } = reason {
+            return Misfit::Said(reason.describe(symbols));
+        }
+        let (wanted, answered) = show_apart(&wanted, &infer.resolve(&result), symbols);
+        Misfit::Said(format!(
+            "`{}` answers `{answered}`, where `{wanted}` is wanted",
+            symbols.text(pending.name),
+        ))
+    })?;
     Ok(replacements)
 }
 
@@ -2780,7 +2778,7 @@ mod tests {
         assert!(
             failure
                 .message
-                .contains("pure definitions cannot call effect")
+                .contains("`bad` is a value, so it cannot call the effect")
         );
 
         let (program, mut cx) = fixture.load(

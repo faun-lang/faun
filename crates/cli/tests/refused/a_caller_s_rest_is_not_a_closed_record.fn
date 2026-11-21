@@ -1,0 +1,4 @@
+# The rest a caller chooses shows as `*`, so the record it holds reads
+# apart from the closed one wanted.
+first : List({x: Nat, *}) -> List({x: Nat})
+first(items) -> items

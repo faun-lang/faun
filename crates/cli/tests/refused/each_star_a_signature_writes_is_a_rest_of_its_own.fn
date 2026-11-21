@@ -1,0 +1,4 @@
+# The answer's `*` is not the parameter's: each is a rest its caller
+# chooses, so the two would show alike were their rests not numbered.
+ranked : List({x: Nat, *}) -> List({x: Nat, *})
+ranked(items) -> items.sort_on(|r| r.x)

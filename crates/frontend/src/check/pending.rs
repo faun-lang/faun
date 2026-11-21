@@ -7,7 +7,8 @@
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::rc::Rc;
 
-use super::unify::{Scheme, Ty, free_variables, replaced, show, ty_embeds};
+use super::joins::never;
+use super::unify::{Scheme, Ty, free_variables, replaced, show, show_apart, ty_embeds};
 use super::{
     Asked, Bound, Checker, Finish, Marks, MethodImpl, Misfit, PendingMethod, PendingNumeral,
     PendingTag, Places, Reach, Reading, apply_signature, failure,
@@ -525,13 +526,26 @@ impl Checker<'_> {
             }
             // Only the prelude's integers are numerals, and no conversion
             // is inserted to make one fit anything else.
+            // A type that converts from a `Nat` is told so; one that does
+            // not is told no conversion that is not there.
             other => {
                 let shown = show(&other, self.symbols);
                 let message = format!("a numeral cannot be a `{shown}`");
-                return Err(failure(numeral.module, numeral.span, message)
+                let refused = failure(numeral.module, numeral.span, message)
                     .label(format!("expected `{shown}`, found a numeral"))
-                    .note("a numeral is a `Nat`, `Int`, `U8`, `U16`, `U32`, or `U64`")
-                    .help("convert a value with `of_nat`"));
+                    .note("a numeral is a `Nat`, `Int`, `U8`, `U16`, `U32`, or `U64`");
+                let converts = matches!(&other, Ty::Named(owner, _)
+                    if self.symbols.find("of_nat").and_then(|of_nat| self.methods.get(&of_nat))
+                        .is_some_and(|owned| owned.iter().any(|method| method.owner == *owner)));
+                return Err(if converts {
+                    refused.help(format!("make one from a `Nat` with `{shown}.of_nat`"))
+                } else if never(&other) {
+                    refused.note(
+                        "nothing is a `[]`: a body of that type ends with a call that never answers, as `host.exit!(0)`",
+                    )
+                } else {
+                    refused
+                });
             }
         };
         let refuse = |error: blessed::LiteralElaborationError| {
@@ -930,8 +944,8 @@ impl Checker<'_> {
         let builds = |checker: &mut Self, built: &Ty| {
             let wanted = checker.infer.resolve(&pending.result);
             checker.infer.unify(&pending.result, built).map_err(|_| {
-                let built = show(&checker.infer.resolve(built), checker.symbols);
-                let wanted = show(&wanted, checker.symbols);
+                let (wanted, built) =
+                    show_apart(&wanted, &checker.infer.resolve(built), checker.symbols);
                 failure(pending.module, pending.span, "mismatched types")
                     .label(format!("expected `{wanted}`, found `{built}`"))
                     .note(format!(

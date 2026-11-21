@@ -1,0 +1,7 @@
+import std.host {Host}
+
+main! : Host -> []
+main!(host) -> (
+  printed = ["a", "b"].map(|line| host.println!(line))
+  host.exit!(0)
+)

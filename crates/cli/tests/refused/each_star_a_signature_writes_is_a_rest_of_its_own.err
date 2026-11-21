@@ -1,0 +1,10 @@
+error: mismatched types
+ --> each_star_a_signature_writes_is_a_rest_of_its_own.fn:4:18
+  |
+3 | ranked : List({x: Nat, *}) -> List({x: Nat, *})
+  |                               ----------------- expected `List({x: Nat, *1})` because of return type
+4 | ranked(items) -> items.sort_on(|r| r.x)
+  |                  ^^^^^^^^^^^^^^^^^^^^^^ expected `List({x: Nat, *1})`, found `List({x: Nat, *2})`
+  |
+  = note: each `*` a signature writes is a rest of its own, which its caller chooses, so a row with one `*` is not a row with another
+  = help: to answer a record with the rest it was given, write the answer's type as `_`

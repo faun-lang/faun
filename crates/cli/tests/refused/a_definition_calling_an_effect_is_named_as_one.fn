@@ -1,0 +1,9 @@
+import std.host {Host}
+
+greet(host) -> host.println!("hi")
+
+main! : Host -> []
+main!(host) -> (
+  printed = greet(host)
+  host.exit!(0)
+)

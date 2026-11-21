@@ -1,0 +1,2 @@
+point : Nat -> {x: Nat, y: Nat}
+point(n) -> {x: n, y: n, x: 0}

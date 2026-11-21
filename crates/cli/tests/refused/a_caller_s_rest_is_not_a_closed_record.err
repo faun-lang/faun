@@ -1,0 +1,9 @@
+error: mismatched types
+ --> a_caller_s_rest_is_not_a_closed_record.fn:4:17
+  |
+3 | first : List({x: Nat, *}) -> List({x: Nat})
+  |                              -------------- expected `List({x: Nat})` because of return type
+4 | first(items) -> items
+  |                 ^^^^^ expected `List({x: Nat})`, found `List({x: Nat, *})`
+  |
+  = note: a `*` a signature writes is a rest its caller chooses, so a row with it is not a closed one

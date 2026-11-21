@@ -40,7 +40,8 @@ main!(host) -> (
 
 A definition whose name does not end in `!` is pure: it computes an answer
 from its arguments and does nothing else. It cannot call an effect, which
-is refused with "pure definitions cannot call effect `println!`". Effects
+is refused with "`greet` is pure, so it cannot call the effect
+`println!`", and help to name it `greet!`. Effects
 come only from the `Host` a program is handed
 ([effects](forms/effects.md)).
 

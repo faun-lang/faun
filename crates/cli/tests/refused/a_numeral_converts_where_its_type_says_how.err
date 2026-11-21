@@ -1,0 +1,8 @@
+error: a numeral cannot be a `Level`
+ --> a_numeral_converts_where_its_type_says_how.fn:7:11
+  |
+7 | top(_) -> 9
+  |           ^ expected `Level`, found a numeral
+  |
+  = note: a numeral is a `Nat`, `Int`, `U8`, `U16`, `U32`, or `U64`
+  = help: make one from a `Nat` with `Level.of_nat`
