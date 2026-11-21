@@ -117,9 +117,11 @@ Remove list work:
 6. **Fusion.** A list built by one walk and read once by another is never
    built. The building walk may walk a number down rather than a list, as
    `List.range` does, and may push one value every round from either end,
-   as `List.repeat` does; a chain written inside a fused walk's step, as a
-   recursion through `map` writes one, is fused there too. So
-   `List.range(n).fold(...)` is one loop counting up.
+   as `List.repeat` does, and building front to back may stop before its
+   list ends, as `zip` stops where its second list does; a chain written
+   inside a fused walk's step, as a recursion through `map` writes one, is
+   fused there too. So `List.range(n).fold(...)` is one loop counting up,
+   and so is `xs.zip(ys).map(f).sum()`, with `ys` built.
 7. **First element.** A list read only for its first element, such as a
    search, stops once it has it.
 8. **In place.** A walk rebuilding a list element for element becomes

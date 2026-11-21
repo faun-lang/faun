@@ -1579,6 +1579,74 @@ fn a_filtered_list_walked_once_is_never_built() {
     }
 }
 
+/// A walk built front to back may stop before its list ends, answering
+/// what it built as its empty arm does, as `map2` stops where its second
+/// list runs out: it is a producer all the same, and where it stops the
+/// fused walk ends as the consumer ends on the empty list.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a walk over two lists built, fused and compared on lists of each length"
+)]
+fn a_walk_stopping_early_is_fused_where_it_builds_in_order() {
+    let (mut p, w) = walks();
+    let (list, nil, add) = (w.list, w.nil, w.add);
+    let prepend = super::sequence::write_prepend(&mut p, list, w.reverse);
+    let append = super::sequence::write_append(&mut p, list, w.nat, prepend);
+    let sums = p.declare("sums", &[list, list, list], list);
+    p.define(sums, |b, args| {
+        b.match_(args[0], list, |b, ctor, fields| {
+            if ctor == nil {
+                args[2]
+            } else {
+                let (x, xs) = (fields[0], fields[1]);
+                b.match_(args[1], list, |b, ctor, fields| {
+                    if ctor == nil {
+                        args[2]
+                    } else {
+                        let sum = b.call(add, &[x, fields[0]]);
+                        let more = b.call(append, &[args[2], sum]);
+                        b.call(sums, &[xs, fields[1], more])
+                    }
+                })
+            }
+        })
+    });
+    let summed = p.declare("summed", &[list, list], w.nat);
+    p.define(summed, |b, args| {
+        let empty = b.con(nil, &[]);
+        let paired = b.call(sums, &[args[0], args[1], empty]);
+        let zero = b.con(w.zero, &[]);
+        b.call(w.total, &[paired, zero])
+    });
+    super::fixture::enter(&mut p, &[summed]);
+    validate(&p).unwrap();
+    let original = p.clone();
+    super::fuse::fuse(&mut p);
+    validate(&p).unwrap();
+    let names: Vec<_> = callees(&p, summed)
+        .iter()
+        .map(|&f| p.name(p.function(f).name).to_owned())
+        .collect();
+    assert_eq!(names, ["sums+total"]);
+    for (xs, ys) in [
+        (&[][..], &[][..]),
+        (&[1, 2, 3], &[]),
+        (&[], &[4, 5]),
+        (&[1, 2, 3], &[4, 5]),
+        (&[1, 2], &[4, 5, 6, 7]),
+        (&[2, 7, 1, 8], &[2, 8, 1, 8]),
+    ] {
+        let args = vec![w.list_of(&original, xs), w.list_of(&original, ys)];
+        let expected = run(&original, summed, args.clone(), &mut vec![]);
+        assert_eq!(
+            run(&p, summed, args, &mut vec![]),
+            expected,
+            "{xs:?} {ys:?}"
+        );
+    }
+}
+
 /// A list read twice is built once and read twice: fusing it into one
 /// reader would leave the other nothing to read.
 #[test]
