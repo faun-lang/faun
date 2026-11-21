@@ -1,0 +1,31 @@
+# The trie as a benchmark: `count` keys, each a number's decimal digits
+# spelled backwards, inserted one at a time, then every one looked up and
+# every key under a few prefixes listed, answering how many were found.
+
+package {
+  uses: {
+    trie: "../src/trie"
+  }
+}
+
+import trie {Trie}
+
+# The `index`th key: its digits backwards, so neighbours share no prefix.
+key : Nat -> Str
+key(index) -> Str.from_ascii(index.to_str().to_utf8().reverse()).ok_or("")
+
+Tally = {keys: Nat, found: Nat, listed: Nat}
+
+app : {args: List(Str)} -> Result(Tally, [Malformed])
+app({args}) -> (
+  count = Nat.from_str(args.get(1).ok_or("100000"))?
+  keys = List.range(count).map(key)
+  trie = keys.fold(Trie.empty, |trie, k| trie.insert(k, k.len()))
+  found = keys.count(|k| trie.get(k) == Ok(k.len()))
+  listed = ["1", "42", "999"].map(|prefix| trie.with_prefix(prefix).len()).sum()
+  Ok({keys: trie.len(), found, listed})
+)
+
+main!(host) -> host.run!(app)
+
+expect app({args: ["lookup", "100"]}) == Ok({keys: 100, found: 100, listed: 11})

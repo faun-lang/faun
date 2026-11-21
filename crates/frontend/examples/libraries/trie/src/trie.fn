@@ -1,0 +1,140 @@
+# A map from strings, kept as a tree of their bytes: each node holds the
+# value of the key that ends there, if one does, and a child for each byte
+# a longer key goes on with. Keys sharing a prefix share its nodes, so
+# every key under a prefix is found by walking to it, and the keys that
+# begin a text by walking the text.
+#
+# Persistent: an insertion answers a new trie sharing every node off its
+# key's path with the old. The children are a `SortedMap` by byte, so a
+# walk meets keys in byte order, which is `Str`'s order.
+
+package {}
+
+export {Trie}
+
+Trie(v) : {value: Result(v, [Missing]), children: SortedMap(U8, Trie(v))}.(
+  # The trie holding no key.
+  empty : Trie(v)
+  empty = Trie({value: Err(Missing), children: SortedMap.empty})
+
+  is_empty : Trie(v) -> Bool
+  is_empty(Trie({value, children})) -> value.is_err() & children.is_empty()
+
+  # How many keys it holds, counted by walking every node.
+  len : Trie(v) -> Nat
+  len(Trie({value, children})) -> children.fold(value.is_ok().to_nat(), |count, _, child| count + child.len())
+
+  # The trie with `key` holding `value`, in place of any it held.
+  insert : (Trie(v), Str, v) -> Trie(v)
+  insert(trie, key, value) -> inserted(trie, key.to_utf8(), value)
+
+  # The value under `key`.
+  get : (Trie(v), Str) -> Result(v, [Missing])
+  get(trie, key) -> (
+    Trie({value, *}) = below(trie, key.to_utf8())?
+    value
+  )
+
+  contains : (Trie(v), Str) -> Bool
+  contains(trie, key) -> trie.get(key).is_ok()
+
+  # The trie without `key`, and without the nodes that led only to it.
+  remove : (Trie(v), Str) -> Trie(v)
+  remove(trie, key) -> removed(trie, key.to_utf8())
+
+  # Every key beginning with `prefix`, with its value, in order.
+  with_prefix : (Trie(v), Str) -> List((Str, v))
+  with_prefix(trie, prefix) -> (
+    bytes = prefix.to_utf8()
+    below(trie, bytes) is Ok(node) else return []
+    collected(node, bytes.reverse(), []).reverse()
+  )
+
+  # Every key that begins `text`, shortest first, each with its value.
+  prefixes : (Trie(v), Str) -> List((Str, v))
+  prefixes(trie, text) -> (
+    bytes = text.to_utf8()
+    beginnings(trie, bytes, 0, []).reverse().map(|(length, value)| (key_of(bytes.take(length)), value))
+  )
+
+  # The longest key that begins `text`, with its value.
+  longest_prefix : (Trie(v), Str) -> Result((Str, v), [Missing])
+  longest_prefix(trie, text) -> trie.prefixes(text).last().err_as(Missing)
+
+  keys : Trie(v) -> List(Str)
+  keys(trie) -> trie.to_list().map(|(key, _)| key)
+
+  # Every key with its value, in order.
+  to_list : Trie(v) -> List((Str, v))
+  to_list(trie) -> collected(trie, [], []).reverse()
+
+  of_list : List((Str, v)) -> Trie(v)
+  of_list(entries) -> entries.fold(empty, |trie, (key, value)| trie.insert(key, value))
+)
+
+inserted : (Trie(v), List(U8), v) -> Trie(v)
+inserted(Trie({children, *}), [], value) -> Trie({value: Ok(value), children})
+inserted(Trie({value: here, children}), [byte, *rest], value) -> (
+  child = children.get(byte).ok_or(Trie.empty)
+  Trie({value: here, children: children.insert(byte, inserted(child, rest, value))})
+)
+
+# The node `bytes` lead to.
+below : (Trie(v), List(U8)) -> Result(Trie(v), [Missing])
+below(trie, []) -> Ok(trie)
+below(Trie({children, *}), [byte, *rest]) -> below(children.get(byte)?, rest)
+
+removed : (Trie(v), List(U8)) -> Trie(v)
+removed(Trie({children, *}), []) -> Trie({value: Err(Missing), children})
+removed(trie is Trie({value, children}), [byte, *rest]) -> (
+  children.get(byte) is Ok(child) else return trie
+  left = removed(child, rest)
+  kept = if left.is_empty() then children.remove(byte) else children.insert(byte, left)
+  Trie({value, children: kept})
+)
+
+# `found` with every key at or under `node` put before it, last first,
+# `path` the bytes leading to `node`, last first.
+collected : (Trie(v), List(U8), List((Str, v))) -> List((Str, v))
+collected(Trie({value, children}), path, found) -> (
+  here = if value is Ok(held) then [(key_of(path.reverse()), held), *found] else found
+  children.fold(here, |found, byte, child| collected(child, [byte, *path], found))
+)
+
+# The lengths of the keys beginning `bytes`, longest first, onto `found`,
+# `depth` bytes down already.
+beginnings : (Trie(v), List(U8), Nat, List((Nat, v))) -> List((Nat, v))
+beginnings(Trie({value, children}), bytes, depth, found) -> (
+  found = if value is Ok(held) then [(depth, held), *found] else found
+  bytes is [byte, *rest] else return found
+  children.get(byte) is Ok(child) else return found
+  beginnings(child, rest, depth + 1, found)
+)
+
+# A key's bytes as the string they came from.
+key_of : List(U8) -> Str
+key_of(bytes) -> Str.from_utf8(bytes).ok_or("")
+
+words : Trie(Nat)
+words = Trie.of_list([("tea", 1), ("ten", 2), ("to", 3), ("inn", 4), ("in", 5), ("i", 6), ("tea", 7)])
+
+nothing : Trie(Nat)
+nothing = Trie.empty
+
+expect nothing.is_empty() & nothing.len() == 0 & nothing.get("") == Err(Missing)
+expect words.len() == 6 & words.get("tea") == Ok(7) & words.get("te") == Err(Missing)
+expect words.contains("i") & !words.contains("inns") & !words.contains("")
+expect words.keys() == ["i", "in", "inn", "tea", "ten", "to"]
+expect words.with_prefix("te") == [("tea", 7), ("ten", 2)] & words.with_prefix("x") == []
+expect words.with_prefix("") == words.to_list()
+expect words.prefixes("inner") == [("i", 6), ("in", 5), ("inn", 4)] & words.prefixes("zoo") == []
+expect words.longest_prefix("tent") == Ok(("ten", 2)) & words.longest_prefix("t") == Err(Missing)
+# Removing a key prunes what led only to it, and keeps what others share.
+expect (
+  fewer = words.remove("inn").remove("to").remove("tex")
+  fewer.keys() == ["i", "in", "tea", "ten"] & fewer.remove("i").remove("in").with_prefix("i") == []
+)
+expect words.remove("tea").remove("ten").remove("to").remove("i").remove("in").remove("inn").is_empty()
+# The empty key is a key like any other, and bytes beyond ASCII are bytes.
+expect nothing.insert("", 1).get("") == Ok(1) & nothing.insert("", 1).len() == 1
+expect Trie.of_list([("héllo", 1), ("hé", 2), ("h", 3)]).with_prefix("hé") == [("hé", 2), ("héllo", 1)]

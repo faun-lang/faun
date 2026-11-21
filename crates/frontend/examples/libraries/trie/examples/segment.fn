@@ -1,0 +1,42 @@
+# Word break, observed from outside: a text without spaces split into
+# dictionary words, the trie answering which words begin the text at each
+# place. The fewest words win; a text no split covers has none.
+
+package {
+  uses: {
+    trie: "../src/trie"
+  }
+}
+
+import trie {Trie}
+
+dictionary : Trie({})
+dictionary = Trie.of_list(["a", "an", "and", "as", "ask", "cat", "cats", "dog", "dogs", "sand", "not", "s"].map(|word| (word, {})))
+
+Split = Result(List(Str), [Unsplittable])
+
+# The fewest words `text` splits into, where it splits at all: the best
+# split of every suffix, shortest first, each from those after it.
+segmented : Str -> Split
+segmented(text) -> (
+  length = text.len()
+  splits = List.range(length + 1).fold([], |later, done| [split_from(text, length - done, later), *later])
+  splits.first().ok_or(Err(Unsplittable))
+)
+
+# The best split of `text` from `start` on, given those from each place
+# after it, nearest first.
+split_from : (Str, Nat, List(Split)) -> Split
+split_from(text, start, _) if start == text.len() -> Ok([])
+split_from(text, start, later) -> (
+  rest = text.slice(start, text.len()).ok_or("")
+  choices = dictionary.prefixes(rest).flat_map(|(word, _)|
+    if later.get(word.len() - 1) is Ok(Ok(words)) then [[word, *words]] else [])
+  choices.sort_on(|words| words.len()).first().err_as(Unsplittable)
+)
+
+# Of splits as short, the one whose first word is shortest wins, since the
+# trie answers the words beginning a text shortest first.
+expect segmented("catsanddog") == Ok(["cat", "sand", "dog"])
+expect segmented("askanddogs") == Ok(["ask", "and", "dogs"])
+expect segmented("") == Ok([]) & segmented("catz") == Err(Unsplittable)
