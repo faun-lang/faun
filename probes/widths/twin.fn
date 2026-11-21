@@ -1,0 +1,48 @@
+# The same with the wider number on the left of each comparison, as the
+# x86 backends once compared two numbers at the left's width, and the
+# narrower on the left of a monus only once the wider is known to fit it.
+package {}
+
+import std.host {Host}
+
+# What `a` and `b`, `b` the wider, answer to ==, <, > and monus each way
+# round, as one number.
+compared : (Nat, Nat) -> Nat
+compared(a, b) -> (
+  equal = if b == a then 3 else 0
+  less = (if b > a then 4 else 0) + (if b < a then 8 else 0)
+  greater = (if b < a then 16 else 0) + (if b > a then 32 else 0)
+  taken = if b < a then a - b else 0
+  equal + less + greater + taken % 4096 * 64 + (b - a) % 4096 * 262144
+)
+
+# `a` against the numbers whose high bits are `high` and whose low 32 bits
+# are nought, `byte` and `word`.
+row : (Nat, Nat, Nat, Nat) -> Nat
+row(a, high, byte, word) -> compared(a, high) + compared(a, high + byte) + compared(a, high + word)
+
+# Step `i`'s numbers: a word and its low byte, each against itself and the
+# other above the high bits of `carry`, one or nought in bit 32, and of
+# `mantissa`, a float's mantissa with its leading bit, held in 53 bits.
+step : Nat -> Nat
+step(i) -> (
+  word = i * 2654435761 % 4294967296
+  byte = word % 256
+  carry = i % 2 * 4294967296
+  mantissa = (i % 1048576 + 1048576) * 4294967296
+  zeros = row(0, carry, byte, word) + row(0, mantissa, byte, word)
+  bytes = row(byte, carry, byte, word) + row(byte, mantissa, byte, word)
+  words = row(word, carry, byte, word) + row(word, mantissa, byte, word)
+  zeros + bytes + words
+)
+
+walk : (Nat, Nat) -> Nat
+walk(0, sum) -> sum
+walk(Succ(left), sum) -> walk(left, sum + step(left))
+
+main! : Host -> []
+main!(host) -> (
+  n = Nat.from_str(host.args.get(1).ok_or("1000")).ok_or(1000)
+  printed = host.println!("${walk(n, 0)}")
+  host.exit!(0)
+)
