@@ -24,8 +24,8 @@ Random : U64.(
   # its top five, and the new state is one more multiply-and-add.
   next : Random -> (U32, Random)
   next(Random(state)) -> (
-    xorshifted = (state.shift_right(18) ^ state).shift_right(27)
-    rotation = state.shift_right(59).to_nat()
+    xorshifted = ((state >> 18) ^ state) >> 27
+    rotation = (state >> 59).to_nat()
     value = xorshifted.to_u32().rotate_right(rotation)
     (value, Random(state * 0x5851f42d4c957f2d + 0x14057b7ef767814f))
   )

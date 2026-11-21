@@ -276,7 +276,7 @@ sub([x, *rest], raw, back) -> sub(rest, raw.append(x + raw.get(raw.len() - back)
 average_first : (List(U8), List(U8), Nat) -> List(U8)
 average_first([], raw, _) -> raw
 average_first([x, *rest], raw, back) ->
-  average_first(rest, raw.append(x + raw.get(raw.len() - back).ok_or(0).shift_right(1)), back)
+  average_first(rest, raw.append(x + (raw.get(raw.len() - back).ok_or(0) >> 1)), back)
 
 # Each byte plus the mean of `a` and `b`, rounded down; `column` counts to
 # `back`, before which there is no `a`.
@@ -409,13 +409,13 @@ sample(raw, row, index, 8) -> byte(raw, row + index)
 sample(raw, row, index, 16) -> big_endian2(raw, row + index * 2)
 sample(raw, row, index, depth) -> (
   bit = index * depth
-  byte(raw, row + bit / 8) / 2.pow(8 - depth - bit % 8) % 2.pow(depth)
+  (byte(raw, row + bit / 8) >> (8 - depth - bit % 8)) & ((1 << depth) - 1)
 )
 
 # A sample as eight bits: a 16-bit one's high byte, and a narrower one
 # scaled so its largest value is 255.
 scaled : (Nat, Nat) -> U8
-scaled(value, 16) -> U8.of_nat(value / 256)
+scaled(value, 16) -> U8.of_nat(value >> 8)
 scaled(value, 8) -> U8.of_nat(value)
 scaled(value, 4) -> U8.of_nat(value * 17)
 scaled(value, 2) -> U8.of_nat(value * 85)
@@ -425,10 +425,10 @@ byte : (List(U8), Nat) -> Nat
 byte(input, at) -> input.get(at).ok_or(0).to_nat()
 
 big_endian2 : (List(U8), Nat) -> Nat
-big_endian2(input, at) -> byte(input, at) * 256 + byte(input, at + 1)
+big_endian2(input, at) -> (byte(input, at) << 8) | byte(input, at + 1)
 
 big_endian : (List(U8), Nat) -> Nat
-big_endian(input, at) -> big_endian2(input, at) * 65536 + big_endian2(input, at + 2)
+big_endian(input, at) -> (big_endian2(input, at) << 16) | big_endian2(input, at + 2)
 
 expect paeth(10, 20, 15) == 15 & paeth(10, 20, 5) == 20 & paeth(10, 20, 30) == 10
 expect sample([0b10110100], 0, 1, 2) == 3 & sample([0b10110100], 0, 3, 2) == 0 & sample([0x12, 0x34], 0, 0, 16) == 0x1234
@@ -443,7 +443,7 @@ built : (List(U8), List(List(U8))) -> List(U8)
 built(ihdr, rows) -> (
   data = rows.flatten()
   length = data.len()
-  stream = [0x78, 0x01, 1, U8.of_nat(length), U8.of_nat(length / 256), !U8.of_nat(length), !U8.of_nat(length / 256)]
+  stream = [0x78, 0x01, 1, U8.of_nat(length), U8.of_nat(length >> 8), !U8.of_nat(length), !U8.of_nat(length >> 8)]
     .concat(data).concat(word(adler32(data).to_nat()))
   signature.concat(chunk("IHDR", ihdr)).concat(chunk("IDAT", stream)).concat(chunk("IEND", []))
 )
@@ -455,7 +455,7 @@ chunk(kind, body) -> (
 )
 
 word : Nat -> List(U8)
-word(n) -> [U8.of_nat(n / 16777216), U8.of_nat(n / 65536), U8.of_nat(n / 256), U8.of_nat(n)]
+word(n) -> [U8.of_nat(n >> 24), U8.of_nat(n >> 16), U8.of_nat(n >> 8), U8.of_nat(n)]
 
 # The header of an 8-bit image `width` by `height` of `colour`.
 ihdr : (Nat, Nat, Nat) -> List(U8)

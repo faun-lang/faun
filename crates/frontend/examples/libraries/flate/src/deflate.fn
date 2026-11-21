@@ -55,7 +55,7 @@ deflate(input, Level(level)) -> (
   # long as the input where that is shorter.
   bits = hash_bits(n, 8)
   context = {input, n, search, shift: 32 - bits}
-  head = List.repeat(0, 2.pow(bits))
+  head = List.repeat(0, 1 << bits)
   prev = List.repeat(0, n.min(32768))
   written = if search.greedy then greedy(context, 0, head, prev, [], 0, empty_writer)
     else lazy(context, 0, head, prev, 0, 0, False, [], 0, empty_writer)
@@ -90,7 +90,7 @@ search_for(level) -> (
 Context = {input: List(U8), n: Nat, search: Search, shift: Nat}
 
 hash_bits : (Nat, Nat) -> Nat
-hash_bits(n, bits) if bits < 15 & 2.pow(bits) < n -> hash_bits(n, bits + 1)
+hash_bits(n, bits) if bits < 15 & (1 << bits) < n -> hash_bits(n, bits + 1)
 hash_bits(_, bits) -> bits
 
 # The most symbols a block holds before it is written, zlib's.
@@ -105,7 +105,7 @@ byte_at(input, at) -> input.get(at).ok_or(0)
 hash : (List(U8), Nat, Nat) -> Nat
 hash(input, at, shift) -> (
   word = U32.of_le_bytes(byte_at(input, at), byte_at(input, at + 1), byte_at(input, at + 2), 0)
-  (word * 0x9e3779b1).shift_right(shift).to_nat()
+  ((word * 0x9e3779b1) >> shift).to_nat()
 )
 
 # `at` put at the head of its hash's chain, and the chain's head before it,
@@ -220,10 +220,10 @@ empty_writer = {out: [], bits: 0, count: 0}
 
 # `value`'s low `width` bits written after the rest.
 put : (Writer, Nat, Nat) -> Writer
-put({out, bits, count}, value, width) -> whole_bytes(out, bits + value.shift_left(count), count + width)
+put({out, bits, count}, value, width) -> whole_bytes(out, bits | (value << count), count + width)
 
 whole_bytes : (List(U8), Nat, Nat) -> Writer
-whole_bytes(out, bits, count) if count >= 8 -> whole_bytes(out.append(U8.of_nat(bits)), bits / 256, count - 8)
+whole_bytes(out, bits, count) if count >= 8 -> whole_bytes(out.append(U8.of_nat(bits)), bits >> 8, count - 8)
 whole_bytes(out, bits, count) -> {out, bits, count}
 
 # The bits written out, the last byte filled with noughts.
@@ -494,8 +494,8 @@ depths_of(parents, Succ(node), depths) -> (
 # two a length longer.
 fit : (List(Nat), Nat) -> List(Nat)
 fit(per_length, limit) -> (
-  room = per_length.enumerate().drop(1).fold(0, |total, (length, count)| total + count * 2.pow(limit - length))
-  if room <= 2.pow(limit) return per_length
+  room = per_length.enumerate().drop(1).fold(0, |total, (length, count)| total + (count << (limit - length)))
+  if room <= 1 << limit return per_length
   at_limit = per_length.put(limit, per_length.get(limit).ok_or(0) - 1)
   fit(split_one(at_limit, limit - 1), limit)
 )
@@ -517,6 +517,6 @@ expect huffman_lengths([1, 1, 2, 4], 15) == [3, 3, 2, 1]
 # still complete.
 expect (
   lengths = huffman_lengths([1, 1, 2, 3, 5, 8, 13, 21, 34, 55], 4)
-  lengths.all(|length| length <= 4) & lengths.fold(0, |total, length| total + 2.pow(4 - length)) == 16
+  lengths.all(|length| length <= 4) & lengths.fold(0, |total, length| total + (1 << (4 - length))) == 16
 )
 expect run_lengths([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 0, 0], []) == [(18, 1), (5, 0), (16, 1), (0, 0), (0, 0)]
