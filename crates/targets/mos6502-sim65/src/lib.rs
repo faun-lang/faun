@@ -34,7 +34,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use faun_core::ir::{Budget, Op, Program, RegionId};
-use faun_core::targets::{Target, write_image};
+use faun_core::targets::{Target, startup_parameters, write_image};
 
 /// Where sim65 loads the image, and the zero-page pairs below it.
 const LOAD: u16 = 0x0200;
@@ -111,39 +111,12 @@ impl Target for Mos6502Sim65 {
         WORD_BITS
     }
 
-    fn provides(&self) -> &'static [&'static str] {
-        &[
-            "fd_put!",
-            "fd_read!",
-            "fd_open!",
-            "fd_close!",
-            "exit!",
-            "write_fd!",
-            "read_fd!",
-            "open_at!",
-            "write!",
-            "read_byte!",
-            "grow",
-            "argc",
-            "argv",
-        ]
-    }
-
     fn budget(&self) -> Budget {
         Budget::new(usize::from(ARG_COUNT), 1, TRANSFER_COUNT)
     }
 
     fn limits(&self, program: &Program) -> Result<(), String> {
-        let entry = program.entry();
-        // Each entry parameter is a startup value: the count, then where the
-        // arguments' addresses lie.
-        for (at, name) in program.parameter_names(entry).enumerate() {
-            if ![(0, "argc"), (1, "argv")].contains(&(at, name)) {
-                return Err(format!(
-                    "mos6502-sim65 cannot supply entry parameter {at} `{name}`"
-                ));
-            }
-        }
+        startup_parameters(program, self.name())?;
         for function in program.functions() {
             let name = program.name(function.name);
             if function.params.len() > usize::from(ARG_COUNT) {

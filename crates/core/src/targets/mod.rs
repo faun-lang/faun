@@ -22,6 +22,24 @@ use std::path::{Path, PathBuf};
 
 use crate::ir::{Budget, Class, Layout, Op, Program, Returns, ValueId};
 
+/// Refuse an entry asking for a startup value other than the count of
+/// arguments, then where their addresses lie, which is what a process is
+/// handed; `machine` names the target in the message.
+///
+/// # Errors
+/// Names the first entry parameter nothing supplies.
+pub fn startup_parameters(program: &Program, machine: &str) -> Result<(), String> {
+    let entry = program.entry();
+    for (at, name) in program.parameter_names(entry).enumerate() {
+        if ![(0, "argc"), (1, "argv")].contains(&(at, name)) {
+            return Err(format!(
+                "{machine} cannot supply entry parameter {at} `{name}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// What a build favours where speed and size pull apart: speed by default.
 ///
 /// Favouring size writes calls where speed would write the case they make,
@@ -57,14 +75,30 @@ pub trait Target: fmt::Debug {
         self.word()
     }
 
-    /// The routines it answers for, by the name a target is asked by.
+    /// The routines it answers for, by the name a target is asked by: by
+    /// default every one a host's streams, files, exit, heap and arguments
+    /// take, whether the machine has a kernel to ask or a simulator's hooks.
     ///
-    /// What a program may reach is what its target provides, and no two
-    /// provide the same set: one machine has a kernel to ask, another has a
-    /// simulator's hooks, and a third has neither and does what it can for
-    /// itself. A program naming anything else is refused here rather than
-    /// found out by a backend part way through writing it.
-    fn provides(&self) -> &'static [&'static str];
+    /// What a program may reach is what its target provides. A program
+    /// naming anything else is refused here rather than found out by a
+    /// backend part way through writing it.
+    fn provides(&self) -> &'static [&'static str] {
+        &[
+            "fd_put!",
+            "fd_read!",
+            "fd_open!",
+            "fd_close!",
+            "exit!",
+            "write_fd!",
+            "read_fd!",
+            "open_at!",
+            "write!",
+            "read_byte!",
+            "grow",
+            "argc",
+            "argv",
+        ]
+    }
 
     /// The routines a program compiled for it is read against.
     ///

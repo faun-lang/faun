@@ -613,7 +613,7 @@ impl Lowering<'_> {
         // image header named. Nothing has asked for memory yet, so it is
         // told the heap. What is wanted back is the count, which it leaves
         // in `A` and `X`.
-        if self.entry_argc().is_some() {
+        if self.program.entry_parameter(0, "argc").is_some() {
             let [low, high] = heap.to_le_bytes();
             // `X` is free until the hook's argument goes in it, and holds
             // what the stack pointer was set from, so the pair is written
@@ -638,7 +638,7 @@ impl Lowering<'_> {
             // The simulator wrote the arguments on its C stack, and where
             // their addresses lie at the place it was handed: that is the
             // entry's second argument.
-            if self.entry_argv().is_some() {
+            if self.program.entry_parameter(1, "argv").is_some() {
                 self.set_pair(T0, heap);
                 self.asm.ldy_imm(0);
                 self.asm.lda_ind_y(T0);
@@ -679,32 +679,9 @@ impl Lowering<'_> {
     /// what it answered, which is a byte nobody wants wherever every
     /// program that asks the count narrows it.
     fn counts_wide(&self) -> bool {
-        self.entry_argc().is_some_and(|value| self.wide(value))
-    }
-
-    /// The entry's second parameter, where it asks where the arguments lie.
-    fn entry_argv(&self) -> Option<ValueId> {
-        let entry = self.program.entry();
-        (self.program.parameter_names(entry).nth(1) == Some("argv")).then(|| {
-            let body = self
-                .program
-                .function(entry)
-                .body()
-                .expect("the entry has a body");
-            self.program.values(self.program.region(body).params)[1]
-        })
-    }
-
-    fn entry_argc(&self) -> Option<ValueId> {
-        let entry = self.program.entry();
-        (self.program.parameter_names(entry).next() == Some("argc")).then(|| {
-            let body = self
-                .program
-                .function(entry)
-                .body()
-                .expect("the entry has a body");
-            self.program.values(self.program.region(body).params)[0]
-        })
+        self.program
+            .entry_parameter(0, "argc")
+            .is_some_and(|value| self.wide(value))
     }
 
     fn set_pair(&mut self, pair: u8, value: u16) {
@@ -955,7 +932,7 @@ impl Lowering<'_> {
         self.survey(body, 0, &mut weight, &mut uses, &mut held);
         // The count was read at reset and left at a pair nothing writes
         // again, so the entry's `argc` is already where it lives.
-        if let Some(argc) = self.entry_argc() {
+        if let Some(argc) = self.program.entry_parameter(0, "argc") {
             held.retain(|&value| value != argc);
             self.source[argc.index()] = Source::Home(ARGC);
         }

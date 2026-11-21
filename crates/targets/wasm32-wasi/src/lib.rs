@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use faun_core::ir::Program;
-use faun_core::targets::{Target, write_image};
+use faun_core::targets::{Target, startup_parameters, write_image};
 
 const I32: u8 = 0x7F;
 const I64: u8 = 0x7E;
@@ -41,36 +41,8 @@ impl Target for Wasm32Wasi {
         WORD_BITS
     }
 
-    fn provides(&self) -> &'static [&'static str] {
-        &[
-            "fd_put!",
-            "fd_read!",
-            "fd_open!",
-            "fd_close!",
-            "exit!",
-            "write_fd!",
-            "read_fd!",
-            "open_at!",
-            "write!",
-            "read_byte!",
-            "grow",
-            "argc",
-            "argv",
-        ]
-    }
-
     fn limits(&self, program: &Program) -> Result<(), String> {
-        let entry = program.entry();
-        // Each entry parameter is a startup value: the count, then where the
-        // arguments' addresses lie.
-        for (at, name) in program.parameter_names(entry).enumerate() {
-            if ![(0, "argc"), (1, "argv")].contains(&(at, name)) {
-                return Err(format!(
-                    "wasm32-wasi cannot supply entry parameter {at} `{name}`"
-                ));
-            }
-        }
-        Ok(())
+        startup_parameters(program, self.name())
     }
 
     fn emit(&self, program: &Program) -> Vec<u8> {

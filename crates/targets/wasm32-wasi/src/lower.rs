@@ -83,29 +83,6 @@ fn bits(class: Class) -> u16 {
     class.bits(WORD_BITS)
 }
 
-/// The entry's second parameter, where it asks where the arguments lie.
-fn entry_argv(program: &Program) -> Option<ValueId> {
-    let entry = program.entry();
-    (program.parameter_names(entry).nth(1) == Some("argv")).then(|| {
-        let body = program
-            .function(entry)
-            .body()
-            .expect("the entry has a body");
-        program.values(program.region(body).params)[1]
-    })
-}
-
-fn entry_argc(program: &Program) -> Option<ValueId> {
-    let entry = program.entry();
-    (program.parameter_names(entry).next() == Some("argc")).then(|| {
-        let body = program
-            .function(entry)
-            .body()
-            .expect("the entry has a body");
-        program.values(program.region(body).params)[0]
-    })
-}
-
 #[derive(Clone, Copy)]
 enum Source {
     Const(u64),
@@ -166,10 +143,10 @@ pub(crate) fn lower(program: &Program) -> Code {
     if state.needs_proc_exit() {
         state.imports.push("proc_exit");
     }
-    if entry_argc(program).is_some() {
+    if program.entry_parameter(0, "argc").is_some() {
         state.imports.push("args_sizes_get");
     }
-    if entry_argv(program).is_some() {
+    if program.entry_parameter(1, "argv").is_some() {
         state.imports.push("args_get");
     }
 
@@ -583,10 +560,10 @@ impl Lowering<'_> {
             self.role = FunctionRole::at(id, self.entry);
             self.body = Bytes::default();
             if self.role == FunctionRole::Entry
-                && let Some(argc) = entry_argc(self.program)
+                && let Some(argc) = self.program.entry_parameter(0, "argc")
             {
                 self.count(argc);
-                if let Some(argv) = entry_argv(self.program) {
+                if let Some(argv) = self.program.entry_parameter(1, "argv") {
                     self.vector(argc, argv);
                 }
             }
@@ -1013,7 +990,7 @@ impl Lowering<'_> {
         self.constant_i32(ARGC);
         // Only as much of the count as anything reads, where nothing but
         // the program does: the vector reads all of it.
-        let read = if entry_argv(self.program).is_some() {
+        let read = if self.program.entry_parameter(1, "argv").is_some() {
             WORD_BITS
         } else {
             self.low[result.index()]

@@ -131,6 +131,20 @@ impl Program {
             .map(|parameter| self.name(parameter.name))
     }
 
+    /// The entry's value for its parameter `at`, where that parameter is
+    /// the startup value called `name`.
+    ///
+    /// # Panics
+    /// If the entry has no body.
+    #[must_use]
+    pub fn entry_parameter(&self, at: usize, name: &str) -> Option<ValueId> {
+        let entry = self.entry();
+        (self.parameter_names(entry).nth(at) == Some(name)).then(|| {
+            let body = self.function(entry).body().expect("the entry has a body");
+            self.values(self.region(body).params)[at]
+        })
+    }
+
     /// The name of one parameter.
     ///
     /// # Panics
