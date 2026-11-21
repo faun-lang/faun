@@ -1,0 +1,7 @@
+Level : Nat.(
+  of_nat : Nat -> Level
+  of_nat(n) -> Level(n)
+)
+
+top : Nat -> Level
+top(_) -> 9

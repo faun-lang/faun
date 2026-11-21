@@ -14,11 +14,13 @@ named with `!` too; one without `!` is pure, and calling an effect from it,
 or from a lambda, is refused:
 
 ```text
-error: pure definitions cannot call effect `println!`
+error: `greet` is pure, so it cannot call the effect `println!`
  --> greet.fn:3:16
   |
 3 | greet(host) -> host.println!("hi")
   |                ^^^^^^^^^^^^^^^^^^^
+  |
+  = help: a definition that calls an effect is one: name it `greet!`, here and where it is called
 ```
 
 An effect stands at the top of a line: as a binding's value, as a body, as

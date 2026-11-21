@@ -3,3 +3,5 @@ error: `?` answers an `Err` early, but this answers `Nat`
   |
 7 | bar(n) -> dog(n)?
   |           ^^^^^^^
+  |
+  = help: answer a `Result` here, or take the value apart with `is` rather than `?`

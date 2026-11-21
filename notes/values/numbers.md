@@ -28,12 +28,13 @@ The `2` in `double` is whatever `x` is, so `double` serves every type with a
 
 A numeral may be a `Nat`, `Int`, `U8`, `U16`, `U32` or `U64`, and nothing
 else. A type does not become numeric by defining `of_nat`; it is built with
-an explicit call such as `Money.of_nat(7)`. Anything else is refused:
+an explicit call such as `Money.of_nat(7)`. Anything else is refused, with
+that call named where the type has one:
 
 ```
-error: a numeral cannot be a `Bool`
+error: a numeral cannot be a `Money`
   = note: a numeral is a `Nat`, `Int`, `U8`, `U16`, `U32`, or `U64`
-  = help: convert a value with `of_nat`
+  = help: make one from a `Nat` with `Money.of_nat`
 ```
 
 A word's module bounds what may be written with a private value beside the

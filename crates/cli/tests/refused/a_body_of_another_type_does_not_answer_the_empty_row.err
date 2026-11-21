@@ -5,4 +5,4 @@ error: a numeral cannot be a `[]`
   |           ^ expected `[]`, found a numeral
   |
   = note: a numeral is a `Nat`, `Int`, `U8`, `U16`, `U32`, or `U64`
-  = help: convert a value with `of_nat`
+  = note: nothing is a `[]`: a body of that type ends with a call that never answers, as `host.exit!(0)`

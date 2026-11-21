@@ -5,4 +5,3 @@ error: a numeral cannot be a `Bool`
   |        ^ expected `Bool`, found a numeral
   |
   = note: a numeral is a `Nat`, `Int`, `U8`, `U16`, `U32`, or `U64`
-  = help: convert a value with `of_nat`

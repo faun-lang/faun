@@ -32,42 +32,28 @@ enum Standing {
 }
 
 fn in_clause(module: ModuleId, clause: &h::Clause, symbols: &Symbols) -> Result<(), Refusal> {
-    let effectful = symbols.text(clause.name).ends_with('!');
+    let owner = Some(clause);
     if let Some(guard) = &clause.guard {
-        expr(module, guard, effectful, Standing::Inside, symbols)?;
+        expr(module, guard, owner, Standing::Inside, symbols)?;
     }
     for binding in &clause.body.bindings {
-        expr(module, &binding.value, effectful, Standing::Alone, symbols)?;
+        expr(module, &binding.value, owner, Standing::Alone, symbols)?;
     }
-    expr(
-        module,
-        &clause.body.result,
-        effectful,
-        Standing::Alone,
-        symbols,
-    )
+    expr(module, &clause.body.result, owner, Standing::Alone, symbols)
 }
 
+/// `owner` is the definition whose clause holds `expression`, or nothing
+/// inside a lambda, which is pure wherever it stands.
 fn expr(
     module: ModuleId,
     expression: &h::Expr,
-    owner_effectful: bool,
+    owner: Option<&h::Clause>,
     standing: Standing,
     symbols: &Symbols,
 ) -> Result<(), Refusal> {
     let effect = |name: Symbol| symbols.text(name).ends_with('!');
-    let within =
-        |inner: &h::Expr, standing| expr(module, inner, owner_effectful, standing, symbols);
-    let called = |name| {
-        call(
-            module,
-            expression.span,
-            name,
-            owner_effectful,
-            standing,
-            symbols,
-        )
-    };
+    let within = |inner: &h::Expr, standing| expr(module, inner, owner, standing, symbols);
+    let called = |name| call(module, expression.span, name, owner, standing, symbols);
     match &expression.kind {
         h::ExprKind::Global(name) if effect(*name) => Err(failure(
             module,
@@ -112,7 +98,7 @@ fn expr(
             }
             expression.try_for_each_child(|inner| within(inner, Standing::Inside))
         }
-        h::ExprKind::Lambda(_, body) => expr(module, body, false, Standing::Inside, symbols),
+        h::ExprKind::Lambda(_, body) => expr(module, body, None, Standing::Inside, symbols),
         // An arm stands where the `is` does, as a branch does.
         h::ExprKind::Match(value, arms) => {
             within(value, standing)?;
@@ -134,19 +120,48 @@ fn call(
     module: ModuleId,
     span: crate::ast::Span,
     effect: Symbol,
-    owner_effectful: bool,
+    owner: Option<&h::Clause>,
     standing: Standing,
     symbols: &Symbols,
 ) -> Result<(), Refusal> {
-    if !owner_effectful {
-        return Err(failure(
-            module,
-            span,
-            format!(
-                "pure definitions cannot call effect `{}`",
-                source_name(symbols, effect)
-            ),
-        ));
+    let effect_name = source_name(symbols, effect);
+    let named = owner.map(|clause| {
+        (
+            source_name(symbols, clause.name),
+            clause.patterns.is_empty(),
+        )
+    });
+    match named {
+        Some((owner, _)) if owner.ends_with('!') => {}
+        Some((owner, true)) => {
+            return Err(failure(
+                module,
+                span,
+                format!("`{owner}` is a value, so it cannot call the effect `{effect_name}`"),
+            )
+            .help(format!(
+                "call `{effect_name}` in the effect that uses `{owner}`, and hand on what it answers"
+            )));
+        }
+        Some((owner, false)) => {
+            return Err(failure(
+                module,
+                span,
+                format!("`{owner}` is pure, so it cannot call the effect `{effect_name}`"),
+            )
+            .help(format!(
+                "a definition that calls an effect is one: name it `{owner}!`, here and where it is called"
+            )));
+        }
+        None => {
+            return Err(failure(
+                module,
+                span,
+                format!("a lambda cannot call the effect `{effect_name}`"),
+            )
+            .note("a lambda is pure, and no library takes an effectful callback")
+            .help("write the walk as a recursive definition named with `!`, whose lines may call effects"));
+        }
     }
     // An effect inside an expression would happen in an order the line's
     // reader must work out; standing alone, it happens where its line is.

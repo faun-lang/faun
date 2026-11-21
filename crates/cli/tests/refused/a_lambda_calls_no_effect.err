@@ -1,0 +1,8 @@
+error: a lambda cannot call the effect `println!`
+ --> a_lambda_calls_no_effect.fn:5:35
+  |
+5 |   printed = ["a", "b"].map(|line| host.println!(line))
+  |                                   ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: a lambda is pure, and no library takes an effectful callback
+  = help: write the walk as a recursive definition named with `!`, whose lines may call effects

@@ -592,8 +592,9 @@ impl Infer {
             {
                 Ok(())
             }
+            (Some(Ty::Rigid(_)), Some(Ty::Rigid(_))) => Err(Mismatch::Reason(OTHER_REST)),
             _ => Err(Mismatch::Reason(
-                "a row whose rest a caller chooses is neither closed nor another caller's",
+                "a `*` a signature writes is a rest its caller chooses, so a row with it is not a closed one",
             )),
         }
     }
@@ -926,7 +927,65 @@ impl TyEmbedding {
     }
 }
 
+/// Why rows whose rests are two rigid tails do not unify, each the rest a
+/// caller chooses for a `*` of its own.
+pub(super) const OTHER_REST: &str = "each `*` a signature writes is a rest of its own, which its caller chooses, so a row with one `*` is not a row with another";
+
 pub(super) fn show(ty: &Ty, symbols: &Symbols) -> String {
+    render(ty, symbols, None)
+}
+
+/// `expected` and `found` shown so that they read apart. Where they would
+/// show alike, they differ only in a rest a caller chooses, which [`show`]
+/// leaves out: then each such rest shows as `*`, numbered where there are
+/// several, so that which differs is seen.
+pub(super) fn show_apart(expected: &Ty, found: &Ty, symbols: &Symbols) -> (String, String) {
+    let (shown_expected, shown_found) = (show(expected, symbols), show(found, symbols));
+    if shown_expected != shown_found {
+        return (shown_expected, shown_found);
+    }
+    let mut rests = Vec::new();
+    rigid_rests(expected, &mut rests);
+    rigid_rests(found, &mut rests);
+    (
+        render(expected, symbols, Some(&rests)),
+        render(found, symbols, Some(&rests)),
+    )
+}
+
+/// The rigid tails of the rows in `ty`, each once, in the order met.
+fn rigid_rests(ty: &Ty, rests: &mut Vec<u32>) {
+    let tail = match ty {
+        Ty::Variants(_, tail) | Ty::Record(_, tail) => tail.as_deref(),
+        _ => None,
+    };
+    if let Some(Ty::Rigid(rest)) = tail
+        && !rests.contains(rest)
+    {
+        rests.push(*rest);
+    }
+    for part in TyEmbedding::parts(ty) {
+        rigid_rests(part, rests);
+    }
+}
+
+/// `ty` as a signature writes it. A row's rigid tail shows only where
+/// `rests` lists it: as `*`, or numbered by its place there where it lists
+/// several.
+fn render(ty: &Ty, symbols: &Symbols, rests: Option<&[u32]>) -> String {
+    let show = |ty: &Ty, symbols: &Symbols| render(ty, symbols, rests);
+    let rest = |tail: Option<&Ty>| match (tail, rests) {
+        (Some(Ty::Var(_)), _) => Some("*".to_owned()),
+        (Some(Ty::Rigid(rest)), Some(rests)) => {
+            let at = rests.iter().position(|listed| listed == rest)?;
+            Some(if rests.len() == 1 {
+                "*".to_owned()
+            } else {
+                format!("*{}", at + 1)
+            })
+        }
+        _ => None,
+    };
     match ty {
         // A type not yet known is shown as a signature writes one to be
         // inferred: its number is the checker's, and says nothing.
@@ -977,9 +1036,7 @@ pub(super) fn show(ty: &Ty, symbols: &Symbols) -> String {
                 .collect();
             // A rigid rest is a caller's: where it shows, in the body it
             // belongs to, the row is exactly its tags.
-            if matches!(tail.as_deref(), Some(Ty::Var(_))) {
-                shown.push("*".to_owned());
-            }
+            shown.extend(rest(tail.as_deref()));
             format!("[{}]", shown.join(", "))
         }
         Ty::Record(fields, tail) => {
@@ -989,9 +1046,7 @@ pub(super) fn show(ty: &Ty, symbols: &Symbols) -> String {
                 .into_iter()
                 .map(|(name, ty)| format!("{}: {}", symbols.text(name), show(ty, symbols)))
                 .collect();
-            if matches!(tail.as_deref(), Some(Ty::Var(_))) {
-                shown.push("*".to_owned());
-            }
+            shown.extend(rest(tail.as_deref()));
             format!("{{{}}}", shown.join(", "))
         }
         Ty::Tuple(members) => format!(

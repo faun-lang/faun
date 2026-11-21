@@ -1264,7 +1264,7 @@ fn resolve_type(
                 .map(|member| resolve_type(module, member, source, scope, symbols))
                 .collect::<Result<_, _>>()?,
         )),
-        s::Type::Record { span, fields, open } => {
+        s::Type::Record { fields, open, .. } => {
             let mut resolved = fields
                 .iter()
                 .map(|(name, ty)| {
@@ -1274,10 +1274,10 @@ fn resolve_type(
                     ))
                 })
                 .collect::<Result<Vec<_>, Refusal>>()?;
-            resolved.sort_by_key(|(name, _)| *name);
-            if resolved.windows(2).any(|pair| pair[0].0 == pair[1].0) {
-                return Err(error(module, *span, "record type repeats a field"));
+            if let Some(written) = twice(fields.iter().map(|(name, _)| *name), source) {
+                return Err(repeated(module, written.0, written.text(source)));
             }
+            resolved.sort_by_key(|(name, _)| *name);
             Ok(h::Type::Record(resolved, *open))
         }
         s::Type::Hole { .. } => Ok(h::Type::Hole),
@@ -2150,7 +2150,7 @@ impl ClauseResolver<'_> {
                     .map(|member| self.pattern(member))
                     .collect::<Result<_, _>>()?,
             )),
-            s::Pattern::Record { span, fields, open } => {
+            s::Pattern::Record { fields, open, .. } => {
                 let mut resolved = fields
                     .iter()
                     .map(|(name, pattern)| {
@@ -2160,10 +2160,10 @@ impl ClauseResolver<'_> {
                         ))
                     })
                     .collect::<Result<Vec<_>, Refusal>>()?;
-                resolved.sort_by_key(|(name, _)| *name);
-                if resolved.windows(2).any(|pair| pair[0].0 == pair[1].0) {
-                    return Err(error(self.module, *span, "record pattern repeats a field"));
+                if let Some(written) = twice(fields.iter().map(|(name, _)| *name), self.source) {
+                    return Err(repeated(self.module, written.0, written.text(self.source)));
                 }
+                resolved.sort_by_key(|(name, _)| *name);
                 Ok(h::Pattern::Record(resolved, *open))
             }
             s::Pattern::Or { span, alternatives } => self.alternatives(*span, alternatives),
@@ -2317,7 +2317,7 @@ impl ClauseResolver<'_> {
                         )),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                h::ExprKind::Record(self.record_fields(&fields, expression.span)?)
+                h::ExprKind::Record(self.record_fields(&fields)?)
             }
             s::ExprKind::Update(fields, base) => {
                 let base = self.expr(base)?;
@@ -2326,10 +2326,7 @@ impl ClauseResolver<'_> {
                         .iter()
                         .map(|(path, value)| (path[0], value.clone()))
                         .collect();
-                    h::ExprKind::Update(
-                        Box::new(base),
-                        self.record_fields(&fields, expression.span)?,
-                    )
+                    h::ExprKind::Update(Box::new(base), self.record_fields(&fields)?)
                 } else {
                     // `{a.b: v, *base}` is `{a: {b: v, *base.a}, *base}`,
                     // the base worked out once and read at each depth.
@@ -2704,6 +2701,25 @@ impl ClauseResolver<'_> {
         paths: &[(&[s::Name], &s::Expr)],
         span: s::Span,
     ) -> Result<h::ExprKind, Refusal> {
+        let spelled = |path: &[s::Name]| {
+            path.iter()
+                .map(|name| name.text(self.source))
+                .collect::<Vec<_>>()
+                .join(".")
+        };
+        for (at, (path, _)) in paths.iter().enumerate() {
+            if paths[..at]
+                .iter()
+                .any(|(earlier, _)| spelled(earlier) == spelled(path))
+                && let (Some(first), Some(last)) = (path.first(), path.last())
+            {
+                return Err(repeated(
+                    self.module,
+                    first.0.through(last.0),
+                    &spelled(path),
+                ));
+            }
+        }
         let mut heads: Vec<Symbol> = Vec::new();
         let mut groups: HashMap<Symbol, Vec<(&[s::Name], &s::Expr)>> = HashMap::default();
         for &(path, value) in paths {
@@ -2718,13 +2734,6 @@ impl ClauseResolver<'_> {
             let group = &groups[&head];
             let value = match group.as_slice() {
                 [([], value)] => self.expr(value)?,
-                _ if group.iter().filter(|(rest, _)| rest.is_empty()).count() > 1 => {
-                    return Err(error(
-                        self.module,
-                        span,
-                        "record expression repeats a field",
-                    ));
-                }
                 _ if group.iter().any(|(rest, _)| rest.is_empty()) => {
                     return Err(error(
                         self.module,
@@ -2752,18 +2761,13 @@ impl ClauseResolver<'_> {
     fn record_fields(
         &mut self,
         fields: &[(s::Name, s::Expr)],
-        span: s::Span,
     ) -> Result<Vec<(Symbol, h::Expr)>, Refusal> {
         let mut seen = HashSet::default();
         let mut resolved = Vec::with_capacity(fields.len());
-        for (name, value) in fields {
-            let name = self.symbols.intern(name.text(self.source));
+        for (written, value) in fields {
+            let name = self.symbols.intern(written.text(self.source));
             if !seen.insert(name) {
-                return Err(error(
-                    self.module,
-                    span,
-                    "record expression repeats a field",
-                ));
+                return Err(repeated(self.module, written.0, written.text(self.source)));
             }
             resolved.push((name, self.expr(value)?));
         }
@@ -2890,6 +2894,19 @@ fn method_name(
             format!("unknown method `{}`", name.text(source)),
         )
     })
+}
+
+/// The first of `names` written again after it, read from `source`.
+fn twice(names: impl Iterator<Item = s::Name>, source: &str) -> Option<s::Name> {
+    let mut seen = HashSet::default();
+    names
+        .into_iter()
+        .find(|name| !seen.insert(name.text(source)))
+}
+
+/// That a record names `field`, written again at `span`, twice.
+fn repeated(module: ModuleId, span: s::Span, field: &str) -> Refusal {
+    error(module, span, format!("this record names `{field}` twice")).label("named again here")
 }
 
 fn error(module: ModuleId, span: s::Span, said: impl Into<Refusal>) -> Refusal {

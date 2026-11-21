@@ -14,7 +14,7 @@
 
 use std::rc::Rc;
 
-use super::unify::{Mismatch, Ty, show};
+use super::unify::{Mismatch, OTHER_REST, Ty, show, show_apart};
 use super::{Checker, Marks};
 use crate::ModuleId;
 use crate::ast::Span;
@@ -75,7 +75,7 @@ pub(super) struct PendingWay {
 }
 
 /// Whether `ty`, resolved, is `[]`.
-fn never(ty: &Ty) -> bool {
+pub(super) fn never(ty: &Ty) -> bool {
     matches!(ty, Ty::Variants(tags, None) if tags.is_empty())
 }
 
@@ -236,11 +236,26 @@ impl Checker<'_> {
                 },
             ),
             Ways::Answers(Some(written)) => {
+                let (expected, _) = show_apart(
+                    &self.infer.resolve(answer),
+                    &self.infer.resolve(ty),
+                    self.symbols,
+                );
                 let refused = refused.also(
                     at,
                     written,
-                    format!("expected `{}` because of return type", shown(answer)),
+                    format!("expected `{expected}` because of return type"),
                 );
+                // Each `*` is a rest of its own, so a body answers the
+                // rest it was given only where the answer's type is
+                // worked out from it.
+                let refused = if matches!(reason, Mismatch::Reason(OTHER_REST)) {
+                    refused.help(
+                        "to answer a record with the rest it was given, write the answer's type as `_`",
+                    )
+                } else {
+                    refused
+                };
                 // Nothing answers `[]`, so a body of that type ends by
                 // leaving, as an exit does.
                 if never(&self.infer.resolve(answer)) {

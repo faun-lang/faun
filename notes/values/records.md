@@ -33,6 +33,13 @@ The runners show the open row in use: a program handed to `run_stdin!`
 declares only the fields it reads, `app : {stdin: List(U8), *} -> ...`, and
 leaves the arguments alone.
 
+Each `*` a signature writes is a rest of its own, so
+`List({x: Nat, *}) -> List({x: Nat, *})` answers records whose rest the
+caller chooses apart from the parameter's, and a body answering what it was
+given is refused. The message numbers the two rests, `*1` and `*2`, where
+they would otherwise read alike; writing the answer's type as `_` answers
+the records given, whatever they hold.
+
 ### Reading a field
 
 `r.name` reads a field. In an unsigned definition, a read off a value of
@@ -256,6 +263,11 @@ with an `x`"; the recourse is to leave that definition unsigned.
 
 ## History
 
+- **2026-11-21:** a mismatch whose types differ only in a rest a caller
+  chooses shows that rest, as `*` or numbered `*1` and `*2`. Before,
+  sorting a `List({x: Nat, *})` into one answered as
+  `List({x: Nat, *})` said "expected `List({x: Nat})`, found
+  `List({x: Nat})`", since a caller's rest was never shown.
 - **2026-11-21:** sorting records, or comparing them with `<`, came to be
   refused with help naming a key, and a bodyless `cmp` over a record with
   a message saying a record has no order. Before, both said only
