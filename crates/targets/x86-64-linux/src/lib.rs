@@ -24,7 +24,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use faun_core::ir::{DataId, FunctionId, Program};
-use faun_core::targets::{Favour, SymbolTable, Target, write_image};
+use faun_core::targets::{Favour, SymbolTable, Target, startup_parameters, write_image};
 
 /// How wide this machine's own word is, which is the widest value it holds
 /// and what any class but a fixed one means here.
@@ -58,43 +58,12 @@ impl Target for X86_64Linux {
         true
     }
 
-    fn provides(&self) -> &'static [&'static str] {
-        &[
-            "fd_put!",
-            "fd_read!",
-            "fd_open!",
-            "fd_close!",
-            "exit!",
-            "write_fd!",
-            "read_fd!",
-            "open_at!",
-            "write!",
-            "read_byte!",
-            "grow",
-            "argc",
-            "argv",
-        ]
-    }
-
     fn shifts_by_register(&self) -> bool {
         true
     }
 
     fn limits(&self, program: &Program) -> Result<(), String> {
-        let entry = program.entry();
-        // Each entry parameter is a startup value: the count, then where the
-        // arguments' addresses lie.
-        for (at, name) in program.parameter_names(entry).enumerate() {
-            if [(0, "argc"), (1, "argv")].contains(&(at, name)) {
-                continue;
-            }
-            {
-                return Err(format!(
-                    "x86-64-linux cannot supply entry parameter {at} `{name}`"
-                ));
-            }
-        }
-        Ok(())
+        startup_parameters(program, "x86-64-linux")
     }
 
     fn emit(&self, program: &Program) -> Vec<u8> {
