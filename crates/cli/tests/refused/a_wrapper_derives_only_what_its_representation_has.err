@@ -1,5 +1,7 @@
-error: `{x: Nat, y: Nat}` has no field or method `cmp`
+error: `Point`'s `cmp` cannot be derived: it holds `{x: Nat, y: Nat}`, and a record has no order
  --> a_wrapper_derives_only_what_its_representation_has.fn:2:3
   |
 2 |   cmp : (Point, Point) -> Order
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: write `cmp`'s clauses in `Point`'s block, as `cmp(Point(a), Point(b)) -> a.x.cmp(b.x)`

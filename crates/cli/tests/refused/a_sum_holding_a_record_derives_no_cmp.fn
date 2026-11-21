@@ -1,0 +1,3 @@
+Shape : [Dot, Box({width: Nat, height: Nat})].(
+  cmp : (Shape, Shape) -> Order
+)

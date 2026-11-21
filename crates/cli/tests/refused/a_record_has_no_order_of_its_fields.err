@@ -3,3 +3,5 @@ error: `{x: Nat}` has no field or method `cmp`
   |
 4 | less(a, b) -> a < b
   |               ^^^^^
+  |
+  = help: a record has no order: order by a key, as `sort_on(|r| r.x)` does, or wrap it in a type whose block writes `cmp`

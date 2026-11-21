@@ -2894,6 +2894,71 @@ mod tests {
         assert_eq!(failure.labels[0].text, "expected `Nat`, found `Bool`");
     }
 
+    /// A record has no `cmp`: asked of one, the help names a key to order
+    /// by, its first two fields in name order, rather than offering to
+    /// derive what no record has.
+    #[test]
+    fn a_record_asked_its_cmp_is_told_to_order_by_a_key() {
+        let fixture = Fixture::new();
+        let (program, mut cx) = fixture.load(
+            "less : ({score: Nat, id: Nat, name: Str}, {score: Nat, id: Nat, name: Str}) -> Order\nless(a, b) -> a.cmp(b)\n",
+        );
+        let failure = crate::checked(program, &mut cx).unwrap_err();
+        assert_eq!(
+            failure.message,
+            "`{id: Nat, name: Str, score: Nat}` has no field or method `cmp`"
+        );
+        assert_eq!(
+            failure.help,
+            [
+                "a record has no order: order by a key, as `sort_on(|r| (r.id, r.name))` does, or wrap it in a type whose block writes `cmp`"
+            ]
+        );
+    }
+
+    /// A type over a record is not offered a derived `cmp`, which would be
+    /// refused: it is told to write one.
+    #[test]
+    fn a_type_over_a_record_is_told_to_write_its_cmp() {
+        let fixture = Fixture::new();
+        let (program, mut cx) = fixture.load(
+            "Item : {score: Nat, id: Nat}\nless : (Item, Item) -> Order\nless(a, b) -> a.cmp(b)\n",
+        );
+        let failure = crate::checked(program, &mut cx).unwrap_err();
+        assert_eq!(failure.message, "`Item` has no field or method `cmp`");
+        assert_eq!(
+            failure.help,
+            [
+                "`Item` holds a record, which has no order: write `cmp`'s clauses in `Item`'s block, as `cmp(Item(a), Item(b)) -> a.id.cmp(b.id)`"
+            ]
+        );
+    }
+
+    /// A bodyless `cmp` over a record, or over a sum with a record in a
+    /// constructor, is refused as the type's, not as the record's missing
+    /// method; only a wrapper's help shows the clause to write.
+    #[test]
+    fn a_cmp_over_a_record_is_not_derived() {
+        for (source, message, help) in [
+            (
+                "Item : {score: Nat, id: Nat}.(\n  cmp : (Item, Item) -> Order\n)\n",
+                "`Item`'s `cmp` cannot be derived: it holds `{id: Nat, score: Nat}`, and a record has no order",
+                "write `cmp`'s clauses in `Item`'s block, as `cmp(Item(a), Item(b)) -> a.id.cmp(b.id)`",
+            ),
+            (
+                "Shape : [Dot, Box({w: Nat})].(\n  cmp : (Shape, Shape) -> Order\n)\n",
+                "`Shape`'s `cmp` cannot be derived: it holds `{w: Nat}`, and a record has no order",
+                "write `cmp`'s clauses in `Shape`'s block",
+            ),
+        ] {
+            let fixture = Fixture::new();
+            let (program, mut cx) = fixture.load(source);
+            let failure = crate::checked(program, &mut cx).unwrap_err();
+            assert_eq!(failure.message, message);
+            assert_eq!(failure.help, [help]);
+        }
+    }
+
     #[test]
     fn a_negative_nat_is_rejected() {
         let fixture = Fixture::new();

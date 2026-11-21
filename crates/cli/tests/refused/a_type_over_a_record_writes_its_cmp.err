@@ -1,0 +1,7 @@
+error: `Item` has no field or method `cmp`
+ --> a_type_over_a_record_writes_its_cmp.fn:8:18
+  |
+8 | ranked(items) -> items.sort()
+  |                  ^^^^^^^^^^^^
+  |
+  = help: `Item` holds a record, which has no order: write `cmp`'s clauses in `Item`'s block, as `cmp(Item(a), Item(b)) -> a.id.cmp(b.id)`

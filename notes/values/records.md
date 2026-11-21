@@ -100,10 +100,27 @@ signature says it does not know.
 error: a record with `*` has no `equals`: its other fields are a caller's
 ```
 
-A record has no `cmp`, so `a < b` on records is refused. A declared type
-over a record may ask for `equals`, `to_str` and `hash_into` by writing
-their signatures without bodies, and has the record's; it cannot ask for
-`cmp`, and writes its own ([methods](../forms/methods.md)).
+A record has no `cmp`, so `a < b` and sorting a list of records are
+refused, with help naming a key to order by instead:
+
+```text
+error: `{id: Nat, score: Nat}` has no field or method `cmp`
+  = help: a record has no order: order by a key, as `sort_on(|r| (r.id, r.score))` does, or wrap it in a type whose block writes `cmp`
+```
+
+The key's fields are the record's first two in name order, only to show
+the form; which fields order the records is the program's to say.
+
+A declared type over a record may ask for `equals`, `to_str` and
+`hash_into` by writing their signatures without bodies, and has the
+record's; it cannot ask for `cmp`, and writes its own
+([methods](../forms/methods.md)). A bodyless `cmp` over a record, or over
+a sum with a record in a constructor, is refused at its signature:
+
+```text
+error: `Item`'s `cmp` cannot be derived: it holds `{id: Nat, score: Nat}`, and a record has no order
+  = help: write `cmp`'s clauses in `Item`'s block, as `cmp(Item(a), Item(b)) -> a.id.cmp(b.id)`
+```
 
 ## Record builders
 
@@ -239,6 +256,13 @@ with an `x`"; the recourse is to leave that definition unsigned.
 
 ## History
 
+- **2026-11-21:** sorting records, or comparing them with `<`, came to be
+  refused with help naming a key, and a bodyless `cmp` over a record with
+  a message saying a record has no order. Before, both said only
+  "`{id: Nat, score: Nat}` has no field or method `cmp`", a type over a
+  record was told to derive the `cmp` it could not have, and the
+  frontend's README said records get `cmp`. Writing the sort probes found
+  all three.
 - **2026-11-18:** a record's fields, and a tag row's tags, are kept in the
   order of their names wherever the order shows: a type's identity, its
   layout, its tags' numbers, hashing and messages. Before, they were kept

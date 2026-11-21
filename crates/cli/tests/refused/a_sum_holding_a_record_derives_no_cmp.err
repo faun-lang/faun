@@ -1,0 +1,7 @@
+error: `Shape`'s `cmp` cannot be derived: it holds `{height: Nat, width: Nat}`, and a record has no order
+ --> a_sum_holding_a_record_derives_no_cmp.fn:2:3
+  |
+2 |   cmp : (Shape, Shape) -> Order
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: write `cmp`'s clauses in `Shape`'s block

@@ -1,5 +1,7 @@
-error: `{aardvark: Nat, zebra: Nat}` has no field or method `cmp`
+error: `Pair`'s `cmp` cannot be derived: it holds `{aardvark: Nat, zebra: Nat}`, and a record has no order
  --> a_record_shows_its_fields_in_the_order_of_their_names_not_the_order_first_met.fn:2:3
   |
 2 |   cmp : (Pair, Pair) -> Order
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: write `cmp`'s clauses in `Pair`'s block, as `cmp(Pair(a), Pair(b)) -> a.aardvark.cmp(b.aardvark)`

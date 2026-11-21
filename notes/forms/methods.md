@@ -137,7 +137,13 @@ has no field or method `equals`", with help saying how to ask: "declare
 `equals : (Size, Size) -> Bool` with no body in `Size`'s block to derive
 it". The same help is given for `cmp`, `to_str` and `hash_into`, and for a
 type taking variables names the bound each asks of them, as
-`equals : (Box(a), Box(a)) -> Bool where Equatable(a)`.
+`equals : (Box(a), Box(a)) -> Bool where Equatable(a)`. A type holding a
+record is not offered a derived `cmp`, since the record has no order: the
+help says to write its clauses, as "`Item` holds a record, which has no
+order: write `cmp`'s clauses in `Item`'s block, as
+`cmp(Item(a), Item(b)) -> a.id.cmp(b.id)`", and a bodyless `cmp` over one
+is refused with "`Item`'s `cmp` cannot be derived: it holds
+`{id: Nat, score: Nat}`, and a record has no order".
 
 ## Visibility
 
@@ -232,6 +238,10 @@ NaN equals itself, and IEEE 754's comparison is the named `numeric_equals`
 
 ## History
 
+- **2026-11-21:** a type holding a record stopped being told to derive
+  `cmp`: the help offered `cmp : (Item, Item) -> Order` with no body, and
+  writing it was refused as the record's missing `cmp`. It now says to
+  write the clauses, and the bodyless one is refused saying why.
 - **2026-11-17:** a refusal of a missing `equals`, `cmp`, `to_str` or
   `hash_into` on a declared type came to give the bodyless signature that
   derives it, after the compression libraries met "`Level` has no field or

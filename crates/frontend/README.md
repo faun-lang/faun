@@ -93,9 +93,12 @@ it means once types are known.
 
 The stage that desugars each is numbered as under [Stages](#stages).
 
-Records, tuples and tag rows get `equals`, `cmp`, `to_str` and
-`hash_into` without declaring them, built from their parts. A type that
-declares `cmp` gets an `equals` from it.
+Closed records get `equals`, `to_str` and `hash_into` without declaring
+them, built from their parts; tuples get those and `cmp`, position by
+position; closed tag rows get `equals` and `to_str`. A record has no
+`cmp`, since nothing in it says which field comes first, and neither has a
+type over one unless it writes its own. A type that declares `cmp` gets an
+`equals` from it.
 
 ## Stages
 
