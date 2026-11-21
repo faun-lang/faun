@@ -119,11 +119,11 @@ byte(input, at) -> input.get(at).ok_or(0).to_nat()
 
 big_endian : (List(U8), Nat) -> Nat
 big_endian(input, at) ->
-  byte(input, at) * 16777216 + byte(input, at + 1) * 65536 + byte(input, at + 2) * 256 + byte(input, at + 3)
+  (byte(input, at) << 24) | (byte(input, at + 1) << 16) | (byte(input, at + 2) << 8) | byte(input, at + 3)
 
 little_endian : (List(U8), Nat) -> Nat
 little_endian(input, at) ->
-  byte(input, at) + byte(input, at + 1) * 256 + byte(input, at + 2) * 65536 + byte(input, at + 3) * 16777216
+  byte(input, at) | (byte(input, at + 1) << 8) | (byte(input, at + 2) << 16) | (byte(input, at + 3) << 24)
 
 # `input` as a zlib stream, its Adler-32 after it. The header's level is
 # zlib's word for how hard it looked, which nothing reading it needs.
@@ -226,13 +226,13 @@ huffman(lengths, lone) -> (
   if left > 0 & (width > 1 | !lone) return Err(BadCode)
   firsts = first_codes(counts, 1, 0, [0])
   quick = width.min(quick_bits)
-  size = 2.pow(quick)
+  size = 1 << quick
   (_, table) = lengths.enumerate().fold((firsts, List.repeat(0, size)), |(next, table), (symbol, length)|
     if length == 0 then (next, table)
     else (
       code = next.get(length).ok_or(0)
       at = reversed(code, length, 0)
-      (next.put(length, code + 1), place(table, at, length, size, symbol * 16 + length))
+      (next.put(length, code + 1), place(table, at, length, size, (symbol << 4) | length))
     ))
   symbols = if width > quick then in_code_order(lengths) else []
   Ok({table, quick, counts, symbols})
@@ -242,7 +242,7 @@ huffman(lengths, lone) -> (
 # entry it starts where it fits the table, and as `long` where it does not.
 place : (List(Nat), Nat, Nat, Nat, Nat) -> List(Nat)
 place(table, at, length, size, _) if length > quick_bits -> table.put(at % size, long)
-place(table, at, length, size, entry) -> fill(table, at, 2.pow(length), size, entry)
+place(table, at, length, size, entry) -> fill(table, at, 1 << length, size, entry)
 
 # The symbols that have codes, shortest code first and in order within a
 # length, which is the order of their codes.
@@ -269,11 +269,11 @@ fill(table, _, _, _, _) -> table
 decode : (List(U8), Nat, Huffman, Nat) -> Result((Nat, Nat), InflateError)
 decode(input, total, code is {table, quick, *}, bit) -> (
   word = peek(input, bit)
-  entry = table.get(word % 2.pow(quick)).ok_or(0)
-  length = entry % 16
+  entry = table.get(word & ((1 << quick) - 1)).ok_or(0)
+  length = entry & 15
   if length == 0 return slow_decode(total, code, bit, word, entry)
   if bit + length > total return Err(Truncated)
-  Ok((entry / 16, bit + length))
+  Ok((entry >> 4, bit + length))
 )
 
 # A code longer than the table reads, or a gap.
@@ -291,7 +291,7 @@ slow_decode(total, {counts, symbols, *}, bit, word, entry) -> (
 canonical : (Nat, List(Nat), List(Nat), Nat, Nat, Nat, Nat) -> Result((Nat, Nat), InflateError)
 canonical(_, _, _, 16, _, _, _) -> Err(BadCode)
 canonical(word, counts, symbols, length, code, first, index) -> (
-  read = code + word.shift_right(length - 1) % 2
+  read = code + ((word >> (length - 1)) & 1)
   count = counts.get(length).ok_or(0)
   if read < first + count return Ok((symbols.get(index + read - first).ok_or(0), length))
   canonical(word, counts, symbols, length + 1, read * 2, (first + count) * 2, index + count)
@@ -303,13 +303,13 @@ canonical(word, counts, symbols, length, code, first, index) -> (
 peek : (List(U8), Nat) -> Nat
 peek(input, bit) -> (
   at = bit / 8
-  word = byte(input, at) + byte(input, at + 1) * 256 + byte(input, at + 2) * 65536
-  word.shift_right(bit % 8)
+  word = byte(input, at) | (byte(input, at + 1) << 8) | (byte(input, at + 2) << 16)
+  word >> (bit % 8)
 )
 
 # The `count` bits at `bit`.
 bits : (List(U8), Nat, Nat) -> Nat
-bits(input, bit, count) -> peek(input, bit) % 2.pow(count)
+bits(input, bit, count) -> peek(input, bit) & ((1 << count) - 1)
 
 # A dynamic block's two codes, and where its data starts.
 dynamic_header : (List(U8), Nat, Nat) -> Result((Huffman, Huffman, Nat), InflateError)

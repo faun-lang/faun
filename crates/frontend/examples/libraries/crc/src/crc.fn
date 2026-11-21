@@ -41,7 +41,7 @@ crc_bytes : (U32, List(U8)) -> U32
 crc_bytes(register, [a, b, c, d, e, f, g, h, *rest]) -> (
   one = register ^ U32.of_le_bytes(a, b, c, d)
   crc_bytes(
-    lookup(7, one) ^ lookup(6, one.shift_right(8)) ^ lookup(5, one.shift_right(16)) ^ lookup(4, one.shift_right(24))
+    lookup(7, one) ^ lookup(6, one >> 8) ^ lookup(5, one >> 16) ^ lookup(4, one >> 24)
       ^ lookup(3, U32.of_u8(e)) ^ lookup(2, U32.of_u8(f)) ^ lookup(1, U32.of_u8(g)) ^ lookup(0, U32.of_u8(h)),
     rest)
 )
@@ -50,7 +50,7 @@ crc_bytes(register, bytes) -> crc_tail(register, bytes)
 crc_tail : (U32, List(U8)) -> U32
 crc_tail(register, []) -> register
 crc_tail(register, [byte, *rest]) ->
-  crc_tail(lookup(0, register ^ U32.of_u8(byte)) ^ register.shift_right(8), rest)
+  crc_tail(lookup(0, register ^ U32.of_u8(byte)) ^ (register >> 8), rest)
 
 # The entry of table `slice` for the low byte of `index`.
 lookup : (Nat, U32) -> U32
@@ -69,15 +69,15 @@ crc_slices : (List(U32), List(U32), Nat) -> List(U32)
 crc_slices(_, tables, 0) -> tables
 crc_slices(first, tables, Succ(left)) -> (
   last = tables.drop(tables.len() - 256)
-  next = last.map(|entry| first.get(entry.to_nat() & 0xff).ok_or(0) ^ entry.shift_right(8))
+  next = last.map(|entry| first.get(entry.to_nat() & 0xff).ok_or(0) ^ (entry >> 8))
   crc_slices(first, tables.concat(next), left)
 )
 
 crc_entry : (U32, Nat) -> U32
 crc_entry(register, 0) -> register
 crc_entry(register, Succ(bits)) if (register & 1) == 1 ->
-  crc_entry(0xedb88320 ^ register.shift_right(1), bits)
-crc_entry(register, Succ(bits)) -> crc_entry(register.shift_right(1), bits)
+  crc_entry(0xedb88320 ^ (register >> 1), bits)
+crc_entry(register, Succ(bits)) -> crc_entry(register >> 1, bits)
 
 # An Adler-32 part way through a message: the sum of its bytes plus one,
 # and the sum of those sums, each modulo 65521.
