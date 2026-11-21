@@ -245,21 +245,6 @@ impl Bounds {
         u16::try_from(u64::BITS - high.leading_zeros()).ok()
     }
 
-    /// Whether nothing this can be is above anything that one can be.
-    ///
-    /// This is what says a value is already something the other admits:
-    /// what a place has to hold is the greatest that reaches it, and a
-    /// least says nothing about that. A value that might be nought where
-    /// something expects at least two is still a value that place holds.
-    #[must_use]
-    pub const fn no_higher_than(self, other: Self) -> bool {
-        match (self.high, other.high) {
-            (_, None) => true,
-            (None, Some(_)) => false,
-            (Some(held), Some(other)) => held <= other,
-        }
-    }
-
     /// Whether this says less than `other` does, which is what says a walk
     /// has settled.
     #[must_use]

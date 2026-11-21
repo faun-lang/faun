@@ -8,50 +8,11 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::ast as s;
-use super::blessed::PreludeIds;
-use super::context::Context;
 use super::diagnostic::{Advised, Diagnostic, Refusal, counted};
 use super::hir as h;
-use super::host::HostIds;
 use super::literal;
-use super::modules::{Interface, LoadedModule, LoadedProgram, ModuleId, TypeBinding};
+use super::modules::{Interface, LoadedModule, ModuleId, TypeBinding};
 use super::{Sources, Symbol, Symbols};
-
-/// Resolve every loaded module without mutating or concatenating its surface AST.
-///
-/// # Errors
-///
-/// Reports an unknown or duplicate local, global, constructor, type, or method,
-/// at the span it is written.
-///
-/// # Panics
-///
-/// Panics only if a [`LoadedProgram`] was manually built with a module whose
-/// source identity is absent from its source collection.
-pub fn resolve_names(
-    mut loaded: LoadedProgram,
-    prelude_ids: PreludeIds,
-    host_ids: HostIds,
-) -> Result<(h::Program, Context), Diagnostic> {
-    let mut sites = h::Sites::default();
-    let modules = Resolution::default().resolve(
-        (&loaded.modules, 0),
-        loaded.prelude,
-        &loaded.sources,
-        (&mut loaded.symbols, &mut sites),
-    )?;
-    let context = Context {
-        sources: loaded.sources,
-        symbols: loaded.symbols,
-        sites,
-        module_sources: loaded.modules.iter().map(|module| module.source).collect(),
-        package: loaded.package,
-        host_module: Some(loaded.host),
-        prelude: prelude_ids,
-        host: Some(host_ids),
-    };
-    Ok((h::Program { modules }, context))
-}
 
 /// What resolving some modules leaves for resolving the modules loaded
 /// after them: which globals are values, and every alias, as written and
@@ -75,11 +36,13 @@ impl Resolution {
     ///
     /// # Errors
     ///
-    /// As [`resolve_names`].
+    /// Reports an unknown or duplicate local, global, constructor, type, or method,
+    /// at the span it is written.
     ///
     /// # Panics
     ///
-    /// As [`resolve_names`].
+    /// Panics only if a [`LoadedProgram`](super::modules::LoadedProgram) was manually built with a module whose
+    /// source identity is absent from its source collection.
     pub(crate) fn resolve(
         &mut self,
         (modules, from): (&[LoadedModule], usize),
