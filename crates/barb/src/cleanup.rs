@@ -23,8 +23,9 @@
 //! so where nothing else holds `xs` the element grows in place too, and
 //! the empty one put there is replaced in place; where `xs` is shared, the
 //! first replacement copies it and the second writes in the copy, as one
-//! replacement would. Only an element that is a sequence, or wraps one, is
-//! emptied, since only one of those is written in place, and only where
+//! replacement would. Only an element that is a sequence, or wraps one,
+//! written back by a write of it, as appending to it is, is emptied, since
+//! only one of those is written in place, and only where
 //! the write, after the read or first in an arm of a match on what it
 //! read, is the last that reads `xs`.
 //!
@@ -430,12 +431,13 @@ impl Order {
         for (at, write) in order.iter().copied().chain([tail]).enumerate() {
             let id = self.bindings.get(write).copied().unwrap_or(self.tail);
             if let Expr::Match(_, arms) = program.expr(id) {
-                for (arm, &Arm { body, .. }) in program.arms(arms).iter().enumerate() {
+                for (index, &arm) in program.arms(arms).iter().enumerate() {
+                    let body = arm.body;
                     let ids = program.bindings(body.bindings).iter().chain([&body.tail]);
                     for &id in ids {
                         let empty =
-                            self.emptied(program, inert, &order, ((at, write), (id, Some(body))));
-                        emptied.extend(empty.map(|empty| (Some((write, arm)), empty)));
+                            self.emptied(program, inert, &order, ((at, write), (id, Some(arm))));
+                        emptied.extend(empty.map(|empty| (Some((write, index)), empty)));
                     }
                 }
             }
@@ -455,7 +457,7 @@ impl Order {
         program: &Program,
         inert: &Inert,
         order: &[usize],
-        ((at, write), (id, arm)): ((usize, usize), (ExprId, Option<Body>)),
+        ((at, write), (id, arm)): ((usize, usize), (ExprId, Option<Arm>)),
     ) -> Option<Emptied> {
         let call = |id: ExprId, operation| match program.expr(id) {
             Expr::Call(called, args) if inert.sequences[called.index()] == Some(operation) => {
@@ -463,9 +465,13 @@ impl Order {
             }
             _ => None,
         };
-        let (replace, &[sequence, place, _]) = call(id, SequenceOperation::Replace)? else {
+        let (replace, &[sequence, place, Atom(value)]) = call(id, SequenceOperation::Replace)?
+        else {
             return None;
         };
+        if !self.written(program, inert, (write, arm), value.index()) {
+            return None;
+        }
         let empty = empty_element(program, program.params(replace)[0])?;
         let read = order[..at].iter().rposition(|&index| {
             call(self.bindings[index], SequenceOperation::Drop)
@@ -479,7 +485,7 @@ impl Order {
         others |= self.reads(write).iter().any(|r| held.contains(r));
         // In an arm, nothing else in it reads `xs`.
         let mut beside = vec![];
-        if let Some(body) = arm {
+        if let Some(Arm { body, .. }) = arm {
             for &other in program.bindings(body.bindings).iter().chain([&body.tail]) {
                 if other != id {
                     free_reads(program, other, local + 1, &mut beside);
@@ -493,6 +499,30 @@ impl Order {
             replace,
             empty,
         })
+    }
+
+    /// Whether the local `value`, bound in this body or in `arm` of the
+    /// match `write`, writes a sequence, as appending to one does: only an
+    /// element written so is worth emptying, since one built anew holds
+    /// nothing of what was read.
+    fn written(
+        &self,
+        program: &Program,
+        inert: &Inert,
+        (write, arm): (usize, Option<Arm>),
+        value: usize,
+    ) -> bool {
+        let (start, bound) = arm.map_or((self.base, &self.bindings[..]), |arm| {
+            let fields = program.fields(arm.ctor).len();
+            (
+                self.base + write + fields,
+                program.bindings(arm.body.bindings),
+            )
+        });
+        let bound = value.checked_sub(start).and_then(|at| bound.get(at));
+        bound.is_some_and(
+            |&id| matches!(program.expr(id), Expr::Call(called, _) if inert.writes(called)),
+        )
     }
 
     /// Where in `order`, before `at`, the run the binding at `read` answers,

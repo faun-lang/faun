@@ -138,10 +138,15 @@ grows in place, and the second writes over the empty one in place. Where
 something does, the first `put` copies `buckets`, as the one `put` would
 have, and the element, still held by the list kept, is copied by the append,
 as before. This is done for an element that is a sequence or wraps one,
-which is all that grows in place, where the `put` is the list's last use
+which is all that grows in place, written back by appending to it, joining
+another after it or replacing one of its own elements, where the `put` is
+the list's last use
 and writes the place the read did, after the read or in an arm of a match
 on what it read, `if buckets.get(at) is Ok(bucket) then buckets.put(at,
 bucket.append(value)) else buckets`.
+An element built anew, as `[x, *bucket]` builds one, is not
+emptied: a map's buckets, each an entry or two, are written so, and the
+second `put` cost more than the copy of an entry it saved.
 
 Where it is known before the program runs that a buffer is held by nothing
 else, as for one a loop rewrites every round, the count is not asked at
