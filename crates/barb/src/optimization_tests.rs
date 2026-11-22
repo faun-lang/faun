@@ -1626,6 +1626,49 @@ fn a_filtered_list_walked_once_is_never_built() {
     }
 }
 
+/// Once lists are fused, a call of a pure definition the same as one still
+/// in scope answers what that one did, so a search asked twice searches
+/// once; but a list two calls build is two lists as written, and both are
+/// built.
+#[test]
+fn a_pure_call_made_twice_is_made_once_unless_it_builds_a_structure() {
+    let (mut p, w) = walks();
+    let five = p.intern_number(w.nat, 5).unwrap();
+    let searched = p.declare("searched", &[w.list], w.nat);
+    p.define(searched, |b, args| {
+        let zero = b.con(w.zero, &[]);
+        let five = b.known(five);
+        let first = b.call(w.index_over, &[args[0], five, zero]);
+        let second = b.call(w.index_over, &[args[0], five, zero]);
+        b.call(w.add, &[first, second])
+    });
+    let built = p.declare("built", &[w.list], w.nat);
+    p.define(built, |b, args| {
+        let empty = b.con(w.nil, &[]);
+        let first = b.call(w.bump, &[args[0], empty]);
+        let second = b.call(w.bump, &[args[0], empty]);
+        let zero = b.con(w.zero, &[]);
+        let one = b.call(w.total, &[first, zero]);
+        let other = b.call(w.total, &[second, zero]);
+        b.call(w.add, &[one, other])
+    });
+    super::fixture::enter(&mut p, &[searched, built]);
+    validate(&p).unwrap();
+    let original = p.clone();
+    super::normalize::simplify(&mut p);
+    validate(&p).unwrap();
+    let count = |id, callee| callees(&p, id).iter().filter(|&&f| f == callee).count();
+    assert_eq!(count(searched, w.index_over), 1);
+    assert_eq!(count(built, w.bump), 2);
+    for values in [&[][..], &[1, 2, 3], &[4, 9, 7, 1]] {
+        for id in [searched, built] {
+            let args = vec![w.list_of(&original, values)];
+            let expected = run(&original, id, args.clone(), &mut vec![]);
+            assert_eq!(run(&p, id, args, &mut vec![]), expected, "{values:?}");
+        }
+    }
+}
+
 /// A list read twice is built once and read twice: fusing it into one
 /// reader would leave the other nothing to read.
 #[test]
