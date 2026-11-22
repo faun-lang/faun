@@ -35,11 +35,8 @@ fn crc32(bytes: &[u8]) -> u32 {
     for &byte in bytes {
         register ^= u32::from(byte);
         for _ in 0..8 {
-            register = if register & 1 == 1 {
-                0xedb8_8320 ^ (register >> 1)
-            } else {
-                register >> 1
-            };
+            register =
+                if register & 1 == 1 { 0xedb8_8320 ^ (register >> 1) } else { register >> 1 };
         }
     }
     !register
@@ -56,23 +53,17 @@ fn optimized(package: &Package) -> barb::Program {
 
 /// Whether any definition is named `name`, or takes a parameter named so.
 fn named(program: &barb::Program, name: &str) -> (bool, bool) {
-    let defined = program
+    let defined = program.function_ids().any(|id| program.name(program.function(id).name) == name);
+    let taken = program
         .function_ids()
-        .any(|id| program.name(program.function(id).name) == name);
-    let taken = program.function_ids().any(|id| {
-        program
-            .parameter_names(id)
-            .any(|parameter| parameter == name)
-    });
+        .any(|id| program.parameter_names(id).any(|parameter| parameter == name));
     (defined, taken)
 }
 
 #[test]
 fn a_table_named_in_a_walk_is_built_once() {
     let package = Package::new("constant-crc", CRC);
-    let bytes: Vec<u8> = (0..128u32)
-        .map(|n| u8::try_from(n * 37 % 251).unwrap())
-        .collect();
+    let bytes: Vec<u8> = (0..128u32).map(|n| u8::try_from(n * 37 % 251).unwrap()).collect();
     let mut spent = Vec::new();
     for len in [64, 128] {
         let (status, written, fuel) = run_counted(&package.entry(), &bytes[..len]);
@@ -104,10 +95,7 @@ fn a_constant_read_once_is_left_where_it_is_read() {
         main!(host) -> host.exit!(U8.of_nat(total % 256))
     ",
     );
-    assert_eq!(
-        package.run(),
-        u32::try_from(3 * 4_999_950_000u64 % 256).unwrap()
-    );
+    assert_eq!(package.run(), u32::try_from(3 * 4_999_950_000u64 % 256).unwrap());
     assert_eq!(named(&optimized(&package), "total"), (false, false));
 }
 

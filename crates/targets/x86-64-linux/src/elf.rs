@@ -81,10 +81,7 @@ pub(crate) fn image(code: &Code, program: &Program, symbols: SymbolTable) -> Vec
     out.bytes(&relocated(code, &layout, program));
     out.bytes(&vec![0; layout.data - layout.text - code.bytes.len()]);
     out.bytes(program.data());
-    out.bytes(&vec![
-        0;
-        layout.globals - layout.data - program.data().len()
-    ]);
+    out.bytes(&vec![0; layout.globals - layout.data - program.data().len()]);
     out.bytes(&program.globals()[..layout.initialized]);
     if let Some(sections) = &sections {
         sections.write(&mut out, code.bytes.len());
@@ -136,9 +133,7 @@ impl Sections {
             .iter()
             .enumerate()
             .map(|(at, (name, start))| {
-                let next = starts
-                    .get(at + 1)
-                    .map_or(code.bytes.len(), |&(_, next)| next);
+                let next = starts.get(at + 1).map_or(code.bytes.len(), |&(_, next)| next);
                 (name.clone(), *start, next)
             })
             .collect();
@@ -153,16 +148,7 @@ impl Sections {
         let strtab = symtab + symtab_len;
         let shstrtab = strtab + names.len();
         let headers = (shstrtab + SECTION_NAMES.len()).next_multiple_of(ALIGN);
-        Self {
-            functions,
-            text,
-            end,
-            symtab,
-            strtab,
-            shstrtab,
-            headers,
-            names,
-        }
+        Self { functions, text, end, symtab, strtab, shstrtab, headers, names }
     }
 
     /// Where the section headers start, how many there are, and which holds
@@ -200,18 +186,8 @@ impl Sections {
             (self.symtab, self.strtab - self.symtab),
             (3, count, 8, SYM_LEN),
         );
-        section(
-            out,
-            (STRTAB_NAME, 3, 0),
-            (self.strtab, self.names.len()),
-            (0, 0, 1, 0),
-        );
-        section(
-            out,
-            (SHSTRTAB_NAME, 3, 0),
-            (self.shstrtab, SECTION_NAMES.len()),
-            (0, 0, 1, 0),
-        );
+        section(out, (STRTAB_NAME, 3, 0), (self.strtab, self.names.len()), (0, 0, 1, 0));
+        section(out, (SHSTRTAB_NAME, 3, 0), (self.shstrtab, SECTION_NAMES.len()), (0, 0, 1, 0));
     }
 }
 
@@ -256,9 +232,7 @@ struct Layout {
 
 /// The kernel supplies every trailing zero in a writable load segment.
 fn initialized_bytes(data: &[u8]) -> usize {
-    data.iter()
-        .rposition(|&byte| byte != 0)
-        .map_or(0, |at| at + 1)
+    data.iter().rposition(|&byte| byte != 0).map_or(0, |at| at + 1)
 }
 
 impl Layout {
@@ -304,14 +278,7 @@ impl Layout {
         }
         debug_assert_eq!(segments.len(), count);
 
-        Self {
-            text,
-            data,
-            globals,
-            initialized,
-            globals_at,
-            segments,
-        }
+        Self { text, data, globals, initialized, globals_at, segments }
     }
 }
 
@@ -331,11 +298,7 @@ fn relocated(code: &Code, layout: &Layout, program: &Program) -> Vec<u8> {
         };
         let displacement = to.abs_diff(from);
         let displacement = i32::try_from(displacement).expect("data within 2 GiB of the code");
-        let displacement = if to < from {
-            -displacement
-        } else {
-            displacement
-        };
+        let displacement = if to < from { -displacement } else { displacement };
         text[reloc.offset..reloc.offset + 4].copy_from_slice(&displacement.to_le_bytes());
     }
     text

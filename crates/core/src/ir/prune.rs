@@ -42,12 +42,8 @@ use super::{
 pub(super) fn prune(source: &Program) -> Program {
     let read = Read::of(source);
     let declared = declarations(source, &read.answered);
-    let mut pass = Prune {
-        read,
-        function: FunctionId::at(0),
-        yields: Vec::new(),
-        breaks: Vec::new(),
-    };
+    let mut pass =
+        Prune { read, function: FunctionId::at(0), yields: Vec::new(), breaks: Vec::new() };
     let mut pruned = rewrite::rebuild_declared(source, declared, &mut pass);
     pack(&mut pruned);
     pruned
@@ -87,11 +83,7 @@ fn pack(program: &mut Program) {
             Origin::Globals => (&program.globals, &mut globals),
         };
         if !named {
-            *span = super::Span {
-                origin: span.origin,
-                start: 0,
-                len: 0,
-            };
+            *span = super::Span { origin: span.origin, start: 0, len: 0 };
             continue;
         }
         let alignment = 1 << span.start.trailing_zeros().min(ALIGNED.trailing_zeros());
@@ -214,27 +206,14 @@ impl Prune {
         op: Op,
         results: &[ValueId],
     ) {
-        let kept: Vec<_> = results
-            .iter()
-            .filter(|value| self.read.values[value.index()])
-            .copied()
-            .collect();
+        let kept: Vec<_> =
+            results.iter().filter(|value| self.read.values[value.index()]).copied().collect();
         let mask = self.read.read_of(results);
         let fresh = match op {
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => {
+            Op::If { condition, then_region, else_region } => {
                 self.yields.push(mask);
-                let fresh = rebuild.if_(
-                    b,
-                    rebuild.value(condition),
-                    &kept,
-                    then_region,
-                    else_region,
-                    self,
-                );
+                let fresh =
+                    rebuild.if_(b, rebuild.value(condition), &kept, then_region, else_region, self);
                 self.yields.pop();
                 fresh
             }
@@ -365,11 +344,7 @@ impl Read {
                         kept[at] |= self.values[value.index()];
                     }
                 }
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => {
+                Op::If { then_region, else_region, .. } => {
                     self.calls(source, then_region, answered);
                     self.calls(source, else_region, answered);
                 }
@@ -407,34 +382,20 @@ impl Read {
         if let Some(terminator) = source.region(region).terminator {
             self.leaves(source, function, terminator, handing);
         }
-        for (op, results) in source
-            .walk(region)
-            .map(|(op, results)| (*op, results))
-            .rev()
-        {
+        for (op, results) in source.walk(region).map(|(op, results)| (*op, results)).rev() {
             if !self.needed(source, &op, results) {
                 continue;
             }
             match op {
-                Op::If {
-                    condition,
-                    then_region,
-                    else_region,
-                } => {
+                Op::If { condition, then_region, else_region } => {
                     self.reads(&[condition]);
-                    let arms = Handing {
-                        yields: results,
-                        breaks: handing.breaks,
-                    };
+                    let arms = Handing { yields: results, breaks: handing.breaks };
                     self.region(source, function, then_region, arms);
                     self.region(source, function, else_region, arms);
                 }
                 Op::Loop { initial, body } => {
                     self.reads(source.values(initial));
-                    let body_handing = Handing {
-                        yields: &[],
-                        breaks: results,
-                    };
+                    let body_handing = Handing { yields: &[], breaks: results };
                     self.region(source, function, body, body_handing);
                 }
                 _ => source.operands(&op).for_each(|value| self.reads(&[value])),
@@ -463,10 +424,7 @@ impl Read {
     }
 
     fn read_of(&self, values: &[ValueId]) -> Vec<bool> {
-        values
-            .iter()
-            .map(|value| self.values[value.index()])
-            .collect()
+        values.iter().map(|value| self.values[value.index()]).collect()
     }
 
     /// Whether this instruction stays. A container stays for what it holds
@@ -478,11 +436,7 @@ impl Read {
             Op::Call { function, .. } if source.function(function).inert => answered(),
             Op::Store { address, .. } => !self.unread.written_through(address),
             Op::Call { .. } | Op::Keep { .. } => true,
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } => {
+            Op::If { then_region, else_region, .. } => {
                 answered()
                     || self.acts(source, then_region)
                     || self.acts(source, else_region)
@@ -533,10 +487,7 @@ struct Unread {
 
 impl Unread {
     fn of(source: &Program, kept: Option<&Read>) -> Self {
-        let mut unread = Self {
-            address_of: vec![None; source.values_count()],
-            read: Vec::new(),
-        };
+        let mut unread = Self { address_of: vec![None; source.values_count()], read: Vec::new() };
         let bodies = || source.functions().iter().filter_map(super::Function::body);
         for body in bodies() {
             for (op, results) in source.walk_within(body) {
@@ -564,11 +515,7 @@ impl Unread {
             }
             match *op {
                 Op::Store { value, .. } => self.reads(&[value]),
-                Op::If {
-                    condition,
-                    then_region,
-                    else_region,
-                } => {
+                Op::If { condition, then_region, else_region } => {
                     self.reads(&[condition]);
                     self.uses(source, then_region, kept);
                     self.uses(source, else_region, kept);
@@ -600,18 +547,13 @@ impl Unread {
 /// `break` or `continue` of a loop around it, or by returning.
 fn leaves(source: &Program, region: RegionId) -> bool {
     let held = source.region(region);
-    if held
-        .terminator
-        .is_some_and(|terminator| terminator.exit != Exit::Yield)
-    {
+    if held.terminator.is_some_and(|terminator| terminator.exit != Exit::Yield) {
         return true;
     }
     source.walk(region).any(|(op, _)| match *op {
-        Op::If {
-            then_region,
-            else_region,
-            ..
-        } => leaves(source, then_region) || leaves(source, else_region),
+        Op::If { then_region, else_region, .. } => {
+            leaves(source, then_region) || leaves(source, else_region)
+        }
         // A loop's own `break` and `continue` stay within it.
         Op::Loop { body, .. } => returns(source, body),
         _ => false,
@@ -628,18 +570,13 @@ fn stops_here(source: &Program, region: RegionId) -> bool {
 /// loop within holds its own breaks.
 fn breaks(source: &Program, region: RegionId) -> bool {
     let held = source.region(region);
-    if held
-        .terminator
-        .is_some_and(|terminator| terminator.exit == Exit::Break)
-    {
+    if held.terminator.is_some_and(|terminator| terminator.exit == Exit::Break) {
         return true;
     }
     source.walk(region).any(|(op, _)| match *op {
-        Op::If {
-            then_region,
-            else_region,
-            ..
-        } => breaks(source, then_region) || breaks(source, else_region),
+        Op::If { then_region, else_region, .. } => {
+            breaks(source, then_region) || breaks(source, else_region)
+        }
         _ => false,
     })
 }
@@ -647,18 +584,13 @@ fn breaks(source: &Program, region: RegionId) -> bool {
 /// Whether a region, or one within it, returns from its function.
 fn returns(source: &Program, region: RegionId) -> bool {
     let held = source.region(region);
-    if held
-        .terminator
-        .is_some_and(|terminator| terminator.exit == Exit::Return)
-    {
+    if held.terminator.is_some_and(|terminator| terminator.exit == Exit::Return) {
         return true;
     }
     source.walk(region).any(|(op, _)| match *op {
-        Op::If {
-            then_region,
-            else_region,
-            ..
-        } => returns(source, then_region) || returns(source, else_region),
+        Op::If { then_region, else_region, .. } => {
+            returns(source, then_region) || returns(source, else_region)
+        }
         Op::Loop { body, .. } => returns(source, body),
         _ => false,
     })

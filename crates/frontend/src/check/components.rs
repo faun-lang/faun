@@ -35,11 +35,8 @@ pub(super) fn components(
     symbols: &Symbols,
 ) -> Vec<Vec<Symbol>> {
     let names: Vec<_> = unsigned.iter().copied().collect();
-    let index: HashMap<_, _> = names
-        .iter()
-        .enumerate()
-        .map(|(index, name)| (*name, index))
-        .collect();
+    let index: HashMap<_, _> =
+        names.iter().enumerate().map(|(index, name)| (*name, index)).collect();
     let mut edges = vec![Vec::new(); names.len()];
     for (name, &from) in &index {
         let mut dependencies = HashSet::default();

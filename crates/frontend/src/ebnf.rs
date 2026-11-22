@@ -19,11 +19,7 @@ struct Kinds(u128);
 impl Kinds {
     fn one(terminal: usize) -> Self {
         let at = u32::try_from(terminal).expect("a terminal's number fits");
-        Self(
-            1_u128
-                .checked_shl(at)
-                .expect("the grammar has under 128 terminals"),
-        )
+        Self(1_u128.checked_shl(at).expect("the grammar has under 128 terminals"))
     }
 
     const fn with(self, other: Self) -> Self {
@@ -61,10 +57,7 @@ struct Grammar {
 }
 
 /// The token kind a terminal spells.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one arm for each terminal the grammar spells"
-)]
+#[expect(clippy::too_many_lines, reason = "one arm for each terminal the grammar spells")]
 fn terminal(spelling: &str) -> Kind {
     match spelling {
         "NEWLINE" => Kind::Newline,
@@ -165,17 +158,9 @@ impl Grammar {
                 names.push((*word).to_owned());
             }
         }
-        let index: HashMap<&str, usize> = names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| (name.as_str(), at))
-            .collect();
-        let mut reader = Reader {
-            words: &words,
-            at: 0,
-            index: &index,
-            terminals: Vec::new(),
-        };
+        let index: HashMap<&str, usize> =
+            names.iter().enumerate().map(|(at, name)| (name.as_str(), at)).collect();
+        let mut reader = Reader { words: &words, at: 0, index: &index, terminals: Vec::new() };
         let mut rules = Vec::new();
         while reader.at < words.len() {
             reader.next();
@@ -248,9 +233,9 @@ impl Grammar {
                 }
                 first
             }
-            Node::Choice(branches) => branches.iter().fold(Kinds::default(), |first, branch| {
-                first.with(self.first(branch))
-            }),
+            Node::Choice(branches) => branches
+                .iter()
+                .fold(Kinds::default(), |first, branch| first.with(self.first(branch))),
             Node::Optional(inner) | Node::Repeated(inner) => self.first(inner),
             Node::Token(terminal) => Kinds::one(*terminal),
             Node::Rule(rule) => self.first[*rule],
@@ -299,10 +284,7 @@ impl Grammar {
                         }
                         seen = seen.with(first);
                     }
-                    let empty = branches
-                        .iter()
-                        .filter(|branch| self.nullable(branch))
-                        .count();
+                    let empty = branches.iter().filter(|branch| self.nullable(branch)).count();
                     if empty > 1 {
                         conflicts.push(format!("`{name}`: two branches may be empty"));
                     }
@@ -317,9 +299,8 @@ impl Grammar {
                         conflicts.push(format!("`{name}`: an optional part may be empty"));
                     }
                     if self.first(inner).meets(after) {
-                        conflicts.push(format!(
-                            "`{name}`: an optional part begins as what follows it"
-                        ));
+                        conflicts
+                            .push(format!("`{name}`: an optional part begins as what follows it"));
                     }
                 }
                 _ => {}
@@ -345,9 +326,9 @@ impl Grammar {
     fn read_node(&self, node: &Node, tokens: &[Token], at: &mut usize) -> Result<(), usize> {
         let next = self.terminal_at(tokens, *at);
         match node {
-            Node::Sequence(items) => items
-                .iter()
-                .try_for_each(|item| self.read_node(item, tokens, at)),
+            Node::Sequence(items) => {
+                items.iter().try_for_each(|item| self.read_node(item, tokens, at))
+            }
             Node::Choice(branches) => {
                 let branch = branches
                     .iter()
@@ -441,11 +422,7 @@ impl Reader<'_> {
         {
             items.push(self.item());
         }
-        if items.len() == 1 {
-            items.pop().expect("one item")
-        } else {
-            Node::Sequence(items)
-        }
+        if items.len() == 1 { items.pop().expect("one item") } else { Node::Sequence(items) }
     }
 
     fn item(&mut self) -> Node {
@@ -467,11 +444,8 @@ impl Reader<'_> {
             ),
             spelling => {
                 let kind = terminal(spelling);
-                let number = self
-                    .terminals
-                    .iter()
-                    .position(|known| *known == kind)
-                    .unwrap_or_else(|| {
+                let number =
+                    self.terminals.iter().position(|known| *known == kind).unwrap_or_else(|| {
                         self.terminals.push(kind);
                         self.terminals.len() - 1
                     });
@@ -510,11 +484,7 @@ fn agree(grammar: &Grammar, label: &str, source: &str) -> bool {
         grammar_reads.is_ok(),
         parser_reads,
         "{label}: grammar.ebnf {} it, and the parser {} it (grammar stopped at token {:?})",
-        if grammar_reads.is_ok() {
-            "reads"
-        } else {
-            "refuses"
-        },
+        if grammar_reads.is_ok() { "reads" } else { "refuses" },
         if parser_reads { "reads" } else { "refuses" },
         grammar_reads.err(),
     );
@@ -699,10 +669,7 @@ fn a_choice_the_next_token_cannot_make_is_found() {
     let alike = Grammar::read("file = a | b ; a = NAME ; b = NAME TYPE ;");
     assert_eq!(alike.conflicts(), ["`file`: two branches begin alike"]);
     let greedy = Grammar::read("file = { NAME } NAME EOF ;");
-    assert_eq!(
-        greedy.conflicts(),
-        ["`file`: an optional part begins as what follows it"]
-    );
+    assert_eq!(greedy.conflicts(), ["`file`: an optional part begins as what follows it"]);
     let unused = Grammar::read("file = NAME ; other = TYPE ;");
     assert_eq!(unused.unreached(), ["other"]);
 }

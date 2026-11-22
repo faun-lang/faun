@@ -133,10 +133,7 @@ impl<'a> Field<'a> {
 
     #[must_use]
     pub const fn named(self, name: &'a str) -> Self {
-        Self {
-            name: Some(name),
-            ..self
-        }
+        Self { name: Some(name), ..self }
     }
 }
 

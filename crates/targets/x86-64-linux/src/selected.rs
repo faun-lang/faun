@@ -69,10 +69,7 @@ pub(crate) enum Access {
 pub(crate) struct RegSet(u32);
 
 impl RegSet {
-    #[expect(
-        clippy::as_conversions,
-        reason = "register discriminants are bit indices"
-    )]
+    #[expect(clippy::as_conversions, reason = "register discriminants are bit indices")]
     const fn of(regs: &[Reg]) -> Self {
         let mut bits = 0;
         let mut at = 0;
@@ -83,10 +80,7 @@ impl RegSet {
         Self(bits)
     }
 
-    #[expect(
-        clippy::as_conversions,
-        reason = "register discriminants are bit indices"
-    )]
+    #[expect(clippy::as_conversions, reason = "register discriminants are bit indices")]
     pub(crate) const fn contains(self, reg: Reg) -> bool {
         self.0 & (1 << (reg as u8)) != 0
     }
@@ -115,12 +109,8 @@ pub(crate) struct Requirements {
 }
 
 impl Effects {
-    const PURE: Self = Self {
-        memory: Access::None,
-        flags: Access::None,
-        control: false,
-        clobbers: RegSet(0),
-    };
+    const PURE: Self =
+        Self { memory: Access::None, flags: Access::None, control: false, clobbers: RegSet(0) };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,10 +230,7 @@ impl Opcode {
         reason = "one centralized expansion, scratch, and effect declaration per selected opcode"
     )]
     pub(crate) const fn requirements(self) -> Requirements {
-        let arithmetic = Effects {
-            flags: Access::Write,
-            ..Effects::PURE
-        };
+        let arithmetic = Effects { flags: Access::Write, ..Effects::PURE };
         let call = Effects {
             memory: Access::Unknown,
             flags: Access::Unknown,
@@ -378,11 +365,7 @@ impl Opcode {
             Self::ArgumentVector => RegSet::of(&[Reg::Rcx]),
             _ => RegSet(0),
         };
-        Requirements {
-            expansion,
-            scratch,
-            effects,
-        }
+        Requirements { expansion, scratch, effects }
     }
 }
 
@@ -479,10 +462,7 @@ impl Inst {
                 if result
                     && matches!(
                         self.immediate,
-                        Immediate::Memory {
-                            width: Width::Word | Width::Bits32,
-                            ..
-                        }
+                        Immediate::Memory { width: Width::Word | Width::Bits32, .. }
                     ) =>
             {
                 SCALARS
@@ -492,10 +472,7 @@ impl Inst {
                     && use_at == 1
                     && matches!(
                         self.immediate,
-                        Immediate::Memory {
-                            width: Width::Word | Width::Bits32,
-                            ..
-                        }
+                        Immediate::Memory { width: Width::Word | Width::Bits32, .. }
                     ) =>
             {
                 SCALARS
@@ -635,10 +612,7 @@ impl Selected {
                     function.source
                 ));
             }
-            for (at, spec) in self.block_param_specs[entry.params.range()]
-                .iter()
-                .enumerate()
-            {
+            for (at, spec) in self.block_param_specs[entry.params.range()].iter().enumerate() {
                 if spec.constraint
                     != Constraint::Fixed(
                         abi_register(at).ok_or_else(|| {
@@ -655,11 +629,7 @@ impl Selected {
         }
         for (at, block) in self.blocks.iter().enumerate() {
             let block_id = BlockId::at(at);
-            if !self
-                .functions
-                .iter()
-                .any(|function| function.source == block.owner)
-            {
+            if !self.functions.iter().any(|function| function.source == block.owner) {
                 return Err(format!("x86 block b{at} has no owning function"));
             }
             Self::verify_range(block.params, self.block_params.len(), "block parameters")?;
@@ -670,9 +640,7 @@ impl Selected {
             )?;
             for spec in &self.block_param_specs[block.params.range()] {
                 if spec.role != Role::Def || spec.timing != Timing::Late {
-                    return Err(format!(
-                        "x86 block b{at} has an invalid parameter constraint"
-                    ));
+                    return Err(format!("x86 block b{at} has an invalid parameter constraint"));
                 }
             }
             Self::verify_range(block.instructions, self.order.len(), "block instructions")?;
@@ -729,10 +697,7 @@ impl Selected {
     /// Verify each call's contiguous stores/call/loads sequence, and the
     /// entry loads and return stores against the owning function's layout.
     /// Slot bounds alone would admit missing, overlapping or unwritten values.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one walk verifies both sides of each stack call"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one walk verifies both sides of each stack call")]
     fn verify_stack_calls(&self) -> Result<(), String> {
         for (id, block) in self.blocks.iter_enumerated() {
             let owner = self
@@ -742,11 +707,7 @@ impl Selected {
                 .expect("a verified block owner");
             let (mut arguments, mut returns) = (0usize, 0usize);
             let mut results = 0..0;
-            let incoming = if id == owner.entry {
-                owner.stack_params
-            } else {
-                0
-            };
+            let incoming = if id == owner.entry { owner.stack_params } else { 0 };
             let instructions = &self.order[block.instructions.range()];
             if instructions.len() < incoming {
                 return Err("x86 stack parameters are missing".to_owned());
@@ -919,10 +880,7 @@ impl Selected {
             _ => inst.result.is_some(),
         };
         if !result_is_valid {
-            return Err(format!(
-                "x86 instruction i{} has the wrong result arity",
-                id.index()
-            ));
+            return Err(format!("x86 instruction i{} has the wrong result arity", id.index()));
         }
         verify_immediate(inst, id)?;
         self.verify_inst_widths(inst, id)?;
@@ -930,18 +888,12 @@ impl Selected {
         let operands = uses + usize::from(inst.result.is_some());
         for at in 0..operands {
             let spec = inst.operand_spec(at).ok_or_else(|| {
-                format!(
-                    "x86 instruction i{} has no constraint for operand {at}",
-                    id.index()
-                )
+                format!("x86 instruction i{} has no constraint for operand {at}", id.index())
             })?;
             if let Constraint::Tied(other) = spec.constraint
                 && usize::from(other) >= operands
             {
-                return Err(format!(
-                    "x86 instruction i{} has an invalid tie",
-                    id.index()
-                ));
+                return Err(format!("x86 instruction i{} has an invalid tie", id.index()));
             }
         }
         Ok(())
@@ -955,10 +907,7 @@ impl Selected {
         if matches!(inst.immediate, Immediate::Shift { bits: 0, .. })
             || declared.is_some_and(|bits| bits > WORD_BITS)
         {
-            return Err(format!(
-                "x86 instruction i{} has an unsupported width",
-                id.index()
-            ));
+            return Err(format!("x86 instruction i{} has an unsupported width", id.index()));
         }
         let represented = match inst.opcode {
             // A monus works at its operands' width, where the borrow is.
@@ -992,13 +941,7 @@ impl Selected {
     fn verify_terminator(&self, owner: FunctionId, terminator: Terminator) -> Result<(), String> {
         match terminator {
             Terminator::Jump { target, args } => self.verify_edge(owner, target, args),
-            Terminator::Branch {
-                then_target,
-                then_args,
-                else_target,
-                else_args,
-                ..
-            } => {
+            Terminator::Branch { then_target, then_args, else_target, else_args, .. } => {
                 self.verify_edge(owner, then_target, then_args)?;
                 self.verify_edge(owner, else_target, else_args)
             }
@@ -1037,9 +980,8 @@ impl Selected {
                 target.params.len()
             ));
         }
-        for (&argument, &parameter) in self.operands[args.range()]
-            .iter()
-            .zip(&self.block_params[target.params.range()])
+        for (&argument, &parameter) in
+            self.operands[args.range()].iter().zip(&self.block_params[target.params.range()])
         {
             if self.width(argument)? > self.width(parameter)? {
                 return Err("x86 edge argument does not fit its parameter".to_owned());
@@ -1126,10 +1068,7 @@ impl Selected {
                 }
                 seen[block.index()] = true;
                 stack.push((block, true));
-                for successor in successors(self.blocks[block].terminator)
-                    .into_iter()
-                    .flatten()
-                {
+                for successor in successors(self.blocks[block].terminator).into_iter().flatten() {
                     if !seen[successor.index()] {
                         stack.push((successor, false));
                     }
@@ -1161,15 +1100,9 @@ impl Selected {
         dominators: &Dominators,
     ) -> Result<(), String> {
         let check = |value: VReg, position: usize| {
-            let definition = definitions
-                .get(value.index())
-                .and_then(Option::as_ref)
-                .ok_or_else(|| {
-                    format!(
-                        "x86 block b{} uses undefined v{}",
-                        block.index(),
-                        value.index()
-                    )
+            let definition =
+                definitions.get(value.index()).and_then(Option::as_ref).ok_or_else(|| {
+                    format!("x86 block b{} uses undefined v{}", block.index(), value.index())
                 })?;
             if definition.owner != owner {
                 return Err(format!(
@@ -1206,16 +1139,10 @@ impl Selected {
                     check(value, after_instructions)?;
                 }
             }
-            Terminator::Branch {
-                condition,
-                then_args,
-                else_args,
-                ..
-            } => {
+            Terminator::Branch { condition, then_args, else_args, .. } => {
                 check(condition, after_instructions)?;
-                for &value in self.operands[then_args.range()]
-                    .iter()
-                    .chain(&self.operands[else_args.range()])
+                for &value in
+                    self.operands[then_args.range()].iter().chain(&self.operands[else_args.range()])
                 {
                     check(value, after_instructions)?;
                 }
@@ -1251,11 +1178,9 @@ fn intersect_dominators(
 const fn successors(terminator: Terminator) -> [Option<BlockId>; 2] {
     match terminator {
         Terminator::Jump { target, .. } => [Some(target), None],
-        Terminator::Branch {
-            then_target,
-            else_target,
-            ..
-        } => [Some(then_target), Some(else_target)],
+        Terminator::Branch { then_target, else_target, .. } => {
+            [Some(then_target), Some(else_target)]
+        }
         Terminator::Return { .. } | Terminator::Halt => [None, None],
     }
 }
@@ -1338,10 +1263,7 @@ fn verify_effects(opcode: Opcode, id: InstId) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!(
-            "x86 instruction i{} has an inconsistent effect declaration",
-            id.index()
-        ))
+        Err(format!("x86 instruction i{} has an inconsistent effect declaration", id.index()))
     }
 }
 
@@ -1372,13 +1294,7 @@ fn verify_immediate(inst: Inst, id: InstId) -> Result<(), String> {
                 Immediate::Bits(_)
             )
             | (Opcode::Load | Opcode::Store, Immediate::Memory { .. })
-            | (
-                Opcode::RotateLeft,
-                Immediate::Rotate {
-                    bits: 8 | 16 | 32 | 64,
-                    ..
-                }
-            )
+            | (Opcode::RotateLeft, Immediate::Rotate { bits: 8 | 16 | 32 | 64, .. })
             | (Opcode::Shift, Immediate::Shift { .. })
             | (Opcode::Call, Immediate::Function(_))
             | (Opcode::FloatNotAbove, Immediate::Bits(32 | 64))
@@ -1409,10 +1325,7 @@ fn verify_immediate(inst: Inst, id: InstId) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!(
-            "x86 instruction i{} has an immediate for another opcode",
-            id.index()
-        ))
+        Err(format!("x86 instruction i{} has an immediate for another opcode", id.index()))
     }
 }
 
@@ -1459,10 +1372,6 @@ pub(crate) fn select_and_allocate_favouring(
     register_allocate::allocate(&selected, source.entry(), favour, frame_pointers)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "selection initializes value classes and each function entry"
-)]
 pub(crate) fn select(source: &Program) -> Result<Selected, String> {
     let mut widths = Vec::with_capacity(source.values_count());
     for at in 0..source.values_count() {
@@ -1484,9 +1393,7 @@ pub(crate) fn select(source: &Program) -> Result<Selected, String> {
         functions: Vec::new(),
     };
     let entry = source.entry();
-    let rest = (0..source.functions().len())
-        .map(FunctionId::at)
-        .filter(|&id| id != entry);
+    let rest = (0..source.functions().len()).map(FunctionId::at).filter(|&id| id != entry);
     for source_id in std::iter::once(entry).chain(rest) {
         let function = source.function(source_id);
         let Some(body) = function.body() else {
@@ -1500,16 +1407,7 @@ pub(crate) fn select(source: &Program) -> Result<Selected, String> {
             stack_params: params.len().saturating_sub(ARG_COUNT),
             stack_results: function.returns.classes().len().saturating_sub(1),
         });
-        selector.region(
-            source_id,
-            body,
-            entry,
-            Flow {
-                join: None,
-                repeat: None,
-                leave: None,
-            },
-        )?;
+        selector.region(source_id, body, entry, Flow { join: None, repeat: None, leave: None })?;
     }
     selector.finish()
 }
@@ -1524,9 +1422,8 @@ impl Selector<'_> {
         if program_entry {
             let block = self.block(owner, &[]);
             // The count, then where the arguments' addresses lie.
-            for (&value, opcode) in params
-                .iter()
-                .zip([Opcode::ArgumentCount, Opcode::ArgumentVector])
+            for (&value, opcode) in
+                params.iter().zip([Opcode::ArgumentCount, Opcode::ArgumentVector])
             {
                 self.emit(block, opcode, Some(value), &[], Immediate::None);
             }
@@ -1541,13 +1438,7 @@ impl Selector<'_> {
                 })?);
         }
         for (slot, &value) in params[registers..].iter().enumerate() {
-            self.emit(
-                block,
-                Opcode::LoadIncoming,
-                Some(value),
-                &[],
-                stack_slot(slot)?,
-            );
+            self.emit(block, Opcode::LoadIncoming, Some(value), &[], stack_slot(slot)?);
         }
         Ok(block)
     }
@@ -1562,20 +1453,11 @@ impl Selector<'_> {
         for (at, block) in self.blocks.into_iter().enumerate() {
             let params = append(&mut block_params, &block.params);
             let specs = append(&mut block_param_specs, &block.param_specs);
-            assert_eq!(
-                params, specs,
-                "block parameter values and specs stay parallel"
-            );
+            assert_eq!(params, specs, "block parameter values and specs stay parallel");
             let instructions = append(&mut order, &block.instructions);
-            let terminator = block
-                .terminator
-                .ok_or_else(|| format!("x86 block b{at} has no terminator"))?;
-            blocks.push(Block {
-                owner: block.owner,
-                params,
-                instructions,
-                terminator,
-            });
+            let terminator =
+                block.terminator.ok_or_else(|| format!("x86 block b{at} has no terminator"))?;
+            blocks.push(Block { owner: block.owner, params, instructions, terminator });
         }
         let selected = Selected {
             widths: self.widths,
@@ -1623,12 +1505,8 @@ impl Selector<'_> {
     ) {
         let operands: Vec<_> = operands.iter().copied().map(vreg).collect();
         let operands = append(&mut self.operands, &operands);
-        let id = self.instructions.push(Inst {
-            opcode,
-            result: result.map(vreg),
-            operands,
-            immediate,
-        });
+        let id =
+            self.instructions.push(Inst { opcode, result: result.map(vreg), operands, immediate });
         self.blocks[block].instructions.push(id);
     }
 
@@ -1663,10 +1541,7 @@ impl Selector<'_> {
         append(&mut self.operands, &values)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one selection arm per machine-IR operation"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one selection arm per machine-IR operation")]
     fn region(
         &mut self,
         owner: FunctionId,
@@ -1762,11 +1637,7 @@ impl Selector<'_> {
                         Immediate::Bits(bits),
                     );
                 }
-                SourceOp::Compare {
-                    relation,
-                    left,
-                    right,
-                } => {
+                SourceOp::Compare { relation, left, right } => {
                     let (opcode, bits) = match relation {
                         Relation::FloatNotAbove(format) => (Opcode::FloatNotAbove, format.bits()),
                         Relation::Equal => {
@@ -1782,23 +1653,14 @@ impl Selector<'_> {
                         Immediate::Bits(bits),
                     );
                 }
-                SourceOp::Load {
-                    width,
-                    address,
-                    offset,
-                } => self.emit(
+                SourceOp::Load { width, address, offset } => self.emit(
                     block,
                     Opcode::Load,
                     results.first().copied(),
                     &[address],
                     Immediate::Memory { width, offset },
                 ),
-                SourceOp::Store {
-                    width,
-                    address,
-                    offset,
-                    value,
-                } => self.emit(
+                SourceOp::Store { width, address, offset, value } => self.emit(
                     block,
                     Opcode::Store,
                     None,
@@ -1814,19 +1676,9 @@ impl Selector<'_> {
                     } else {
                         Immediate::Bits(source.class(results[0]).bits(WORD_BITS))
                     };
-                    self.emit(
-                        block,
-                        Opcode::Convert,
-                        results.first().copied(),
-                        &[value],
-                        kept,
-                    );
+                    self.emit(block, Opcode::Convert, results.first().copied(), &[value], kept);
                 }
-                SourceOp::Shift {
-                    direction,
-                    value,
-                    by,
-                } => self.emit(
+                SourceOp::Shift { direction, value, by } => self.emit(
                     block,
                     Opcode::Shift,
                     results.first().copied(),
@@ -1894,20 +1746,10 @@ impl Selector<'_> {
                             );
                         }
                     } else {
-                        self.emit(
-                            block,
-                            opcode,
-                            results.first().copied(),
-                            args,
-                            Immediate::None,
-                        );
+                        self.emit(block, opcode, results.first().copied(), args, Immediate::None);
                     }
                 }
-                SourceOp::If {
-                    condition,
-                    then_region,
-                    else_region,
-                } => {
+                SourceOp::If { condition, then_region, else_region } => {
                     let then_params = source.values(source.region(then_region).params);
                     let else_params = source.values(source.region(else_region).params);
                     if !then_params.is_empty() || !else_params.is_empty() {
@@ -1930,19 +1772,13 @@ impl Selector<'_> {
                         owner,
                         then_region,
                         then_target,
-                        Flow {
-                            join: Some(join),
-                            ..flow
-                        },
+                        Flow { join: Some(join), ..flow },
                     )?;
                     self.region(
                         owner,
                         else_region,
                         else_target,
-                        Flow {
-                            join: Some(join),
-                            ..flow
-                        },
+                        Flow { join: Some(join), ..flow },
                     )?;
                     block = join;
                 }
@@ -1955,11 +1791,7 @@ impl Selector<'_> {
                         owner,
                         body,
                         head,
-                        Flow {
-                            join: None,
-                            repeat: Some(head),
-                            leave: Some(exit),
-                        },
+                        Flow { join: None, repeat: Some(head), leave: Some(exit) },
                     )?;
                     block = exit;
                 }
@@ -1973,10 +1805,6 @@ impl Selector<'_> {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one exhaustive selection of region transfers and stack results"
-    )]
     fn source_terminator(
         &mut self,
         block: BlockId,
@@ -1986,34 +1814,26 @@ impl Selector<'_> {
         let values = self.source.values(terminator.values);
         match terminator.exit {
             Exit::Yield => {
-                let target = flow
-                    .join
-                    .ok_or_else(|| "x86 yield has no selected join".to_owned())?;
+                let target =
+                    flow.join.ok_or_else(|| "x86 yield has no selected join".to_owned())?;
                 let args = self.edge_args(values);
                 self.terminate(block, Terminator::Jump { target, args });
             }
             Exit::Continue => {
-                let target = flow
-                    .repeat
-                    .ok_or_else(|| "x86 continue has no selected loop".to_owned())?;
+                let target =
+                    flow.repeat.ok_or_else(|| "x86 continue has no selected loop".to_owned())?;
                 let args = self.edge_args(values);
                 self.terminate(block, Terminator::Jump { target, args });
             }
             Exit::Break => {
-                let target = flow
-                    .leave
-                    .ok_or_else(|| "x86 break has no selected loop".to_owned())?;
+                let target =
+                    flow.leave.ok_or_else(|| "x86 break has no selected loop".to_owned())?;
                 let args = self.edge_args(values);
                 self.terminate(block, Terminator::Jump { target, args });
             }
             Exit::Return => {
                 let owner = self.blocks[block].owner;
-                let arguments = self
-                    .source
-                    .function(owner)
-                    .params
-                    .len()
-                    .saturating_sub(ARG_COUNT);
+                let arguments = self.source.function(owner).params.len().saturating_sub(ARG_COUNT);
                 for (at, &value) in values.iter().skip(1).enumerate() {
                     self.emit(
                         block,
@@ -2157,18 +1977,9 @@ mod tests {
             operands: Range::of(0, 2),
             immediate: Immediate::Function(FunctionId::at(0)),
         };
-        assert_eq!(
-            inst.operand_spec(0).unwrap().constraint,
-            Constraint::Fixed(Reg::Rax)
-        );
-        assert_eq!(
-            inst.operand_spec(1).unwrap().constraint,
-            Constraint::Fixed(Reg::Rdi)
-        );
-        assert_eq!(
-            inst.operand_spec(2).unwrap().constraint,
-            Constraint::Fixed(Reg::Rsi)
-        );
+        assert_eq!(inst.operand_spec(0).unwrap().constraint, Constraint::Fixed(Reg::Rax));
+        assert_eq!(inst.operand_spec(1).unwrap().constraint, Constraint::Fixed(Reg::Rdi));
+        assert_eq!(inst.operand_spec(2).unwrap().constraint, Constraint::Fixed(Reg::Rsi));
     }
 
     #[test]
@@ -2203,11 +2014,7 @@ mod tests {
             Opcode::StoreOutgoing,
         ] {
             let mut selected = select(&faun_core::programs::abi::function(8, 3)).unwrap();
-            let inst = selected
-                .instructions
-                .iter_mut()
-                .find(|inst| inst.opcode == opcode)
-                .unwrap();
+            let inst = selected.instructions.iter_mut().find(|inst| inst.opcode == opcode).unwrap();
             inst.immediate = Immediate::Slot(99);
             let error = selected.verify().unwrap_err();
             assert!(error.contains("stack"), "{opcode:?}: {error}");
@@ -2232,11 +2039,8 @@ mod tests {
     fn verifier_rejects_calls_to_the_logical_entry() {
         let mut selected = select(&faun_core::programs::abi::function(0, 1)).unwrap();
         let entry = selected.functions[0].source;
-        let call = selected
-            .instructions
-            .iter_mut()
-            .find(|inst| inst.opcode == Opcode::Call)
-            .unwrap();
+        let call =
+            selected.instructions.iter_mut().find(|inst| inst.opcode == Opcode::Call).unwrap();
         call.immediate = Immediate::Function(entry);
         assert!(selected.verify().unwrap_err().contains("logical entry"));
     }
@@ -2250,10 +2054,7 @@ mod tests {
             immediate: Immediate::Bits(64),
         };
         assert_eq!(inst.operand_spec(0).unwrap().constraint, Constraint::Any);
-        assert_eq!(
-            inst.operand_spec(1).unwrap().constraint,
-            Constraint::Tied(0)
-        );
+        assert_eq!(inst.operand_spec(1).unwrap().constraint, Constraint::Tied(0));
         assert_eq!(inst.operand_spec(2).unwrap().constraint, Constraint::Any);
         let requirements = inst.opcode.requirements();
         assert_eq!(requirements.scratch, RegSet::default());

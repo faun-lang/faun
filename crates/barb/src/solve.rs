@@ -136,19 +136,10 @@ pub(super) fn solve<D: Domain>(numeric: &Numeric) -> Solution {
     }
 
     let mut arguments = vec![Vec::new(); numeric.terms];
-    let (mut terms, mut matched) = (
-        vec![Bounds::NOTHING; numeric.terms],
-        vec![Bounds::NOTHING; numeric.terms],
-    );
+    let (mut terms, mut matched) =
+        (vec![Bounds::NOTHING; numeric.terms], vec![Bounds::NOTHING; numeric.terms]);
     for at in 0..count {
-        walk(
-            numeric,
-            &plan,
-            &held,
-            at,
-            (&mut terms, &mut matched),
-            Some(&mut arguments),
-        );
+        walk(numeric, &plan, &held, at, (&mut terms, &mut matched), Some(&mut arguments));
     }
     let takes = held
         .entries
@@ -211,12 +202,7 @@ impl<D: Domain> Plan<D> {
         for (at, function) in numeric.functions.iter().enumerate() {
             if let Answer::Body(body) = &function.answer {
                 visit(body, &mut |term| match &term.kind {
-                    Kind::Call {
-                        callee,
-                        operation,
-                        sequence,
-                        ..
-                    } => {
+                    Kind::Call { callee, operation, sequence, .. } => {
                         calls[at].push(super::FnId::at(*callee));
                         // A call of an operation works out its answer from
                         // its operands where it is made, and reads nothing
@@ -264,10 +250,8 @@ impl<D: Domain> Plan<D> {
         for each in &mut callers {
             each.dedup();
         }
-        let goes_round = rounds
-            .iter()
-            .map(|members| members.iter().any(|id| recursive[id.index()]))
-            .collect();
+        let goes_round =
+            rounds.iter().map(|members| members.iter().any(|id| recursive[id.index()])).collect();
         Self {
             layouts,
             rank,
@@ -321,12 +305,7 @@ impl Thresholds {
             Bound::from(u32::MAX),
             Bound::from(u64::MAX),
         ];
-        relations.extend(
-            numeric
-                .length
-                .and_then(|length| length.high)
-                .map(Bound::from),
-        );
+        relations.extend(numeric.length.and_then(|length| length.high).map(Bound::from));
         relations.sort_unstable();
         let mut bounds = relations.clone();
         bounds.extend(numeric.divisors.iter().map(|&below| Bound::from(below)));
@@ -364,11 +343,7 @@ struct Entry {
 impl Entry {
     fn new(params: usize) -> Self {
         let side = if params > 1 { 2 * params } else { 0 };
-        Self {
-            values: vec![None; params],
-            side,
-            relations: vec![UNSAID; side * side],
-        }
+        Self { values: vec![None; params], side, relations: vec![UNSAID; side * side] }
     }
 
     fn relation(&self, from: usize, to: usize) -> Bound {
@@ -480,13 +455,8 @@ struct Grown {
 }
 
 impl Grown {
-    const NEVER: Self = Self {
-        sweeps: 0,
-        sweep: usize::MAX,
-        round: usize::MAX,
-        times: 0,
-        time: usize::MAX,
-    };
+    const NEVER: Self =
+        Self { sweeps: 0, sweep: usize::MAX, round: usize::MAX, times: 0, time: usize::MAX };
 }
 
 impl Growth {
@@ -525,9 +495,9 @@ impl Growth {
         };
         match held {
             Held::Entry(at) | Held::Answer(at) => plan.rank[at] == round.rank,
-            Held::Field(slot) => plan.readers[slot]
-                .iter()
-                .any(|&reader| plan.rank[reader] == round.rank),
+            Held::Field(slot) => {
+                plan.readers[slot].iter().any(|&reader| plan.rank[reader] == round.rank)
+            }
         }
     }
 
@@ -540,9 +510,7 @@ impl Growth {
             Held::Field(slot) => self.fields[slot],
         };
         grown.sweeps >= WIDEN
-            || self
-                .round
-                .is_some_and(|round| round.at == grown.round && grown.times >= WIDEN)
+            || self.round.is_some_and(|round| round.at == grown.round && grown.times >= WIDEN)
     }
 
     /// Count that `held` grew: once a sweep, and, where the round going
@@ -660,10 +628,8 @@ fn once<D: Domain>(
     held: &mut Propagation<D>,
     at: usize,
 ) -> Vec<usize> {
-    let (mut terms, mut matched) = (
-        std::mem::take(&mut held.terms),
-        std::mem::take(&mut held.matched),
-    );
+    let (mut terms, mut matched) =
+        (std::mem::take(&mut held.terms), std::mem::take(&mut held.matched));
     #[cfg(test)]
     {
         plan.walks.borrow_mut()[at] += 1;
@@ -675,10 +641,7 @@ fn once<D: Domain>(
         return Vec::new();
     };
     let mut again = held.learn(plan, found, true);
-    let wide = held
-        .grown
-        .wide(Held::Answer(at))
-        .then_some(&plan.thresholds);
+    let wide = held.grown.wide(Held::Answer(at)).then_some(&plan.thresholds);
     if settle(&mut held.results[at], answer, wide) {
         held.grown.grew(plan, Held::Answer(at));
         again.extend_from_slice(&plan.callers[at]);
@@ -692,14 +655,9 @@ fn narrowed<D: Domain>(numeric: &Numeric, plan: &Plan<D>, held: &Propagation<D>)
     let mut next = Propagation::start(numeric);
     next.settled = true;
     for at in 0..numeric.functions.len() {
-        let Some((answer, found)) = walk(
-            numeric,
-            plan,
-            held,
-            at,
-            (&mut next.terms, &mut next.matched),
-            None,
-        ) else {
+        let Some((answer, found)) =
+            walk(numeric, plan, held, at, (&mut next.terms, &mut next.matched), None)
+        else {
             continue;
         };
         next.results[at] = Some(answer);
@@ -721,11 +679,8 @@ fn started<D: Domain>(layout: &Layout, entry: &Entry) -> Option<(State<D>, bool)
     let values: Vec<Bounds> = entry.values.iter().copied().collect::<Option<_>>()?;
     let params = values.len();
     let places: Vec<Place> = (0..params).map(|at| layout.place(at)).collect();
-    let mut members: Vec<Vec<usize>> = layout
-        .sizes
-        .iter()
-        .map(|&size| vec![usize::MAX; size])
-        .collect();
+    let mut members: Vec<Vec<usize>> =
+        layout.sizes.iter().map(|&size| vec![usize::MAX; size]).collect();
     for (level, place) in places.iter().enumerate() {
         if let Some((pack, at)) = *place {
             members[pack][at] = level;
@@ -766,14 +721,7 @@ fn started<D: Domain>(layout: &Layout, entry: &Entry) -> Option<(State<D>, bool)
         packs.push(Rc::new(domain));
     }
     let fresh = vec![false; values.len()];
-    let mut state = State {
-        values,
-        places,
-        packs,
-        members,
-        fresh,
-        narrowed: Vec::new(),
-    };
+    let mut state = State { values, places, packs, members, fresh, narrowed: Vec::new() };
     let holds = !empty && (0..layout.sizes.len()).all(|pack| state.sync(pack));
     Some((state, holds))
 }
@@ -859,11 +807,7 @@ fn settle(held: &mut Option<Bounds>, found: Bounds, widen: Option<&Thresholds>) 
     }
     let after = before.or(found);
     *held = Some(widen.map_or(after, |thresholds| Bounds {
-        low: if after.low < before.low {
-            0
-        } else {
-            before.low
-        },
+        low: if after.low < before.low { 0 } else { before.low },
         high: if after.high == before.high {
             before.high
         } else {
@@ -995,11 +939,7 @@ struct Found<D> {
 
 impl<D> Default for Found<D> {
     fn default() -> Self {
-        Self {
-            calls: Vec::new(),
-            built: Vec::new(),
-            resets: Vec::new(),
-        }
+        Self { calls: Vec::new(), built: Vec::new(), resets: Vec::new() }
     }
 }
 
@@ -1056,11 +996,9 @@ impl<D: Domain> FunctionWalk<'_, D> {
             self.push(held, place);
             self.implied.push(implied);
             self.defined.push(match &term.kind {
-                Kind::Call {
-                    operation: Some(op),
-                    args,
-                    ..
-                } if args.len() == 2 => Some(Defined::Operation(*op, args[0], args[1])),
+                Kind::Call { operation: Some(op), args, .. } if args.len() == 2 => {
+                    Some(Defined::Operation(*op, args[0], args[1]))
+                }
                 Kind::Copy(from) => Some(Defined::Copy(*from)),
                 _ => None,
             });
@@ -1177,10 +1115,6 @@ impl<D: Domain> FunctionWalk<'_, D> {
 
     /// What a statement says of how it stands to the values it was worked
     /// out from.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm for each kind of term a statement relates to its operands"
-    )]
     fn relate(&mut self, level: usize, term: &Term) {
         if self.state.values[level].is_nothing() {
             return;
@@ -1194,12 +1128,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 Built::Step(rest) => self.between(level, args[*rest], Some(1), Some(1)),
                 Built::Empty | Built::Tag(_) => {}
             },
-            Kind::Call {
-                args,
-                operation,
-                sequence,
-                ..
-            } => {
+            Kind::Call { args, operation, sequence, .. } => {
                 let held = |at: usize| self.state.values[args[at]];
                 match (operation, sequence) {
                     (Some(Operation::Add), _)
@@ -1336,12 +1265,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 self.answered_implied.clone_from(&self.implied[*from]);
                 self.state.values[*from]
             }
-            Kind::Const {
-                value,
-                stores,
-                resets,
-                ..
-            } => {
+            Kind::Const { value, stores, resets, .. } => {
                 self.found.built.extend_from_slice(stores);
                 self.found.resets.extend_from_slice(resets);
                 *value
@@ -1356,27 +1280,15 @@ impl<D: Domain> FunctionWalk<'_, D> {
                         .map_or(Bounds::ANY, |&arg| self.state.values[arg])
                         .and(promised),
                     Built::Empty => Bounds::at(0),
-                    Built::Step(rest) => args
-                        .get(rest)
-                        .map_or(Bounds::ANY, |&arg| self.state.values[arg].up()),
+                    Built::Step(rest) => {
+                        args.get(rest).map_or(Bounds::ANY, |&arg| self.state.values[arg].up())
+                    }
                     Built::Tag(tag) => Bounds::at(tag),
                 }
             }
-            Kind::Call {
-                callee,
-                args,
-                operation,
-                tags,
-                sequence,
-                float,
-                never,
-            } => self.call(
-                *callee,
-                args,
-                (*operation, *tags, *sequence),
-                float.as_ref(),
-                *never,
-            ),
+            Kind::Call { callee, args, operation, tags, sequence, float, never } => {
+                self.call(*callee, args, (*operation, *tags, *sequence), float.as_ref(), *never)
+            }
             Kind::Match { on, arms, told } => {
                 self.matched[term.expr] = self.matched[term.expr].or(self.state.values[*on]);
                 self.branch(*on, arms, *told)
@@ -1409,10 +1321,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
             && let Ok(greatest) = u64::try_from(divisor.saturating_sub(1))
             && divisor > 0
         {
-            answer = answer.and(Bounds {
-                low: 0,
-                high: Some(greatest),
-            });
+            answer = answer.and(Bounds { low: 0, high: Some(greatest) });
         }
         // A machine's float operation may answer any pattern of the format,
         // built into each wrapper out of sight.
@@ -1451,11 +1360,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 }
             }
         }
-        Handed {
-            values,
-            relations,
-            unknown,
-        }
+        Handed { values, relations, unknown }
     }
 
     /// Whether value `first` is known to be no more than value `second`.
@@ -1473,11 +1378,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
     /// bounds say in any case.
     fn related(&self, atoms: &[usize], values: &[Bounds]) -> D {
         let most = |held: Bounds, negated: bool| -> Bound {
-            if negated {
-                -Bound::from(held.low)
-            } else {
-                held.high.map_or(INFINITE, Bound::from)
-            }
+            if negated { -Bound::from(held.low) } else { held.high.map_or(INFINITE, Bound::from) }
         };
         let mut domain = D::top(atoms.len());
         for (at, &first) in atoms.iter().enumerate() {
@@ -1494,19 +1395,11 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 };
                 for (from, to) in SIGNS {
                     let (u, v) = (most(values[at], from), most(values[other], !to));
-                    let mut bound = if u >= INFINITE || v >= INFINITE {
-                        INFINITE
-                    } else {
-                        u + v
-                    };
+                    let mut bound = if u >= INFINITE || v >= INFINITE { INFINITE } else { u + v };
                     if let Some((held, x, y)) = packed {
                         bound = bound.min(held.get(node(x, from), node(y, to)));
                     }
-                    domain.assume(Constraint {
-                        from: node(at, from),
-                        to: node(other, to),
-                        bound,
-                    });
+                    domain.assume(Constraint { from: node(at, from), to: node(other, to), bound });
                 }
             }
         }
@@ -1654,10 +1547,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
         true
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm for each test a constructor makes"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one arm for each test a constructor makes")]
     fn entered(&mut self, on: Var, arm: &Arm) -> bool {
         let held = self.state.values[on];
         let reached = match arm.test {
@@ -1734,12 +1624,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 Field::Rest => rest,
                 Field::Slot { slot, tags } => {
                     let built = self.fields[slot].unwrap_or(Bounds::NOTHING);
-                    tags.map_or(built, |count| {
-                        built.and(Bounds {
-                            low: 0,
-                            high: Some(count - 1),
-                        })
-                    })
+                    tags.map_or(built, |count| built.and(Bounds { low: 0, high: Some(count - 1) }))
                 }
             };
             let place = self.layout().place(site);
@@ -1774,11 +1659,7 @@ fn compared(operation: Operation, (yes, no): (u64, u64), atoms: &[usize]) -> Imp
 fn by_bounds(constraint: Constraint, first: Bounds, second: Bounds) -> (Bounds, Bounds) {
     let span = |held: Bounds, negated: bool| -> (Option<Bound>, Option<Bound>) {
         let (low, high) = (Bound::from(held.low), held.high.map(Bound::from));
-        if negated {
-            (high.map(|high| -high), Some(-low))
-        } else {
-            (Some(low), high)
-        }
+        if negated { (high.map(|high| -high), Some(-low)) } else { (Some(low), high) }
     };
     let at_most = |most: Option<Bound>, negated: bool| -> Bounds {
         match (most, negated) {
@@ -1801,10 +1682,7 @@ fn by_bounds(constraint: Constraint, first: Bounds, second: Bounds) -> (Bounds, 
     let (from, to) = (span(first, from_negated), span(second, to_negated));
     let u_most = to.1.map(|most| constraint.bound + most);
     let minus_v_most = from.0.map(|least| constraint.bound - least);
-    (
-        first.and(at_most(u_most, from_negated)),
-        second.and(at_most(minus_v_most, !to_negated)),
-    )
+    (first.and(at_most(u_most, from_negated)), second.and(at_most(minus_v_most, !to_negated)))
 }
 
 /// The naturals from `least` to `most`, each where said.
@@ -1828,10 +1706,7 @@ fn fewer(a: Bounds, b: Bounds) -> Bounds {
         (Some(high), None) | (None, Some(high)) => Some(high),
         (None, None) => None,
     };
-    Bounds {
-        low: a.low.min(b.low),
-        high,
-    }
+    Bounds { low: a.low.min(b.low), high }
 }
 
 /// What a recognized operation answers of operands within `a` and `b`.
@@ -1877,16 +1752,10 @@ fn exclude(held: Bounds, other: Bounds) -> Bounds {
         return held;
     }
     if held.low == other.low {
-        return held.and(Bounds {
-            low: held.low.saturating_add(1),
-            high: None,
-        });
+        return held.and(Bounds { low: held.low.saturating_add(1), high: None });
     }
     if held.high == Some(other.low) {
-        return held.and(Bounds {
-            low: 0,
-            high: other.low.checked_sub(1),
-        });
+        return held.and(Bounds { low: 0, high: other.low.checked_sub(1) });
     }
     held
 }
@@ -1906,10 +1775,7 @@ pub(super) mod tests {
             known(tight).within(known(loose))
         };
         let each = |tight: &[Bounds], loose: &[Bounds]| {
-            tight
-                .iter()
-                .zip(loose)
-                .all(|(&tight, &loose)| within(tight, loose))
+            tight.iter().zip(loose).all(|(&tight, &loose)| within(tight, loose))
         };
         let some = |tight: &[Option<Bounds>], loose: &[Option<Bounds>]| {
             tight.iter().zip(loose).all(|(tight, loose)| {
@@ -1918,11 +1784,7 @@ pub(super) mod tests {
         };
         each(&tight.terms, &loose.terms)
             && each(&tight.matched, &loose.matched)
-            && tight
-                .arguments
-                .iter()
-                .zip(&loose.arguments)
-                .all(|(tight, loose)| each(tight, loose))
+            && tight.arguments.iter().zip(&loose.arguments).all(|(tight, loose)| each(tight, loose))
             && tight.takes.iter().zip(&loose.takes).all(|pair| match pair {
                 (Some(tight), Some(loose)) => each(tight, loose),
                 (_, None) => true,
@@ -1938,10 +1800,7 @@ pub(super) mod tests {
     impl Terms {
         fn term(&mut self, kind: Kind) -> Term {
             self.0 += 1;
-            Term {
-                expr: self.0 - 1,
-                kind,
-            }
+            Term { expr: self.0 - 1, kind }
         }
 
         fn call(&mut self, callee: usize, args: Vec<Var>, operation: Option<Operation>) -> Term {
@@ -1970,10 +1829,7 @@ pub(super) mod tests {
         terms
             .into_iter()
             .enumerate()
-            .map(|(at, term)| Statement {
-                site: first + at,
-                term,
-            })
+            .map(|(at, term)| Statement { site: first + at, term })
             .collect()
     }
 
@@ -1981,19 +1837,13 @@ pub(super) mod tests {
     const LESS: usize = 2;
 
     fn less() -> Operation {
-        Operation::LessThan {
-            yes: CtorId::at(1),
-            no: CtorId::at(0),
-        }
+        Operation::LessThan { yes: CtorId::at(1), no: CtorId::at(0) }
     }
 
     /// `walk(list, count)`: the count when the list is empty, and else the
     /// walk of the rest with one more counted, handed a list of at most
     /// `most` and a count of nought. With `ADD` and `LESS` recognized.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a numeric program written out by hand"
-    )]
+    #[expect(clippy::too_many_lines, reason = "a numeric program written out by hand")]
     fn counting(most: u64) -> Numeric {
         let mut terms = Terms(0);
         // Values: 0 list, 1 count; the step arm binds 2 rest; then 3 one,
@@ -2010,18 +1860,12 @@ pub(super) mod tests {
                     Arm {
                         test: Test::Empty,
                         fields: Vec::new(),
-                        body: Block {
-                            statements: Vec::new(),
-                            tail: empty,
-                        },
+                        body: Block { statements: Vec::new(), tail: empty },
                     },
                     Arm {
                         test: Test::Step(0),
                         fields: vec![(2, Field::Rest)],
-                        body: Block {
-                            statements: statements(vec![one, stepped], 3),
-                            tail: again,
-                        },
+                        body: Block { statements: statements(vec![one, stepped], 3), tail: again },
                     },
                 ],
                 told: false,
@@ -2036,13 +1880,7 @@ pub(super) mod tests {
             functions: vec![
                 Function {
                     counts: vec![true, true],
-                    handed: Some(vec![
-                        Bounds {
-                            low: 0,
-                            high: Some(most),
-                        },
-                        Bounds::at(0),
-                    ]),
+                    handed: Some(vec![Bounds { low: 0, high: Some(most) }, Bounds::at(0)]),
                     answer: Answer::Body(walk),
                 },
                 operation(Operation::Add),
@@ -2059,11 +1897,8 @@ pub(super) mod tests {
     #[test]
     fn a_count_beside_a_walk_is_bounded_by_its_length() {
         let program = counting(1000);
-        let (octagons, zones, intervals) = (
-            solve::<Octagon>(&program),
-            solve::<Zone>(&program),
-            solve::<Intervals>(&program),
-        );
+        let (octagons, zones, intervals) =
+            (solve::<Octagon>(&program), solve::<Zone>(&program), solve::<Intervals>(&program));
         assert!(proves_at_least(&octagons, &zones) && proves_at_least(&octagons, &intervals));
         let takes = |solution: Solution| solution.takes[0].clone().expect("handed")[1];
         assert_eq!(takes(solve::<Octagon>(&program)).high, Some(1000));
@@ -2075,10 +1910,7 @@ pub(super) mod tests {
     /// handed a total of at most `most`. The guard on the sum bounds `bit`
     /// itself, with no walk back through the sum.
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a numeric program written out by hand"
-    )]
+    #[expect(clippy::too_many_lines, reason = "a numeric program written out by hand")]
     fn a_guard_on_a_sum_bounds_its_operand() {
         let mut terms = Terms(0);
         // Values: 0 bit, 1 total, 2 nine, 3 bit + 9, 4 sum < total.
@@ -2095,18 +1927,12 @@ pub(super) mod tests {
                     Arm {
                         test: Test::Tag(0),
                         fields: Vec::new(),
-                        body: Block {
-                            statements: Vec::new(),
-                            tail: stop,
-                        },
+                        body: Block { statements: Vec::new(), tail: stop },
                     },
                     Arm {
                         test: Test::Tag(1),
                         fields: Vec::new(),
-                        body: Block {
-                            statements: Vec::new(),
-                            tail: again,
-                        },
+                        body: Block { statements: Vec::new(), tail: again },
                     },
                 ],
                 told: false,
@@ -2121,13 +1947,7 @@ pub(super) mod tests {
             functions: vec![
                 Function {
                     counts: vec![true, true],
-                    handed: Some(vec![
-                        Bounds::at(0),
-                        Bounds {
-                            low: 0,
-                            high: Some(4096),
-                        },
-                    ]),
+                    handed: Some(vec![Bounds::at(0), Bounds { low: 0, high: Some(4096) }]),
                     answer: Answer::Body(body),
                 },
                 operation(Operation::Add),
@@ -2140,11 +1960,7 @@ pub(super) mod tests {
         let bit = solution.takes[0].clone().expect("handed")[0];
         assert!(bit.high.is_some_and(|high| high <= 4096), "{bit:?}");
         // What the call going round is handed is below the total.
-        assert!(
-            solution.arguments[again_expr(&program)][0]
-                .high
-                .is_some_and(|high| high < 4096)
-        );
+        assert!(solution.arguments[again_expr(&program)][0].high.is_some_and(|high| high < 4096));
     }
 
     /// A count beside a walk handed a list of at most ten, whose empty end
@@ -2160,10 +1976,7 @@ pub(super) mod tests {
     /// `main(n)`: `other(5)` and `count(n, 0)`, handed `n` of at most a
     /// thousand; `count(n, i)`: while `i < n`, `count(n, i + 1)`, and else
     /// `i`; `other(x)`: `x + 1`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a numeric program written out by hand"
-    )]
+    #[expect(clippy::too_many_lines, reason = "a numeric program written out by hand")]
     fn climbing() -> Numeric {
         const COUNT: usize = 1;
         const ADD: usize = 2;
@@ -2195,18 +2008,12 @@ pub(super) mod tests {
                         Arm {
                             test: Test::Tag(0),
                             fields: Vec::new(),
-                            body: Block {
-                                statements: Vec::new(),
-                                tail: stop,
-                            },
+                            body: Block { statements: Vec::new(), tail: stop },
                         },
                         Arm {
                             test: Test::Tag(1),
                             fields: Vec::new(),
-                            body: Block {
-                                statements: statements(vec![one, next], 3),
-                                tail: again,
-                            },
+                            body: Block { statements: statements(vec![one, next], 3), tail: again },
                         },
                     ],
                     told: false,
@@ -2217,10 +2024,7 @@ pub(super) mod tests {
         let other = {
             let one = terms.constant(1);
             let sum = terms.call(ADD, vec![0, 1], Some(Operation::Add));
-            Block {
-                statements: statements(vec![one, sum], 1),
-                tail: terms.term(Kind::Copy(2)),
-            }
+            Block { statements: statements(vec![one, sum], 1), tail: terms.term(Kind::Copy(2)) }
         };
         let body = |counts: usize, handed, block| Function {
             counts: vec![true; counts],
@@ -2233,25 +2037,14 @@ pub(super) mod tests {
             answer: Answer::Operation(operation, (1, 0)),
         };
         let functions = vec![
-            body(
-                1,
-                Some(vec![Bounds {
-                    low: 0,
-                    high: Some(1000),
-                }]),
-                main,
-            ),
+            body(1, Some(vec![Bounds { low: 0, high: Some(1000) }]), main),
             body(2, None, count),
             operation(Operation::Add),
             operation(less()),
             body(1, None, other),
         ];
         assert_eq!(functions.len(), OTHER + 1);
-        Numeric {
-            functions,
-            terms: terms.0,
-            ..Numeric::default()
-        }
+        Numeric { functions, terms: terms.0, ..Numeric::default() }
     }
 
     /// A recursion climbing a thousand settles, widened and all, before
@@ -2262,10 +2055,7 @@ pub(super) mod tests {
     /// definition answers.
     #[test]
     fn a_recursion_settles_before_what_reads_it_is_walked_again() {
-        for solution in [
-            solve::<Octagon>(&climbing()),
-            solve::<Intervals>(&climbing()),
-        ] {
+        for solution in [solve::<Octagon>(&climbing()), solve::<Intervals>(&climbing())] {
             assert!(solution.walks[0] <= 3, "{:?}", solution.walks);
             assert!(solution.walks[4] <= 2, "{:?}", solution.walks);
             assert!(solution.walks[1] >= WIDEN, "{:?}", solution.walks);
@@ -2277,10 +2067,7 @@ pub(super) mod tests {
 
     /// `main()`: `walk_k(0)` for each `k` from one to `loops`; `walk_k(i)`:
     /// while `i < 3`, `walk_k(i + 1)`, and else `last(k)`; `last(x)`: `x`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a numeric program written out by hand"
-    )]
+    #[expect(clippy::too_many_lines, reason = "a numeric program written out by hand")]
     fn many_walks(loops: u64) -> Numeric {
         let first = 4;
         let mut terms = Terms(0);
@@ -2306,18 +2093,12 @@ pub(super) mod tests {
                             Arm {
                                 test: Test::Tag(0),
                                 fields: Vec::new(),
-                                body: Block {
-                                    statements: Vec::new(),
-                                    tail: last,
-                                },
+                                body: Block { statements: Vec::new(), tail: last },
                             },
                             Arm {
                                 test: Test::Tag(1),
                                 fields: Vec::new(),
-                                body: Block {
-                                    statements: Vec::new(),
-                                    tail: again,
-                                },
+                                body: Block { statements: Vec::new(), tail: again },
                             },
                         ],
                         told: false,
@@ -2335,10 +2116,7 @@ pub(super) mod tests {
             Function {
                 counts: Vec::new(),
                 handed: Some(Vec::new()),
-                answer: Answer::Body(Block {
-                    statements: statements(main, 0),
-                    tail,
-                }),
+                answer: Answer::Body(Block { statements: statements(main, 0), tail }),
             },
             operation(Operation::Add),
             operation(less()),
@@ -2356,11 +2134,7 @@ pub(super) mod tests {
             handed: None,
             answer: Answer::Body(walk),
         }));
-        Numeric {
-            functions,
-            terms: terms.0,
-            ..Numeric::default()
-        }
+        Numeric { functions, terms: terms.0, ..Numeric::default() }
     }
 
     /// Each of a dozen recursions hands one definition a number of its
@@ -2378,12 +2152,8 @@ pub(super) mod tests {
 
     /// The term the self-call of the guarded walk was recorded against.
     fn again_expr(program: &Numeric) -> usize {
-        let Answer::Body(body) = &program.functions[0].answer else {
-            unreachable!("a body")
-        };
-        let Kind::Match { arms, .. } = &body.tail.kind else {
-            unreachable!("a match")
-        };
+        let Answer::Body(body) = &program.functions[0].answer else { unreachable!("a body") };
+        let Kind::Match { arms, .. } = &body.tail.kind else { unreachable!("a match") };
         arms[1].body.tail.expr
     }
 }

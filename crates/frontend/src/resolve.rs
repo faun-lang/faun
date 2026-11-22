@@ -89,9 +89,7 @@ impl Resolution {
     ) -> Result<Vec<h::Module>, Diagnostic> {
         let told = |refusal: Refusal| {
             refusal.told(|module| {
-                sources
-                    .get(modules[module.index()].source)
-                    .expect("loaded module has source")
+                sources.get(modules[module.index()].source).expect("loaded module has source")
             })
         };
         let prelude = modules[prelude.index()].public.clone();
@@ -110,10 +108,7 @@ impl Resolution {
         }
         values(part, &scopes, sources, symbols, &mut self.values);
         for (module, scope) in part.iter().zip(&scopes) {
-            let source = sources
-                .get(module.source)
-                .expect("loaded module has source")
-                .text();
+            let source = sources.get(module.source).expect("loaded module has source").text();
             let module = resolve_module(
                 module,
                 source,
@@ -146,10 +141,7 @@ fn values(
     values: &mut Values,
 ) {
     for (module, scope) in modules.iter().zip(scopes) {
-        let source = sources
-            .get(module.source)
-            .expect("loaded module has source")
-            .text();
+        let source = sources.get(module.source).expect("loaded module has source").text();
         let spelled = |name: s::Name| symbols.find(name.text(source));
         for item in &module.syntax.items {
             match item {
@@ -282,12 +274,7 @@ fn resolve_module(
                 let parameters = alias_parameters(module.id, alias, &ty, source, symbols)?;
                 aliases.insert(
                     canonical,
-                    Alias {
-                        parameters,
-                        ty,
-                        module: module.id,
-                        span: alias.span,
-                    },
+                    Alias { parameters, ty, module: module.id, span: alias.span },
                 );
             }
             s::Item::Constraints(alias) => {
@@ -329,19 +316,11 @@ fn resolve_module(
             s::Item::Header(_) | s::Item::Import(_) | s::Item::Exports(_) => {}
         }
     }
-    let mut visible_methods: Vec<_> = scope
-        .types
-        .values()
-        .flat_map(|binding| binding.methods.values().copied())
-        .collect();
+    let mut visible_methods: Vec<_> =
+        scope.types.values().flat_map(|binding| binding.methods.values().copied()).collect();
     visible_methods.sort_unstable();
     visible_methods.dedup();
-    Ok(h::Module {
-        source: module.id,
-        visible_methods,
-        items,
-        expectations,
-    })
+    Ok(h::Module { source: module.id, visible_methods, items, expectations })
 }
 
 /// An alias's parameters, each once, where its type names each and no
@@ -359,10 +338,8 @@ fn alias_parameters(
     for parameter in &alias.params {
         let parameter = symbols.intern(parameter.text(source));
         if parameters.contains(&parameter) {
-            let message = format!(
-                "alias `{name}` names its parameter `{}` twice",
-                symbols.text(parameter)
-            );
+            let message =
+                format!("alias `{name}` names its parameter `{}` twice", symbols.text(parameter));
             return Err(error(module, alias.span, message));
         }
         parameters.push(parameter);
@@ -372,14 +349,10 @@ fn alias_parameters(
     if let Some(stray) = named.iter().find(|variable| !parameters.contains(variable)) {
         let stray = symbols.text(*stray);
         let message = format!("`{stray}` is not among the parameters of alias `{name}`");
-        return Err(error(module, alias.span, message).help(format!(
-            "write it among them, `{name}({stray})`, or name a type"
-        )));
+        return Err(error(module, alias.span, message)
+            .help(format!("write it among them, `{name}({stray})`, or name a type")));
     }
-    if let Some(unused) = parameters
-        .iter()
-        .find(|parameter| !named.contains(parameter))
-    {
+    if let Some(unused) = parameters.iter().find(|parameter| !named.contains(parameter)) {
         let unused = symbols.text(*unused);
         let message = format!("alias `{name}` never uses its parameter `{unused}`");
         return Err(error(module, alias.span, message).help(
@@ -401,10 +374,9 @@ fn variables(ty: &h::Type, found: &mut Vec<Symbol>) {
         }
         h::Type::Hole => return,
         h::Type::Named(_, types) | h::Type::Tuple(types) => types.iter().collect(),
-        h::Type::Function(parameters, result) => parameters
-            .iter()
-            .chain(std::iter::once(&**result))
-            .collect(),
+        h::Type::Function(parameters, result) => {
+            parameters.iter().chain(std::iter::once(&**result)).collect()
+        }
         h::Type::Variants(tags) => tags.iter().flat_map(|tag| &tag.fields).collect(),
         h::Type::Record(fields, _) => fields.iter().map(|(_, field)| field).collect(),
     };
@@ -415,35 +387,22 @@ fn variables(ty: &h::Type, found: &mut Vec<Symbol>) {
 
 /// `ty` with each variable `replacements` names replaced.
 fn substituted(ty: &h::Type, replacements: &HashMap<Symbol, h::Type>) -> h::Type {
-    let each = |types: &[h::Type]| {
-        types
-            .iter()
-            .map(|ty| substituted(ty, replacements))
-            .collect()
-    };
+    let each = |types: &[h::Type]| types.iter().map(|ty| substituted(ty, replacements)).collect();
     match ty {
-        h::Type::Variable(variable) => replacements
-            .get(variable)
-            .cloned()
-            .unwrap_or_else(|| ty.clone()),
+        h::Type::Variable(variable) => {
+            replacements.get(variable).cloned().unwrap_or_else(|| ty.clone())
+        }
         h::Type::Named(name, arguments) => h::Type::Named(*name, each(arguments)),
-        h::Type::Function(parameters, result) => h::Type::Function(
-            each(parameters),
-            Box::new(substituted(result, replacements)),
-        ),
+        h::Type::Function(parameters, result) => {
+            h::Type::Function(each(parameters), Box::new(substituted(result, replacements)))
+        }
         h::Type::Variants(tags) => h::Type::Variants(
             tags.iter()
-                .map(|tag| h::ConstructorDecl {
-                    name: tag.name,
-                    fields: each(&tag.fields),
-                })
+                .map(|tag| h::ConstructorDecl { name: tag.name, fields: each(&tag.fields) })
                 .collect(),
         ),
         h::Type::Record(fields, open) => h::Type::Record(
-            fields
-                .iter()
-                .map(|(name, field)| (*name, substituted(field, replacements)))
-                .collect(),
+            fields.iter().map(|(name, field)| (*name, substituted(field, replacements))).collect(),
             *open,
         ),
         h::Type::Tuple(members) => h::Type::Tuple(each(members)),
@@ -468,10 +427,8 @@ impl Resolution {
         // one applying itself, or applied wrongly, is refused where it is
         // declared whether or not anything applies it.
         // In the order written, so that of several refused, the first is told.
-        let mut written: Vec<_> = fresh_constraints
-            .iter()
-            .map(|name| (name, &constraint_aliases[name]))
-            .collect();
+        let mut written: Vec<_> =
+            fresh_constraints.iter().map(|name| (name, &constraint_aliases[name])).collect();
         written.sort_by_key(|(_, alias)| (alias.module, alias.span));
         for (&name, alias) in written {
             let applied = h::Constraint::Alias {
@@ -490,18 +447,10 @@ impl Resolution {
         let mut written: Vec<_> = fresh.iter().map(|name| (name, &aliases[name])).collect();
         written.sort_by_key(|(_, alias)| (alias.module, alias.span));
         for (&name, alias) in written {
-            let own = alias
-                .parameters
-                .iter()
-                .map(|&parameter| h::Type::Variable(parameter))
-                .collect();
-            let ty = expand(
-                &h::Type::Named(name, own),
-                aliases,
-                symbols,
-                &mut Vec::new(),
-            )
-            .map_err(|message| error(alias.module, alias.span, message))?;
+            let own =
+                alias.parameters.iter().map(|&parameter| h::Type::Variable(parameter)).collect();
+            let ty = expand(&h::Type::Named(name, own), aliases, symbols, &mut Vec::new())
+                .map_err(|message| error(alias.module, alias.span, message))?;
             self.expanded.insert(
                 name,
                 Alias {
@@ -559,25 +508,15 @@ fn expand_signature(
 ) -> Result<(), Refusal> {
     signature.constraints =
         expand_constraints(&signature.constraints, constraint_aliases, symbols)?;
-    let written = signature
-        .parameters
-        .iter_mut()
-        .chain(std::iter::once(&mut signature.result))
-        .chain(
-            signature
-                .constraints
-                .iter_mut()
-                .flat_map(|constraint| match constraint {
-                    h::Constraint::Member { ty, .. } => std::slice::from_mut(ty),
-                    h::Constraint::Alias { arguments, .. } => arguments.as_mut_slice(),
-                }),
+    let written =
+        signature.parameters.iter_mut().chain(std::iter::once(&mut signature.result)).chain(
+            signature.constraints.iter_mut().flat_map(|constraint| match constraint {
+                h::Constraint::Member { ty, .. } => std::slice::from_mut(ty),
+                h::Constraint::Alias { arguments, .. } => arguments.as_mut_slice(),
+            }),
         );
     for ty in written {
-        *ty = typed(
-            expand(ty, aliases, symbols, &mut Vec::new())?,
-            constraint_aliases,
-            symbols,
-        )?;
+        *ty = typed(expand(ty, aliases, symbols, &mut Vec::new())?, constraint_aliases, symbols)?;
     }
     // `f : Step`, where `Step` is a function type, declares the function
     // `Step` is, as it would written out: its parameters are the function's.
@@ -607,9 +546,9 @@ fn typed(
                 each(parameters).or_else(|| named(result, constraint_aliases))
             }
             h::Type::Variants(tags) => tags.iter().find_map(|tag| each(&tag.fields)),
-            h::Type::Record(fields, _) => fields
-                .iter()
-                .find_map(|(_, field)| named(field, constraint_aliases)),
+            h::Type::Record(fields, _) => {
+                fields.iter().find_map(|(_, field)| named(field, constraint_aliases))
+            }
         }
     }
     named(&ty, constraint_aliases).map_or(Ok(ty), |alias| {
@@ -665,23 +604,17 @@ struct Expansion<'a> {
 impl Expansion<'_> {
     fn add(&mut self, constraint: h::Constraint, symbols: &mut Symbols) -> Result<(), String> {
         let (variable, member, ty) = match constraint {
-            h::Constraint::Member {
-                variable,
-                member,
-                ty,
-                ..
-            } => (variable, member, ty),
+            h::Constraint::Member { variable, member, ty, .. } => (variable, member, ty),
             h::Constraint::Alias { name, arguments } => {
                 return self.apply(name, &arguments, symbols);
             }
         };
         let earlier = self.members.iter().find_map(|required| match required {
-            h::Constraint::Member {
-                variable: other,
-                member: named,
-                ty,
-                ..
-            } if *other == variable && *named == member => Some(ty),
+            h::Constraint::Member { variable: other, member: named, ty, .. }
+                if *other == variable && *named == member =>
+            {
+                Some(ty)
+            }
             _ => None,
         });
         match earlier {
@@ -696,12 +629,7 @@ impl Expansion<'_> {
                     .through
                     .filter(|&(_, applied)| applied == variable)
                     .map(|(alias, _)| alias);
-                self.members.push(h::Constraint::Member {
-                    variable,
-                    member,
-                    ty,
-                    through,
-                });
+                self.members.push(h::Constraint::Member { variable, member, ty, through });
                 Ok(())
             }
         }
@@ -715,9 +643,8 @@ impl Expansion<'_> {
     ) -> Result<(), String> {
         let aliases = self.aliases;
         let spelled = symbols.spelling(name).to_owned();
-        let alias = aliases
-            .get(&name)
-            .ok_or_else(|| format!("`{spelled}` is not a constraint alias"))?;
+        let alias =
+            aliases.get(&name).ok_or_else(|| format!("`{spelled}` is not a constraint alias"))?;
         if alias.parameters.len() != arguments.len() {
             return Err(format!(
                 "constraint alias `{spelled}` takes {}, and is given {}",
@@ -729,11 +656,8 @@ impl Expansion<'_> {
             return Err(format!("constraint alias `{spelled}` applies itself"));
         }
         let application = (name, format!("{arguments:?}"));
-        let index = self
-            .applications
-            .iter()
-            .position(|known| *known == application)
-            .unwrap_or_else(|| {
+        let index =
+            self.applications.iter().position(|known| *known == application).unwrap_or_else(|| {
                 self.applications.push(application);
                 self.applications.len() - 1
             });
@@ -747,12 +671,8 @@ impl Expansion<'_> {
                 symbols.spelling(outermost).to_owned()
             ));
         }
-        let mut substitution: HashMap<Symbol, h::Type> = alias
-            .parameters
-            .iter()
-            .copied()
-            .zip(arguments.iter().cloned())
-            .collect();
+        let mut substitution: HashMap<Symbol, h::Type> =
+            alias.parameters.iter().copied().zip(arguments.iter().cloned()).collect();
         let mut own = Vec::new();
         for constraint in &alias.constraints {
             match constraint {
@@ -782,12 +702,7 @@ impl Expansion<'_> {
         self.expanding.push(name);
         for constraint in &alias.constraints {
             let constraint = match constraint {
-                h::Constraint::Member {
-                    variable,
-                    member,
-                    ty,
-                    ..
-                } => {
+                h::Constraint::Member { variable, member, ty, .. } => {
                     let h::Type::Variable(variable) = substitution[variable] else {
                         return Err(format!(
                             "constraint alias `{spelled}` bounds `{}`, which is given a type rather than a type variable",
@@ -852,16 +767,12 @@ fn type_variables(ty: &h::Type, out: &mut Vec<Symbol>) {
 /// `ty` with each variable `substitution` names replaced.
 fn substitute(ty: &h::Type, substitution: &HashMap<Symbol, h::Type>) -> h::Type {
     let each = |types: &[h::Type]| -> Vec<h::Type> {
-        types
-            .iter()
-            .map(|ty| substitute(ty, substitution))
-            .collect()
+        types.iter().map(|ty| substitute(ty, substitution)).collect()
     };
     match ty {
-        h::Type::Variable(variable) => substitution
-            .get(variable)
-            .cloned()
-            .unwrap_or_else(|| ty.clone()),
+        h::Type::Variable(variable) => {
+            substitution.get(variable).cloned().unwrap_or_else(|| ty.clone())
+        }
         h::Type::Hole => h::Type::Hole,
         h::Type::Named(name, arguments) => h::Type::Named(*name, each(arguments)),
         h::Type::Tuple(members) => h::Type::Tuple(each(members)),
@@ -870,17 +781,11 @@ fn substitute(ty: &h::Type, substitution: &HashMap<Symbol, h::Type>) -> h::Type 
         }
         h::Type::Variants(tags) => h::Type::Variants(
             tags.iter()
-                .map(|tag| h::ConstructorDecl {
-                    name: tag.name,
-                    fields: each(&tag.fields),
-                })
+                .map(|tag| h::ConstructorDecl { name: tag.name, fields: each(&tag.fields) })
                 .collect(),
         ),
         h::Type::Record(fields, open) => h::Type::Record(
-            fields
-                .iter()
-                .map(|(name, field)| (*name, substitute(field, substitution)))
-                .collect(),
+            fields.iter().map(|(name, field)| (*name, substitute(field, substitution))).collect(),
             *open,
         ),
     }
@@ -913,21 +818,15 @@ fn occurrences(ty: &h::Type, variable: Symbol) -> usize {
             parts.iter().map(|part| occurrences(part, variable)).sum()
         }
         h::Type::Function(parameters, result) => {
-            parameters
-                .iter()
-                .map(|part| occurrences(part, variable))
-                .sum::<usize>()
+            parameters.iter().map(|part| occurrences(part, variable)).sum::<usize>()
                 + occurrences(result, variable)
         }
-        h::Type::Variants(tags) => tags
-            .iter()
-            .flat_map(|tag| &tag.fields)
-            .map(|field| occurrences(field, variable))
-            .sum(),
-        h::Type::Record(fields, _) => fields
-            .iter()
-            .map(|(_, field)| occurrences(field, variable))
-            .sum(),
+        h::Type::Variants(tags) => {
+            tags.iter().flat_map(|tag| &tag.fields).map(|field| occurrences(field, variable)).sum()
+        }
+        h::Type::Record(fields, _) => {
+            fields.iter().map(|(_, field)| occurrences(field, variable)).sum()
+        }
     }
 }
 
@@ -1038,21 +937,13 @@ fn resolve_data(
     symbols: &mut Symbols,
     sites: &mut h::Sites,
 ) -> Result<h::DataDecl, Refusal> {
-    let local = symbols
-        .find(data.name.text(source))
-        .expect("declaration collection interns type names");
+    let local =
+        symbols.find(data.name.text(source)).expect("declaration collection interns type names");
     let binding = scope.types.get(&local).ok_or_else(|| {
-        error(
-            module,
-            data.name.0,
-            format!("unknown type `{}`", data.name.text(source)),
-        )
+        error(module, data.name.0, format!("unknown type `{}`", data.name.text(source)))
     })?;
-    let parameters = data
-        .params
-        .iter()
-        .map(|parameter| symbols.intern(parameter.text(source)))
-        .collect();
+    let parameters =
+        data.params.iter().map(|parameter| symbols.intern(parameter.text(source))).collect();
     let (constructors, wrapper) = match &data.representation {
         s::DataRepresentation::Sum(constructors) => (
             constructors
@@ -1147,36 +1038,24 @@ fn resolve_constraint(
     symbols: &mut Symbols,
 ) -> Result<h::Constraint, Refusal> {
     Ok(match constraint {
-        s::Constraint::Member {
-            variable,
-            member,
-            parameters,
-            result,
-            ..
-        } => h::Constraint::Member {
-            variable: symbols.intern(variable.text(source)),
-            member: symbols.intern(member.text(source)),
-            ty: h::Type::Function(
-                parameters
-                    .iter()
-                    .map(|ty| written_type(module, ty, source, scope, symbols))
-                    .collect::<Result<_, _>>()?,
-                Box::new(written_type(module, result, source, scope, symbols)?),
-            ),
-            through: None,
-        },
-        s::Constraint::Alias {
-            span,
-            name,
-            arguments,
-        } => {
+        s::Constraint::Member { variable, member, parameters, result, .. } => {
+            h::Constraint::Member {
+                variable: symbols.intern(variable.text(source)),
+                member: symbols.intern(member.text(source)),
+                ty: h::Type::Function(
+                    parameters
+                        .iter()
+                        .map(|ty| written_type(module, ty, source, scope, symbols))
+                        .collect::<Result<_, _>>()?,
+                    Box::new(written_type(module, result, source, scope, symbols)?),
+                ),
+                through: None,
+            }
+        }
+        s::Constraint::Alias { span, name, arguments } => {
             let spelling = symbols.intern(name.text(source));
             let binding = scope.types.get(&spelling).ok_or_else(|| {
-                error(
-                    module,
-                    *span,
-                    format!("unknown constraint alias `{}`", name.text(source)),
-                )
+                error(module, *span, format!("unknown constraint alias `{}`", name.text(source)))
             })?;
             h::Constraint::Alias {
                 name: binding.canonical,
@@ -1216,12 +1095,10 @@ fn hole(ty: &s::Type) -> Option<crate::ast::Span> {
         s::Type::Hole { span } => Some(*span),
         s::Type::Named { arguments, .. } => each(arguments),
         s::Type::Tuple { members, .. } => each(members),
-        s::Type::Function {
-            parameters, result, ..
-        } => each(parameters).or_else(|| hole(result)),
-        s::Type::Variants { constructors, .. } => constructors
-            .iter()
-            .find_map(|constructor| each(&constructor.fields)),
+        s::Type::Function { parameters, result, .. } => each(parameters).or_else(|| hole(result)),
+        s::Type::Variants { constructors, .. } => {
+            constructors.iter().find_map(|constructor| each(&constructor.fields))
+        }
         s::Type::Record { fields, .. } => fields.iter().find_map(|(_, field)| hole(field)),
     }
 }
@@ -1234,28 +1111,17 @@ fn resolve_type(
     symbols: &mut Symbols,
 ) -> Result<h::Type, Refusal> {
     match ty {
-        s::Type::Named {
-            span,
-            name,
-            arguments,
-        } => {
+        s::Type::Named { span, name, arguments } => {
             let spelling = symbols.intern(name.text(source));
             let arguments: Vec<h::Type> = arguments
                 .iter()
                 .map(|argument| resolve_type(module, argument, source, scope, symbols))
                 .collect::<Result<_, _>>()?;
-            if name
-                .text(source)
-                .starts_with(|character: char| character.is_ascii_lowercase())
-            {
+            if name.text(source).starts_with(|character: char| character.is_ascii_lowercase()) {
                 if arguments.is_empty() {
                     Ok(h::Type::Variable(spelling))
                 } else {
-                    Err(error(
-                        module,
-                        *span,
-                        "a type variable cannot take arguments",
-                    ))
+                    Err(error(module, *span, "a type variable cannot take arguments"))
                 }
             } else {
                 scope
@@ -1263,17 +1129,11 @@ fn resolve_type(
                     .get(&spelling)
                     .map(|binding| h::Type::Named(binding.canonical, arguments))
                     .ok_or_else(|| {
-                        error(
-                            module,
-                            *span,
-                            format!("unknown type `{}`", name.text(source)),
-                        )
+                        error(module, *span, format!("unknown type `{}`", name.text(source)))
                     })
             }
         }
-        s::Type::Function {
-            parameters, result, ..
-        } => Ok(h::Type::Function(
+        s::Type::Function { parameters, result, .. } => Ok(h::Type::Function(
             parameters
                 .iter()
                 .map(|parameter| resolve_type(module, parameter, source, scope, symbols))
@@ -1410,10 +1270,7 @@ fn standing_sum(scope: &Interface, spelling: Symbol) -> Option<&TypeBinding> {
     if scope.constructors.contains_key(&spelling) {
         return None;
     }
-    scope
-        .types
-        .get(&spelling)
-        .filter(|binding| !binding.variants.is_empty())
+    scope.types.get(&spelling).filter(|binding| !binding.variants.is_empty())
 }
 
 /// Every place in `pattern` a sum's name stands for its constructors, at
@@ -1426,12 +1283,7 @@ fn standing_in(
     found: &mut Vec<(Symbol, usize, s::Span)>,
 ) {
     match pattern {
-        s::Pattern::Constructor {
-            span,
-            qualifier,
-            name,
-            fields,
-        } => {
+        s::Pattern::Constructor { span, qualifier, name, fields } => {
             if qualifier.is_none()
                 && !fields.is_empty()
                 && let Some(spelling) = symbols.find(name.text(source))
@@ -1484,10 +1336,7 @@ fn named_whole(pattern: &s::Pattern) -> Option<s::Span> {
         s::Pattern::As { span, .. } => Some(*span),
         s::Pattern::Constructor { fields: parts, .. }
         | s::Pattern::Tuple { members: parts, .. }
-        | s::Pattern::Or {
-            alternatives: parts,
-            ..
-        } => parts.iter().find_map(named_whole),
+        | s::Pattern::Or { alternatives: parts, .. } => parts.iter().find_map(named_whole),
         s::Pattern::List { elements, rest, .. } => {
             elements.iter().chain(rest.as_deref()).find_map(named_whole)
         }
@@ -1549,11 +1398,7 @@ fn resolve_clause(
         .collect::<Result<_, _>>()?;
     let compared = resolver.compared.take().unwrap_or_default();
     // What the guard's tests bind is seen by the body.
-    let written = clause
-        .guard
-        .as_ref()
-        .map(|guard| resolver.condition(guard))
-        .transpose()?;
+    let written = clause.guard.as_ref().map(|guard| resolver.condition(guard)).transpose()?;
     let guard = matched_alike(compared, written, resolver.sites);
     let body = resolver.body(&clause.body)?;
     resolver.all_read()?;
@@ -1591,10 +1436,8 @@ fn equalities(asked: impl IntoIterator<Item = Compared>, sites: &mut h::Sites) -
     let mut joined = None;
     for (value, again, span) in asked {
         let again = sites.expr(span, h::ExprKind::Local(again));
-        let equal = sites.expr(
-            span,
-            h::ExprKind::Binary(s::BinaryOp::Equal, Box::new(value), Box::new(again)),
-        );
+        let equal = sites
+            .expr(span, h::ExprKind::Binary(s::BinaryOp::Equal, Box::new(value), Box::new(again)));
         joined = Some(match joined {
             None => equal,
             Some(asked) => sites.expr(
@@ -1737,21 +1580,13 @@ impl ClauseResolver<'_> {
         self.matching = outer;
         let compared = std::mem::replace(&mut self.compared, comparing).unwrap_or_default();
         let resolved = pattern.and_then(|pattern| {
-            let written = arm
-                .guard
-                .as_ref()
-                .map(|guard| self.condition(guard))
-                .transpose()?;
+            let written = arm.guard.as_ref().map(|guard| self.condition(guard)).transpose()?;
             let guard = matched_alike(compared, written, self.sites);
             self.nested += 1;
             let body = self.expr(&arm.body);
             self.nested -= 1;
             let body = body?;
-            Ok(h::Arm {
-                pattern,
-                guard,
-                body,
-            })
+            Ok(h::Arm { pattern, guard, body })
         });
         self.hide(&before);
         self.locals = before;
@@ -1808,8 +1643,7 @@ impl ClauseResolver<'_> {
         let local = self.fresh_local();
         self.locals.insert(spelling, local);
         if self.binding {
-            self.rebound
-                .push((local, name.0, spelling, self.nested > 0));
+            self.rebound.push((local, name.0, spelling, self.nested > 0));
         }
         Ok(h::Pattern::Bind(local))
     }
@@ -1818,10 +1652,8 @@ impl ClauseResolver<'_> {
     /// name is seen only to the end of its block, so a branch's binding of
     /// one is gone after the branch.
     fn all_read(&self) -> Result<(), Refusal> {
-        let Some(&(_, span, name, nested)) = self
-            .rebound
-            .iter()
-            .find(|(local, ..)| !self.read.contains(local))
+        let Some(&(_, span, name, nested)) =
+            self.rebound.iter().find(|(local, ..)| !self.read.contains(local))
         else {
             return Ok(());
         };
@@ -1835,21 +1667,14 @@ impl ClauseResolver<'_> {
         } else {
             "read what it binds, or leave the binding out".to_owned()
         };
-        Err(error(
-            self.module,
-            span,
-            format!("`{shown}` is bound again here and nothing reads it"),
-        )
-        .label("bound for nothing")
-        .help(help))
+        Err(error(self.module, span, format!("`{shown}` is bound again here and nothing reads it"))
+            .label("bound for nothing")
+            .help(help))
     }
 
     const fn fresh_local(&mut self) -> h::LocalId {
         let local = h::LocalId(self.next_local);
-        self.next_local = self
-            .next_local
-            .checked_add(1)
-            .expect("fewer than 2^32 locals");
+        self.next_local = self.next_local.checked_add(1).expect("fewer than 2^32 locals");
         local
     }
 
@@ -1921,10 +1746,7 @@ impl ClauseResolver<'_> {
             let pattern = self.total_pattern(&binding.pattern);
             self.binding = false;
             self.shadowing = None;
-            bindings.push(h::Binding {
-                pattern: pattern?,
-                value,
-            });
+            bindings.push(h::Binding { pattern: pattern?, value });
         }
         let result = self.expr(&body.result)?;
         Ok(h::Body { bindings, result })
@@ -1956,10 +1778,8 @@ impl ClauseResolver<'_> {
             let after_first = std::mem::replace(&mut self.locals, before.clone());
             let pattern = self.pattern(alternative)?;
             let these = newly(&self.locals);
-            if let Some(name) = bound
-                .keys()
-                .chain(these.keys())
-                .find(|name| bound.get(name) != these.get(name))
+            if let Some(name) =
+                bound.keys().chain(these.keys()).find(|name| bound.get(name) != these.get(name))
             {
                 return Err(error(
                     self.module,
@@ -2012,10 +1832,7 @@ impl ClauseResolver<'_> {
                 if let Some(bound) = &self.shadowing
                     && !bound.contains(&spelling)
                     && self.locals.contains_key(&spelling)
-                    && !self
-                        .alternative
-                        .as_ref()
-                        .is_some_and(|first| first.contains_key(&spelling))
+                    && !self.alternative.as_ref().is_some_and(|first| first.contains_key(&spelling))
                 {
                     if self.matching {
                         return self.rebind(*name, spelling);
@@ -2023,10 +1840,8 @@ impl ClauseResolver<'_> {
                     return self.assign(*name, spelling);
                 }
                 // An alternative after the first binds the names the first did.
-                let alternate = self
-                    .alternative
-                    .as_ref()
-                    .is_some_and(|first| first.contains_key(&spelling));
+                let alternate =
+                    self.alternative.as_ref().is_some_and(|first| first.contains_key(&spelling));
                 let again_here = match &mut self.shadowing {
                     Some(bound) => !bound.insert(spelling) && !alternate,
                     None => self.locals.contains_key(&spelling),
@@ -2042,10 +1857,8 @@ impl ClauseResolver<'_> {
                 {
                     let first = self.sites.expr(name.0, h::ExprKind::Local(first));
                     let again = h::LocalId(self.next_local);
-                    self.next_local = self
-                        .next_local
-                        .checked_add(1)
-                        .expect("fewer than 2^32 locals");
+                    self.next_local =
+                        self.next_local.checked_add(1).expect("fewer than 2^32 locals");
                     if let Some(compared) = self.compared.as_mut() {
                         compared.push((first, again, name.0));
                     }
@@ -2071,32 +1884,21 @@ impl ClauseResolver<'_> {
                     .label("written again here")
                     .help("a name written twice asks its parts equal, which an alternative cannot ask of the whole clause: compare in a guard"));
                 }
-                let again = self
-                    .alternative
-                    .as_ref()
-                    .and_then(|first| first.get(&spelling).copied());
+                let again =
+                    self.alternative.as_ref().and_then(|first| first.get(&spelling).copied());
                 let local = again.unwrap_or_else(|| {
                     let local = h::LocalId(self.next_local);
-                    self.next_local = self
-                        .next_local
-                        .checked_add(1)
-                        .expect("fewer than 2^32 locals");
+                    self.next_local =
+                        self.next_local.checked_add(1).expect("fewer than 2^32 locals");
                     local
                 });
                 self.locals.insert(spelling, local);
                 Ok(h::Pattern::Bind(local))
             }
-            s::Pattern::Constructor {
-                span,
-                qualifier,
-                name,
-                fields,
-            } => {
+            s::Pattern::Constructor { span, qualifier, name, fields } => {
                 let spelling = self.symbols.intern(name.text(self.source));
-                let fields = fields
-                    .iter()
-                    .map(|field| self.pattern(field))
-                    .collect::<Result<_, _>>()?;
+                let fields =
+                    fields.iter().map(|field| self.pattern(field)).collect::<Result<_, _>>()?;
                 if let Some(qualifier) = qualifier {
                     let constructor = self.qualified(*qualifier, *name)?;
                     return Ok(h::Pattern::Constructor(constructor, fields));
@@ -2136,9 +1938,7 @@ impl ClauseResolver<'_> {
                     }
                 })
             }
-            s::Pattern::Number {
-                numeral, negative, ..
-            } => Ok(h::Pattern::Number {
+            s::Pattern::Number { numeral, negative, .. } => Ok(h::Pattern::Number {
                 magnitude: literal::magnitude(*numeral, self.source)
                     .expect("literals were validated while parsing"),
                 negative: *negative,
@@ -2156,19 +1956,12 @@ impl ClauseResolver<'_> {
                 Ok(h::Pattern::Range(bound(start), bound(end)))
             }
             s::Pattern::List { elements, rest, .. } => Ok(h::Pattern::List(
-                elements
-                    .iter()
-                    .map(|element| self.pattern(element))
-                    .collect::<Result<_, _>>()?,
-                rest.as_deref()
-                    .map(|rest| self.pattern(rest).map(Box::new))
-                    .transpose()?,
+                elements.iter().map(|element| self.pattern(element)).collect::<Result<_, _>>()?,
+                rest.as_deref().map(|rest| self.pattern(rest).map(Box::new)).transpose()?,
             )),
             s::Pattern::Ending { front, last, .. } => Ok(h::Pattern::Ending(
                 Box::new(self.pattern(front)?),
-                last.iter()
-                    .map(|element| self.pattern(element))
-                    .collect::<Result<_, _>>()?,
+                last.iter().map(|element| self.pattern(element)).collect::<Result<_, _>>()?,
             )),
             s::Pattern::String { parts, .. } => Ok(h::Pattern::String(
                 parts
@@ -2182,19 +1975,13 @@ impl ClauseResolver<'_> {
                     .collect(),
             )),
             s::Pattern::Tuple { members, .. } => Ok(h::Pattern::Tuple(
-                members
-                    .iter()
-                    .map(|member| self.pattern(member))
-                    .collect::<Result<_, _>>()?,
+                members.iter().map(|member| self.pattern(member)).collect::<Result<_, _>>()?,
             )),
             s::Pattern::Record { span, fields, open } => {
                 let mut resolved = fields
                     .iter()
                     .map(|(name, pattern)| {
-                        Ok((
-                            self.symbols.intern(name.text(self.source)),
-                            self.pattern(pattern)?,
-                        ))
+                        Ok((self.symbols.intern(name.text(self.source)), self.pattern(pattern)?))
                     })
                     .collect::<Result<Vec<_>, Refusal>>()?;
                 resolved.sort_by_key(|(name, _)| *name);
@@ -2225,10 +2012,7 @@ impl ClauseResolver<'_> {
                 // Within its own pattern, a name asks equality by being
                 // written again.
                 let spelling = self.symbols.intern(name.text(self.source));
-                let own = self
-                    .shadowing
-                    .as_ref()
-                    .is_none_or(|bound| bound.contains(&spelling));
+                let own = self.shadowing.as_ref().is_none_or(|bound| bound.contains(&spelling));
                 if own && self.locals.contains_key(&spelling) {
                     let written = name.text(self.source);
                     return Err(error(
@@ -2238,16 +2022,10 @@ impl ClauseResolver<'_> {
                     )
                     .help(format!("to ask two of its parts equal, write `{written}` again in place of `{shown}`")));
                 }
-                let value = s::Expr {
-                    span: name.0,
-                    kind: s::ExprKind::Name(*name),
-                };
+                let value = s::Expr { span: name.0, kind: s::ExprKind::Name(*name) };
                 let value = self.expr(&value)?;
                 let local = h::LocalId(self.next_local);
-                self.next_local = self
-                    .next_local
-                    .checked_add(1)
-                    .expect("fewer than 2^32 locals");
+                self.next_local = self.next_local.checked_add(1).expect("fewer than 2^32 locals");
                 if let Some(compared) = self.compared.as_mut() {
                     compared.push((value, local, *span));
                 }
@@ -2333,13 +2111,8 @@ impl ClauseResolver<'_> {
                     .collect::<Result<_, Refusal>>()?,
             ),
             s::ExprKind::List(elements, rest) => h::ExprKind::List(
-                elements
-                    .iter()
-                    .map(|element| self.expr(element))
-                    .collect::<Result<_, _>>()?,
-                rest.as_deref()
-                    .map(|rest| self.expr(rest).map(Box::new))
-                    .transpose()?,
+                elements.iter().map(|element| self.expr(element)).collect::<Result<_, _>>()?,
+                rest.as_deref().map(|rest| self.expr(rest).map(Box::new)).transpose()?,
             ),
             s::ExprKind::Record(fields) => {
                 let fields = fields
@@ -2359,10 +2132,8 @@ impl ClauseResolver<'_> {
             s::ExprKind::Update(fields, base) => {
                 let base = self.expr(base)?;
                 if fields.iter().all(|(path, _)| path.len() == 1) {
-                    let fields: Vec<_> = fields
-                        .iter()
-                        .map(|(path, value)| (path[0], value.clone()))
-                        .collect();
+                    let fields: Vec<_> =
+                        fields.iter().map(|(path, value)| (path[0], value.clone())).collect();
                     h::ExprKind::Update(
                         Box::new(base),
                         self.record_fields(&fields, expression.span)?,
@@ -2372,10 +2143,8 @@ impl ClauseResolver<'_> {
                     // the base worked out once and read at each depth.
                     let local = self.fresh_local();
                     let read = self.sites.expr(base.span, h::ExprKind::Local(local));
-                    let paths: Vec<_> = fields
-                        .iter()
-                        .map(|(path, value)| (path.as_slice(), value))
-                        .collect();
+                    let paths: Vec<_> =
+                        fields.iter().map(|(path, value)| (path.as_slice(), value)).collect();
                     let result = self.path_update(read, &paths, expression.span)?;
                     h::ExprKind::Block(Box::new(h::Body {
                         bindings: vec![h::Binding {
@@ -2468,9 +2237,7 @@ impl ClauseResolver<'_> {
                     // The receiver is read first, as it is written.
                     let mut parts = self.parts(std::iter::once(&**head).chain(arguments))?;
                     let arguments = parts.split_off(1);
-                    let receiver = parts
-                        .pop()
-                        .expect("a method's receiver is one of its parts");
+                    let receiver = parts.pop().expect("a method's receiver is one of its parts");
                     h::ExprKind::Method(
                         Box::new(receiver),
                         self.symbols.intern(member.text(self.source)),
@@ -2501,18 +2268,13 @@ impl ClauseResolver<'_> {
             // Where its block answers, an `else` line is an `if`: the lines
             // after it, seeing what its condition bound, where it holds, and
             // what its `else` answers where it fails.
-            s::ExprKind::Else {
-                condition,
-                otherwise,
-                rest,
-            } => {
+            s::ExprKind::Else { condition, otherwise, rest } => {
                 let before = self.locals.clone();
                 let condition = self.condition(condition);
                 let yes = condition.and_then(|condition| {
                     let body = self.body(rest)?;
-                    let block = self
-                        .sites
-                        .expr(expression.span, h::ExprKind::Block(Box::new(body)));
+                    let block =
+                        self.sites.expr(expression.span, h::ExprKind::Block(Box::new(body)));
                     Ok((condition, block))
                 });
                 self.hide(&before);
@@ -2524,11 +2286,7 @@ impl ClauseResolver<'_> {
             }
             // An `if` line is an `if` whose `then` leaves, seeing what its
             // condition bound, and whose `else` is the lines after it.
-            s::ExprKind::Leave {
-                condition,
-                out,
-                rest,
-            } => {
+            s::ExprKind::Leave { condition, out, rest } => {
                 let before = self.locals.clone();
                 let condition = self.condition(condition);
                 let leaving = condition.and_then(|condition| Ok((condition, self.expr(out)?)));
@@ -2536,19 +2294,14 @@ impl ClauseResolver<'_> {
                 self.locals.clone_from(&before);
                 let (condition, leaving) = leaving?;
                 let rest = self.body(rest)?;
-                let rest = self
-                    .sites
-                    .expr(expression.span, h::ExprKind::Block(Box::new(rest)));
+                let rest = self.sites.expr(expression.span, h::ExprKind::Block(Box::new(rest)));
                 self.locals.clone_from(&before);
                 h::ExprKind::If(Box::new(condition), Box::new(leaving), Box::new(rest))
             }
             s::ExprKind::Return(value) => h::ExprKind::Return(Box::new(self.expr(value)?)),
             s::ExprKind::Match(value, arms) => {
                 let value = self.expr(value)?;
-                let resolved = arms
-                    .iter()
-                    .map(|arm| self.arm(arm))
-                    .collect::<Result<_, _>>()?;
+                let resolved = arms.iter().map(|arm| self.arm(arm)).collect::<Result<_, _>>()?;
                 h::ExprKind::Match(Box::new(value), resolved)
             }
             s::ExprKind::Arms(_) => unreachable!("the parser refuses arms no `is` takes"),
@@ -2563,9 +2316,7 @@ impl ClauseResolver<'_> {
             // What the left binds is seen by the right, and no further.
             s::ExprKind::Binary(s::BinaryOp::And, left, right) => {
                 let before = self.locals.clone();
-                let both = self
-                    .condition(left)
-                    .and_then(|left| Ok((left, self.condition(right)?)));
+                let both = self.condition(left).and_then(|left| Ok((left, self.condition(right)?)));
                 self.hide(&before);
                 self.locals = before;
                 let (left, right) = both?;
@@ -2578,10 +2329,7 @@ impl ClauseResolver<'_> {
                 unreachable!("the parser refuses a pattern's form outside a pattern")
             }
             s::ExprKind::Tuple(members) => h::ExprKind::Tuple(
-                members
-                    .iter()
-                    .map(|member| self.expr(member))
-                    .collect::<Result<_, _>>()?,
+                members.iter().map(|member| self.expr(member)).collect::<Result<_, _>>()?,
             ),
             s::ExprKind::Binary(operator, left, right) => {
                 let left = self.expr(left)?;
@@ -2594,11 +2342,7 @@ impl ClauseResolver<'_> {
                 h::ExprKind::Binary(*operator, Box::new(left), Box::new(right?))
             }
         };
-        Ok(h::Expr {
-            site: self.sites.fresh(),
-            span: expression.span,
-            kind,
-        })
+        Ok(h::Expr { site: self.sites.fresh(), span: expression.span, kind })
     }
 
     /// What a call's head names. A sum's own name applied is the
@@ -2613,9 +2357,7 @@ impl ClauseResolver<'_> {
         if let Some((sum, constructor)) = self.standing
             && sum == spelling
         {
-            return Ok(self
-                .sites
-                .expr(head.span, h::ExprKind::Constructor(constructor)));
+            return Ok(self.sites.expr(head.span, h::ExprKind::Constructor(constructor)));
         }
         if standing_sum(self.scope, spelling).is_some() {
             let shown = name.text(self.source);
@@ -2676,11 +2418,7 @@ impl ClauseResolver<'_> {
             };
             return Err(refused.help("a test binds along its `&` chain, into `then`, into its clause from a guard, for the lines below its `else` line, and into its arm from an arm's pattern; past an `|` only what both sides bind, and nothing under `!` or in `else`"));
         }
-        Err(error(
-            self.module,
-            name.0,
-            format!("unknown name `{}`", name.text(self.source)),
-        ))
+        Err(error(self.module, name.0, format!("unknown name `{}`", name.text(self.source))))
     }
 
     /// A use of `found`: where it is a value, its definition called, and
@@ -2705,11 +2443,7 @@ impl ClauseResolver<'_> {
     /// A value, at `span`, written as a function called.
     fn called_value(&self, span: s::Span) -> Refusal {
         let shown = span.text(self.source);
-        error(
-            self.module,
-            span,
-            format!("`{shown}` is a value, not a function: write `{shown}`"),
-        )
+        error(self.module, span, format!("`{shown}` is a value, not a function: write `{shown}`"))
     }
 
     /// The type variable a head spells, where it is a lowercase word naming
@@ -2725,9 +2459,7 @@ impl ClauseResolver<'_> {
         let spelling = self.symbols.intern(text);
         let named = self.locals.contains_key(&spelling)
             || self.scope.values.contains_key(&spelling)
-            || self
-                .methods
-                .is_some_and(|binding| binding.methods.contains_key(&spelling));
+            || self.methods.is_some_and(|binding| binding.methods.contains_key(&spelling));
         (!named).then_some(spelling)
     }
 
@@ -2756,27 +2488,19 @@ impl ClauseResolver<'_> {
             let value = match group.as_slice() {
                 [([], value)] => self.expr(value)?,
                 _ if group.iter().filter(|(rest, _)| rest.is_empty()).count() > 1 => {
-                    return Err(error(
-                        self.module,
-                        span,
-                        "record expression repeats a field",
-                    ));
+                    return Err(error(self.module, span, "record expression repeats a field"));
                 }
                 _ if group.iter().any(|(rest, _)| rest.is_empty()) => {
                     return Err(error(
                         self.module,
                         span,
-                        format!(
-                            "`{}` is replaced whole and in part",
-                            self.symbols.text(head)
-                        ),
+                        format!("`{}` is replaced whole and in part", self.symbols.text(head)),
                     )
                     .help("replace it whole, or each part of it, not both"));
                 }
                 _ => {
-                    let inner = self
-                        .sites
-                        .expr(span, h::ExprKind::Member(Box::new(base.clone()), head));
+                    let inner =
+                        self.sites.expr(span, h::ExprKind::Member(Box::new(base.clone()), head));
                     let updated = self.path_update(inner, group, span)?;
                     self.sites.expr(span, updated)
                 }
@@ -2796,11 +2520,7 @@ impl ClauseResolver<'_> {
         for (name, value) in fields {
             let name = self.symbols.intern(name.text(self.source));
             if !seen.insert(name) {
-                return Err(error(
-                    self.module,
-                    span,
-                    "record expression repeats a field",
-                ));
+                return Err(error(self.module, span, "record expression repeats a field"));
             }
             resolved.push((name, self.expr(value)?));
         }
@@ -2815,9 +2535,7 @@ impl ClauseResolver<'_> {
             site,
             spelling,
             candidates: candidates.to_vec(),
-            home: self
-                .methods
-                .and_then(|binding| binding.constructors.get(&spelling).copied()),
+            home: self.methods.and_then(|binding| binding.constructors.get(&spelling).copied()),
         }
     }
 
@@ -2837,24 +2555,19 @@ impl ClauseResolver<'_> {
             return Some(self.qualified(*owner, member).map(h::ExprKind::Constructor));
         }
         let member_spelling = self.symbols.intern(member.text(self.source));
-        Some(
-            binding
-                .methods
-                .get(&member_spelling)
-                .copied()
-                .map(h::ExprKind::Global)
-                .ok_or_else(|| {
-                    error(
-                        self.module,
-                        member.0,
-                        format!(
-                            "type `{}` has no method `{}`",
-                            owner.text(self.source),
-                            member.text(self.source)
-                        ),
-                    )
-                }),
-        )
+        Some(binding.methods.get(&member_spelling).copied().map(h::ExprKind::Global).ok_or_else(
+            || {
+                error(
+                    self.module,
+                    member.0,
+                    format!(
+                        "type `{}` has no method `{}`",
+                        owner.text(self.source),
+                        member.text(self.source)
+                    ),
+                )
+            },
+        ))
     }
 
     /// The constructor `Type.Ctor` names: that type's, outright, never a
@@ -2867,11 +2580,7 @@ impl ClauseResolver<'_> {
             .types
             .get(&owner_spelling)
             .ok_or_else(|| {
-                error(
-                    self.module,
-                    owner.0,
-                    format!("unknown type `{}`", owner.text(self.source)),
-                )
+                error(self.module, owner.0, format!("unknown type `{}`", owner.text(self.source)))
             })?
             .constructors
             .get(&member_spelling)
@@ -2903,13 +2612,11 @@ fn global_value(
     symbols: &mut Symbols,
 ) -> Result<Symbol, Refusal> {
     let spelling = symbols.intern(name.text(source));
-    scope.values.get(&spelling).copied().ok_or_else(|| {
-        error(
-            module,
-            name.0,
-            format!("unknown value `{}`", name.text(source)),
-        )
-    })
+    scope
+        .values
+        .get(&spelling)
+        .copied()
+        .ok_or_else(|| error(module, name.0, format!("unknown value `{}`", name.text(source))))
 }
 
 fn method_name(
@@ -2920,13 +2627,11 @@ fn method_name(
     symbols: &mut Symbols,
 ) -> Result<Symbol, Refusal> {
     let spelling = symbols.intern(name.text(source));
-    binding.methods.get(&spelling).copied().ok_or_else(|| {
-        error(
-            module,
-            name.0,
-            format!("unknown method `{}`", name.text(source)),
-        )
-    })
+    binding
+        .methods
+        .get(&spelling)
+        .copied()
+        .ok_or_else(|| error(module, name.0, format!("unknown method `{}`", name.text(source))))
 }
 
 fn error(module: ModuleId, span: s::Span, said: impl Into<Refusal>) -> Refusal {
@@ -2945,10 +2650,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
             let root = std::env::temp_dir().join(format!("faun-resolve-{unique}"));
             fs::create_dir_all(&root).unwrap();
             Self(root)
@@ -2970,28 +2672,20 @@ mod tests {
     #[test]
     fn resolves_prelude_types_constructors_and_static_methods() {
         let fixture = Fixture::new();
-        let entry = fixture.write(
-            "main.fn",
-            "number : Int\nnumber = Int.of_nat(42)\ntext : Str\ntext = \"é\"\n",
-        );
+        let entry = fixture
+            .write("main.fn", "number : Int\nnumber = Int.of_nat(42)\ntext : Str\ntext = \"é\"\n");
         let loaded =
             modules::load_program(&entry, crate::standard_path(), &crate::test_host()).unwrap();
         let (program, _) = crate::resolve(loaded).unwrap();
         let entry = &program.modules.last().unwrap().items;
-        let h::Item::Clause(number) = &entry[1] else {
-            panic!("number clause")
-        };
+        let h::Item::Clause(number) = &entry[1] else { panic!("number clause") };
         let h::ExprKind::Call(head, arguments) = &number.body.result.kind else {
             panic!("static call")
         };
         assert!(matches!(head.kind, h::ExprKind::Global(_)));
         assert!(matches!(arguments[0].kind, h::ExprKind::Number(_)));
-        let h::Item::Clause(text) = &entry[3] else {
-            panic!("text clause")
-        };
-        let h::ExprKind::String(parts) = &text.body.result.kind else {
-            panic!("string literal")
-        };
+        let h::Item::Clause(text) = &entry[3] else { panic!("text clause") };
+        let h::ExprKind::String(parts) = &text.body.result.kind else { panic!("string literal") };
         assert_eq!(parts, &[h::StringPart::Text(vec![0xc3, 0xa9])]);
     }
 

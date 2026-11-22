@@ -12,21 +12,14 @@ fn run(
         program,
         function,
         &args.iter().copied().map(BigUint::from).collect::<Vec<_>>(),
-        Config {
-            word_bits: bits,
-            ..Config::default()
-        },
+        Config { word_bits: bits, ..Config::default() },
         &mut RejectHost,
     )
 }
 
 fn division_program() -> (Program, FunctionId) {
     let (mut p, _) = Program::new("main");
-    let divmod = p.declare(
-        "divmod",
-        &[Class::Word, Class::Word],
-        &[Class::Word, Class::Word],
-    );
+    let divmod = p.declare("divmod", &[Class::Word, Class::Word], &[Class::Word, Class::Word]);
     p.define(divmod, |b, args| {
         let zero = b.constant(Class::Word, 0);
         let one = b.constant(Class::Word, 1);
@@ -61,10 +54,7 @@ fn loops_and_nested_exits_match_total_division_model_at_every_width() {
                     left.checked_rem(right).unwrap_or(left),
                 ];
                 assert_eq!(
-                    run(&p, divmod, &[left, right], bits)
-                        .unwrap()
-                        .returned()
-                        .unwrap(),
+                    run(&p, divmod, &[left, right], bits).unwrap().returned().unwrap(),
                     expected.into_iter().map(BigUint::from).collect::<Vec<_>>()
                 );
             }
@@ -83,10 +73,7 @@ fn words_wrap_at_the_configured_width_not_the_host_width() {
     });
     for bits in [16, 32, 64] {
         let max = (BigUint::from(1u8) << usize::from(bits)) - BigUint::from(1u8);
-        assert_eq!(
-            run(&p, main, &[], bits).unwrap().returned().unwrap(),
-            vec![max]
-        );
+        assert_eq!(run(&p, main, &[], bits).unwrap().returned().unwrap(), vec![max]);
     }
     for bits in [16, 32, 64] {
         p.define(main, |b, _| {
@@ -95,10 +82,7 @@ fn words_wrap_at_the_configured_width_not_the_host_width() {
             let zero = b.binary(Binary::Add, max, one);
             b.ret(&[zero]);
         });
-        assert_eq!(
-            run(&p, main, &[], bits).unwrap().returned().unwrap(),
-            vec![BigUint::default()]
-        );
+        assert_eq!(run(&p, main, &[], bits).unwrap().returned().unwrap(), vec![BigUint::default()]);
     }
 }
 
@@ -139,13 +123,7 @@ fn natural_model(op: Binary, left: &BigUint, right: &BigUint) -> BigUint {
 fn direct_natural_operations_preserve_full_magnitudes_and_total_zero_semantics() {
     let large = (BigUint::from(1u8) << 200usize) + BigUint::from(17u8);
     let small = (BigUint::from(1u8) << 100usize) + BigUint::from(3u8);
-    let cases = [
-        BigUint::default(),
-        BigUint::from(1u8),
-        BigUint::from(u64::MAX),
-        small,
-        large,
-    ];
+    let cases = [BigUint::default(), BigUint::from(1u8), BigUint::from(u64::MAX), small, large];
     for op in [Binary::Monus, Binary::Mul, Binary::Div, Binary::Mod] {
         let (p, f) = binary_program(Class::Natural, op);
         for left in &cases {
@@ -156,10 +134,7 @@ fn direct_natural_operations_preserve_full_magnitudes_and_total_zero_semantics()
                         &p,
                         f,
                         &[left.clone(), right.clone()],
-                        Config {
-                            word_bits,
-                            ..Config::default()
-                        },
+                        Config { word_bits, ..Config::default() },
                         &mut RejectHost,
                     )
                     .unwrap();
@@ -173,11 +148,7 @@ fn direct_natural_operations_preserve_full_magnitudes_and_total_zero_semantics()
 #[test]
 fn a_monus_saturates_and_answers_at_its_own_class() {
     let (mut p, _) = Program::new("main");
-    let check = p.declare(
-        "check",
-        &[Class::fixed(9), Class::fixed(9)],
-        &[Class::fixed(5)],
-    );
+    let check = p.declare("check", &[Class::fixed(9), Class::fixed(9)], &[Class::fixed(5)]);
     // What the answer can be is narrower than either operand, as a bound
     // proved above this tier can say.
     p.define(check, |b, args| {
@@ -186,18 +157,12 @@ fn a_monus_saturates_and_answers_at_its_own_class() {
     });
     for (left, right, answer) in [(281, 255, 26u8), (255, 255, 0), (250, 255, 0), (0, 511, 0)] {
         assert_eq!(
-            run(&p, check, &[left, right], 16)
-                .unwrap()
-                .returned()
-                .unwrap(),
+            run(&p, check, &[left, right], 16).unwrap().returned().unwrap(),
             vec![BigUint::from(answer)],
             "{left} {right}"
         );
     }
-    assert_eq!(
-        run(&p, check, &[511, 0], 16),
-        Err(Error::DoesNotFit(Class::fixed(5)))
-    );
+    assert_eq!(run(&p, check, &[511, 0], 16), Err(Error::DoesNotFit(Class::fixed(5))));
 }
 
 #[test]

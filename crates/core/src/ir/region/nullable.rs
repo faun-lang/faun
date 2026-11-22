@@ -42,20 +42,13 @@ fn tags(p: &Program, id: FunctionId) -> Option<Tags> {
     let mut payload = None;
     for op in p.every(p.function(id).body()?) {
         if let Op::Cell { tag, fields, .. } = *op {
-            let slot = if fields.is_empty() {
-                &mut empty
-            } else {
-                &mut payload
-            };
+            let slot = if fields.is_empty() { &mut empty } else { &mut payload };
             if slot.replace(tag).is_some_and(|previous| previous != tag) {
                 return None;
             }
         }
     }
-    let tags = Tags {
-        empty: empty?,
-        payload: payload?,
-    };
+    let tags = Tags { empty: empty?, payload: payload? };
     (tags.empty != tags.payload).then_some(tags)
 }
 

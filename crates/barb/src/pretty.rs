@@ -40,11 +40,7 @@ impl Program {
             }
         }
         if !hidden.is_empty() {
-            let _ = writeln!(
-                out,
-                "\nCalled only by an answered body: {}",
-                hidden.join(", ")
-            );
+            let _ = writeln!(out, "\nCalled only by an answered body: {}", hidden.join(", "));
         }
         out
     }
@@ -62,11 +58,7 @@ impl Program {
         };
         let through = self.reached(entry, facts, true);
         let around = self.reached(entry, facts, false);
-        through
-            .iter()
-            .zip(around)
-            .map(|(&through, around)| around || !through)
-            .collect()
+        through.iter().zip(around).map(|(&through, around)| around || !through).collect()
     }
 
     /// Which definitions `entry` reaches, going into answered definitions'
@@ -250,11 +242,8 @@ impl Program {
     }
 
     fn render_call(&self, name: Symbol, args: Range) -> String {
-        let args: Vec<String> = self
-            .atoms(args)
-            .iter()
-            .map(|atom| format!("v{}", atom.0.0))
-            .collect();
+        let args: Vec<String> =
+            self.atoms(args).iter().map(|atom| format!("v{}", atom.0.0)).collect();
         if args.is_empty() {
             self.name(name).to_owned()
         } else {

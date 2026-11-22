@@ -7,17 +7,11 @@ use crate::programs::abi::{self, Transfer};
 
 fn answer(program: &Program) -> Vec<BigUint> {
     validate(program).expect("a valid program");
-    evaluate::evaluate(
-        program,
-        program.entry(),
-        &[],
-        evaluate::Config::default(),
-        &mut RejectHost,
-    )
-    .expect("an evaluation")
-    .returned()
-    .expect("a returning program")
-    .to_vec()
+    evaluate::evaluate(program, program.entry(), &[], evaluate::Config::default(), &mut RejectHost)
+        .expect("an evaluation")
+        .returned()
+        .expect("a returning program")
+        .to_vec()
 }
 
 /// Every boundary within the budget, which is what a target's limits check.
@@ -26,24 +20,16 @@ fn within(program: &Program, params: usize, results: usize, transfers: usize) ->
     program.functions.iter_enumerated().all(|(id, function)| {
         id == entry
             || (function.params.len() <= params && function.returns.classes().len() <= results)
-    }) && program
-        .ops
-        .iter()
-        .zip(&program.results)
-        .all(|(op, answered)| match *op {
-            Op::If { .. } => answered.len() <= transfers,
-            Op::Loop { initial, .. } => initial.len() <= transfers && answered.len() <= transfers,
-            _ => true,
-        })
+    }) && program.ops.iter().zip(&program.results).all(|(op, answered)| match *op {
+        Op::If { .. } => answered.len() <= transfers,
+        Op::Loop { initial, .. } => initial.len() <= transfers && answered.len() <= transfers,
+        _ => true,
+    })
 }
 
 fn programs() -> Vec<Program> {
-    let mut held = vec![
-        abi::function(7, 3),
-        abi::function(5, 2),
-        abi::function(1, 1),
-        abi::function(0, 0),
-    ];
+    let mut held =
+        vec![abi::function(7, 3), abi::function(5, 2), abi::function(1, 1), abi::function(0, 0)];
     for kind in [Transfer::If, Transfer::LoopState, Transfer::LoopResults] {
         held.push(abi::region(kind, 3));
     }
@@ -84,13 +70,7 @@ fn a_packed_run_keeps_the_leading_places_and_the_first_packed_name() {
         fitted.signature(fitted.function(wide).returns.classes()),
         [Class::Word, Class::Cell]
     );
-    assert_eq!(
-        fitted.parameter_names(wide).collect::<Vec<_>>(),
-        ["v0", "v1", "v2", "v3"]
-    );
+    assert_eq!(fitted.parameter_names(wide).collect::<Vec<_>>(), ["v0", "v1", "v2", "v3"]);
     // The entry is bound by the target and keeps its own signature.
-    assert_eq!(
-        fitted.signature(fitted.function(fitted.entry()).returns.classes()),
-        [Class::Word]
-    );
+    assert_eq!(fitted.signature(fitted.function(fitted.entry()).returns.classes()), [Class::Word]);
 }

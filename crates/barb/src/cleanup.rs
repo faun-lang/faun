@@ -31,11 +31,8 @@ pub(super) fn cleanup(program: &mut Program) {
         sequences: recognised.sequences.clone(),
         known: HashMap::default(),
     };
-    let mut rewrite = Rewrite {
-        source: program,
-        terms: TermArena::default(),
-        copied: HashMap::default(),
-    };
+    let mut rewrite =
+        Rewrite { source: program, terms: TermArena::default(), copied: HashMap::default() };
     let mut bodies = vec![];
     // Every definition is a root, not just the entry or its reachable callees.
     for at in 0..program.functions().len() {
@@ -177,9 +174,7 @@ fn plan_body(
                 let target = if site == bindings.len() {
                     &mut tail
                 } else {
-                    kept[site]
-                        .as_mut()
-                        .expect("a binding read in an arm is kept")
+                    kept[site].as_mut().expect("a binding read in an arm is kept")
                 };
                 target.arms[arm].sunk.push((base + index, planned));
             }
@@ -191,15 +186,7 @@ fn plan_body(
     }
     let captures = reads.iter().map(|&read| read != Read::Unread).collect();
     let order = Order::new(program, body, base, sites).reads_first(program, inert);
-    (
-        PlannedBody {
-            sunk: vec![],
-            bindings: kept,
-            order,
-            tail,
-        },
-        captures,
-    )
+    (PlannedBody { sunk: vec![], bindings: kept, order, tail }, captures)
 }
 
 /// Plan the expression at `site` of the body `reads` belongs to, which
@@ -276,13 +263,7 @@ impl Order {
                 None => {}
             }
         }
-        Self {
-            bindings,
-            base,
-            sites,
-            reads,
-            answer,
-        }
+        Self { bindings, base, sites, reads, answer }
     }
 
     /// The kept bindings' order: as written, but where a binding writes a
@@ -290,9 +271,8 @@ impl Order {
     /// besides is known before the write, those bindings, and the ones they
     /// read in between, are worked out just before it.
     fn reads_first(&self, program: &Program, inert: &mut Inert) -> Vec<usize> {
-        let kept: Vec<usize> = (0..self.bindings.len())
-            .filter(|&index| self.sites[index] == Some(index))
-            .collect();
+        let kept: Vec<usize> =
+            (0..self.bindings.len()).filter(|&index| self.sites[index] == Some(index)).collect();
         let mut order = kept.clone();
         for &write in &kept {
             let Expr::Call(called, args) = program.expr(self.bindings[write]) else {
@@ -307,10 +287,7 @@ impl Order {
                     continue;
                 }
                 if let Some(moved) = self.moved(program, inert, &order, (write, written)) {
-                    let at = order
-                        .iter()
-                        .position(|&index| index == write)
-                        .expect("kept");
+                    let at = order.iter().position(|&index| index == write).expect("kept");
                     let rest = order[at..].iter().filter(|index| !moved.contains(index));
                     let mut reordered = order[..at].to_vec();
                     reordered.extend(order[at..].iter().filter(|index| moved.contains(index)));
@@ -354,10 +331,7 @@ impl Order {
             }
             if let Expr::Call(called, args) = program.expr(id)
                 && inert.views(called)
-                && program
-                    .atoms(args)
-                    .first()
-                    .is_some_and(|a| held.contains(&a.0.index()))
+                && program.atoms(args).first().is_some_and(|a| held.contains(&a.0.index()))
             {
                 held.push(self.base + index);
                 if self.answer.contains(&(self.base + index)) {
@@ -429,10 +403,7 @@ fn writes(program: &Program, inert: &Inert, id: ExprId, written: &[usize]) -> bo
     match program.expr(id) {
         Expr::Call(called, args) => {
             inert.writes(called)
-                && program
-                    .atoms(args)
-                    .iter()
-                    .any(|a| written.contains(&a.0.index()))
+                && program.atoms(args).iter().any(|a| written.contains(&a.0.index()))
         }
         Expr::Match(_, arms) => program.arms(arms).iter().any(|arm| {
             let body = arm.body;
@@ -481,9 +452,7 @@ impl Rewrite<'_> {
         let start = locals.len();
         locals.resize(start + plan.bindings.len(), None);
         for index in plan.order {
-            let binding = plan.bindings[index]
-                .take()
-                .expect("an ordered binding is kept");
+            let binding = plan.bindings[index].take().expect("an ordered binding is kept");
             let value = if let Expr::Atom(a) = self.source.expr(binding.id) {
                 local(&locals, a)
             } else {
@@ -517,10 +486,8 @@ impl Rewrite<'_> {
                     let fields = self.source.fields(arm.ctor).len();
                     let mut inner = locals.to_vec();
                     inner.extend((0..fields).map(|at| Some(Atom(Local::at(level + at)))));
-                    found.push(Arm {
-                        ctor: arm.ctor,
-                        body: self.body(body, inner, level + fields),
-                    });
+                    found
+                        .push(Arm { ctor: arm.ctor, body: self.body(body, inner, level + fields) });
                 }
                 Expr::Match(local(locals, value), self.terms.hold_arms(&found))
             }
@@ -528,17 +495,12 @@ impl Rewrite<'_> {
     }
 
     fn args(&mut self, args: Range, locals: &[Option<Atom>]) -> Range {
-        self.terms
-            .hold_atoms(self.source.atoms(args).iter().map(|&a| local(locals, a)))
+        self.terms.hold_atoms(self.source.atoms(args).iter().map(|&a| local(locals, a)))
     }
 
     fn copy_body(&mut self, body: Body) -> Body {
-        let bindings: Vec<_> = self
-            .source
-            .bindings(body.bindings)
-            .iter()
-            .map(|&id| self.copy_expr(id))
-            .collect();
+        let bindings: Vec<_> =
+            self.source.bindings(body.bindings).iter().map(|&id| self.copy_expr(id)).collect();
         let tail = self.copy_expr(body.tail);
         self.terms.hold_body(&bindings, tail)
     }
@@ -556,10 +518,7 @@ impl Rewrite<'_> {
                     .source
                     .arms(arms)
                     .iter()
-                    .map(|arm| Arm {
-                        ctor: arm.ctor,
-                        body: self.copy_body(arm.body),
-                    })
+                    .map(|arm| Arm { ctor: arm.ctor, body: self.copy_body(arm.body) })
                     .collect();
                 Expr::Match(value, self.terms.hold_arms(&arms))
             }
@@ -570,8 +529,7 @@ impl Rewrite<'_> {
     }
 
     fn copy_args(&mut self, args: Range) -> Range {
-        self.terms
-            .hold_atoms(self.source.atoms(args).iter().copied())
+        self.terms.hold_atoms(self.source.atoms(args).iter().copied())
     }
 }
 

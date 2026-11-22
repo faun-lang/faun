@@ -86,10 +86,7 @@ mod tests {
 
     #[test]
     fn compiles_the_three_initial_baselines() {
-        assert_eq!(
-            emitted_words(&programs::empty(), 3),
-            [0xD280_0000, 0xD280_0030, 0xD400_1001]
-        );
+        assert_eq!(emitted_words(&programs::empty(), 3), [0xD280_0000, 0xD280_0030, 0xD400_1001]);
         assert_eq!(
             emitted_words(&exits_with_host(), 4),
             [0xAA00_03F3, 0xAA13_03E0, 0xD280_0030, 0xD400_1001]
@@ -111,9 +108,7 @@ mod tests {
 
     #[test]
     fn unsupported_ir_is_refused_before_emission() {
-        let error = Aarch64Macos
-            .compile_machine_ir(&programs::two_and_two())
-            .unwrap_err();
+        let error = Aarch64Macos.compile_machine_ir(&programs::two_and_two()).unwrap_err();
         assert!(error.contains("does not yet support"), "{error}");
     }
 }

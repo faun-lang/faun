@@ -213,21 +213,12 @@ impl Facts {
 
     #[must_use]
     pub fn operation(&self, id: FnId) -> Option<Operation> {
-        self.recognised
-            .operations
-            .get(id.index())
-            .copied()
-            .flatten()
+        self.recognised.operations.get(id.index()).copied().flatten()
     }
     /// A structurally recognized rotation whose input range fits its width.
     #[must_use]
     pub fn rotation(&self, id: FnId) -> Option<super::Rotation> {
-        let rotation = self
-            .recognised
-            .rotations
-            .get(id.index())
-            .copied()
-            .flatten()?;
+        let rotation = self.recognised.rotations.get(id.index()).copied().flatten()?;
         let high = self.takes(id).first()?.high?;
         (rotation.bits == 64 || high < (1u64 << rotation.bits)).then_some(rotation)
     }
@@ -254,27 +245,16 @@ impl Facts {
     }
     #[must_use]
     pub fn held(&self, id: ExprId) -> Bounds {
-        self.ranges
-            .terms
-            .get(id.index())
-            .copied()
-            .unwrap_or(Bounds::ANY)
+        self.ranges.terms.get(id.index()).copied().unwrap_or(Bounds::ANY)
     }
     #[must_use]
     pub fn arguments(&self, id: ExprId) -> &[Bounds] {
-        self.ranges
-            .arguments
-            .get(id.index())
-            .map_or(&[], Vec::as_slice)
+        self.ranges.arguments.get(id.index()).map_or(&[], Vec::as_slice)
     }
 
     #[must_use]
     pub fn matched(&self, id: ExprId) -> Bounds {
-        self.ranges
-            .matched
-            .get(id.index())
-            .copied()
-            .unwrap_or(Bounds::ANY)
+        self.ranges.matched.get(id.index()).copied().unwrap_or(Bounds::ANY)
     }
     #[must_use]
     pub fn takes(&self, id: FnId) -> &[Bounds] {
@@ -297,11 +277,7 @@ impl Facts {
     }
     #[must_use]
     pub fn answers(&self, id: FnId) -> Bounds {
-        self.ranges
-            .answers
-            .get(id.index())
-            .copied()
-            .unwrap_or(Bounds::ANY)
+        self.ranges.answers.get(id.index()).copied().unwrap_or(Bounds::ANY)
     }
 }
 
@@ -321,12 +297,5 @@ pub(super) fn analyze(
     let pure = super::calls::pure(program, &recognised);
     let comparisons = super::float_compare::analyze(program, &recognised.operations);
     let trees = super::tree::analyze(program, &recognised);
-    Facts {
-        recognised,
-        ranges,
-        affine,
-        trees,
-        comparisons,
-        pure,
-    }
+    Facts { recognised, ranges, affine, trees, comparisons, pure }
 }

@@ -44,10 +44,7 @@ pub(crate) fn bundle(
     let bytes = archive(&files)?;
     let hash = packages::base58(blake3::hash(&bytes).as_bytes());
     fs::create_dir_all(directory).map_err(|error| {
-        Diagnostic::new(format!(
-            "cannot write into `{}`: {error}",
-            directory.display()
-        ))
+        Diagnostic::new(format!("cannot write into `{}`: {error}", directory.display()))
     })?;
     let written = directory.join(format!("{hash}.tar.zst"));
     fs::write(&written, bytes).map_err(|error| {
@@ -66,10 +63,7 @@ fn files(modules: &[(PathBuf, String)]) -> Result<Vec<(String, String)>, Diagnos
         let relative = path
             .strip_prefix(base)
             .map_err(|_| {
-                Diagnostic::new(format!(
-                    "`{}` is outside the package's directory",
-                    path.display()
-                ))
+                Diagnostic::new(format!("`{}` is outside the package's directory", path.display()))
             })?
             .to_string_lossy()
             .replace('\\', "/");
@@ -167,9 +161,7 @@ fn archive(files: &[(String, String)]) -> Result<Vec<u8>, Diagnostic> {
         header.set_mtime(0);
         header.set_uid(0);
         header.set_gid(0);
-        builder
-            .append_data(&mut header, path, text.as_bytes())
-            .map_err(failed)?;
+        builder.append_data(&mut header, path, text.as_bytes()).map_err(failed)?;
     }
     let tarred = builder.into_inner().map_err(failed)?;
     zstd::encode_all(tarred.as_slice(), LEVEL).map_err(failed)
@@ -192,10 +184,7 @@ mod tests {
             versioned("double(n) -> n * 2\n").unwrap(),
             format!("package {{faun: {version}}}\n\ndouble(n) -> n * 2\n")
         );
-        assert_eq!(
-            versioned("package {}\n").unwrap(),
-            format!("package {{faun: {version}}}\n")
-        );
+        assert_eq!(versioned("package {}\n").unwrap(), format!("package {{faun: {version}}}\n"));
         assert_eq!(
             versioned("package {uses: {}}\n").unwrap(),
             format!("package {{faun: {version}, uses: {{}}}}\n")
@@ -204,9 +193,6 @@ mod tests {
             versioned("package {\n  uses: {},\n}\n").unwrap(),
             format!("package {{\n  faun: {version},\n  uses: {{}},\n}}\n")
         );
-        assert_eq!(
-            versioned("package {faun: \"0.0\"}\n").unwrap(),
-            "package {faun: \"0.0\"}\n"
-        );
+        assert_eq!(versioned("package {faun: \"0.0\"}\n").unwrap(), "package {faun: \"0.0\"}\n");
     }
 }

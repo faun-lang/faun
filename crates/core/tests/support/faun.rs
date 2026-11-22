@@ -22,10 +22,7 @@ pub(crate) fn lower(text: &str, target: &dyn Target) -> Result<Program, String> 
 
 /// Lower a Faun package's expectations as `faun test` builds them: an
 /// application printing the number of each that does not hold.
-#[allow(
-    dead_code,
-    reason = "not every test binary including this runs expectations"
-)]
+#[allow(dead_code, reason = "not every test binary including this runs expectations")]
 pub(crate) fn expectations(text: &str, target: &dyn Target) -> Result<Program, String> {
     let (dir, path) = source_file(text);
     let program = expectations_at(&path, target);
@@ -34,10 +31,7 @@ pub(crate) fn expectations(text: &str, target: &dyn Target) -> Result<Program, S
 }
 
 /// The same, for the package whose entry is at `path`.
-#[allow(
-    dead_code,
-    reason = "not every test binary including this runs expectations"
-)]
+#[allow(dead_code, reason = "not every test binary including this runs expectations")]
 pub(crate) fn expectations_at(
     path: &std::path::Path,
     target: &dyn Target,
@@ -49,10 +43,7 @@ pub(crate) fn expectations_at(
 
 /// The same, without optimizing Barb, for a test of shapes the optimizer
 /// would have removed.
-#[allow(
-    dead_code,
-    reason = "not every test binary including this reads unoptimized"
-)]
+#[allow(dead_code, reason = "not every test binary including this reads unoptimized")]
 pub(crate) fn unoptimized(text: &str, target: &dyn Target) -> Result<Program, String> {
     let (dir, path) = source_file(text);
     let barb = ::faun_frontend::lower_to_barb(&path, &faun_driver::platform(target));

@@ -53,11 +53,7 @@ fn hint(expression: &h::Expr, at: Span, text: &str) -> Option<String> {
         // A shift beside the bitwise operator takes parentheses with it.
         let beside = |side: &h::Expr| {
             let written = side.span.text(text);
-            if shifts(side, text) {
-                format!("({written})")
-            } else {
-                written.to_owned()
-            }
+            if shifts(side, text) { format!("({written})") } else { written.to_owned() }
         };
         // `flags & 4 == 0`, read `flags & (4 == 0)`.
         if let Some((compared, (low, high))) = comparison(right, text) {
@@ -104,10 +100,8 @@ const fn bitwise(operator: BinaryOp) -> Option<&'static str> {
 
 /// Whether `expression` is a shift written without parentheses.
 fn shifts(expression: &h::Expr, text: &str) -> bool {
-    matches!(
-        expression.kind,
-        h::ExprKind::Binary(BinaryOp::ShiftLeft | BinaryOp::ShiftRight, ..)
-    ) && !parenthesized(expression.span.text(text))
+    matches!(expression.kind, h::ExprKind::Binary(BinaryOp::ShiftLeft | BinaryOp::ShiftRight, ..))
+        && !parenthesized(expression.span.text(text))
 }
 
 /// The operator of a comparison written without parentheses, and its two

@@ -75,10 +75,7 @@ impl Interface {
             if let Some(previous) = self.types.get(&local)
                 && previous.canonical != binding.canonical
             {
-                return Err(Clash {
-                    kind: "type",
-                    name: local,
-                });
+                return Err(Clash { kind: "type", name: local });
             }
             self.types.insert(local, binding.clone());
         }
@@ -148,10 +145,7 @@ pub(crate) struct Modules<'a> {
     pub sources: &'a Sources,
     pub symbols: &'a Symbols,
     /// Each module, by identity.
-    #[expect(
-        clippy::struct_field_names,
-        reason = "the modules loaded are what it is"
-    )]
+    #[expect(clippy::struct_field_names, reason = "the modules loaded are what it is")]
     pub modules: &'a [LoadedModule],
     /// The standard package's root module.
     pub prelude: ModuleId,
@@ -303,20 +297,14 @@ impl Loader {
 
     /// The standard package's root module.
     pub(crate) const fn prelude(&self) -> ModuleId {
-        self.standard
-            .as_ref()
-            .expect("the standard package loads first")
-            .0
+        self.standard.as_ref().expect("the standard package loads first").0
     }
 
     /// Whether the module at `path` is already loaded, as one of the
     /// standard package's is once it has.
     pub(crate) fn holds(&self, path: &Path) -> bool {
         crate::standard::built_in(path).map_or_else(
-            || {
-                path.canonicalize()
-                    .is_ok_and(|path| self.loaded.contains_key(&path))
-            },
+            || path.canonicalize().is_ok_and(|path| self.loaded.contains_key(&path)),
             |_| self.loaded.contains_key(path),
         )
     }
@@ -334,10 +322,7 @@ impl Loader {
         packages: &Packages,
     ) -> Result<LoadedProgram, Diagnostic> {
         self.fetched = packages.clone();
-        let (prelude, written) = self
-            .standard
-            .clone()
-            .expect("the standard package loads first");
+        let (prelude, written) = self.standard.clone().expect("the standard package loads first");
         let root = self.package_at(&written);
         let host_id = self.load_module(host, Loading::Package(root), false)?;
         self.host = Some(host_id);
@@ -351,10 +336,7 @@ impl Loader {
     fn package_at(&mut self, path: &Path) -> Root {
         self.packages += 1;
         Root {
-            directory: path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf(),
+            directory: path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf(),
             dependencies: HashMap::default(),
             package: self.packages,
         }
@@ -412,10 +394,7 @@ impl Loader {
             return Ok(id);
         }
         if self.visiting.contains(&path) {
-            return Err(Diagnostic::new(format!(
-                "import cycle through `{}`",
-                path.display()
-            )));
+            return Err(Diagnostic::new(format!("import cycle through `{}`", path.display())));
         }
         if standard_root {
             self.standard_root = path.parent().map(Path::to_path_buf);
@@ -446,11 +425,7 @@ impl Loader {
             diagnostic.also = error.also.iter().map(told).collect();
             diagnostic
         })?;
-        let file = self
-            .sources
-            .get(source)
-            .expect("the source just added")
-            .clone();
+        let file = self.sources.get(source).expect("the source just added").clone();
         let root = self.root(loading, &syntax, &path, source)?;
         let id =
             ModuleId(u32::try_from(self.pending.len()).expect("fewer than 2^32 loaded modules"));
@@ -481,11 +456,7 @@ impl Loader {
                 Item::Import(import) => Some((
                     index,
                     import.span,
-                    import
-                        .path
-                        .iter()
-                        .map(|part| part.text(&text).to_string())
-                        .collect(),
+                    import.path.iter().map(|part| part.text(&text).to_string()).collect(),
                 )),
                 _ => None,
             })
@@ -500,10 +471,8 @@ impl Loader {
             } else if let Some((dependency, for_tests)) = root.dependencies.get(&path_parts[0]) {
                 if path_parts.len() > 1 {
                     let package = &path_parts[0];
-                    let message = format!(
-                        "`{}` is inside the package `{package}`",
-                        path_parts.join(".")
-                    );
+                    let message =
+                        format!("`{}` is inside the package `{package}`", path_parts.join("."));
                     return Err(Diagnostic::new(message)
                         .at(&file, span)
                         .note("a package this one depends on keeps its modules its own")
@@ -539,12 +508,7 @@ impl Loader {
         scope
             .merge(&own)
             .map_err(|clash| self.clash(clash, &file, &self.pending[id.index()].syntax))?;
-        let public = exports(
-            &self.pending[id.index()].syntax,
-            &file,
-            &scope,
-            &mut self.symbols,
-        )?;
+        let public = exports(&self.pending[id.index()].syntax, &file, &scope, &mut self.symbols)?;
 
         let module = &mut self.pending[id.index()];
         module.scope = scope;
@@ -577,10 +541,8 @@ impl Loader {
         // from, and whether its constructors come with it.
         let imported = syntax.items.iter().find_map(|item| match item {
             Item::Import(import) => {
-                let exposure = import
-                    .exposures
-                    .iter()
-                    .find(|exposure| exposure.local.text(source) == name)?;
+                let exposure =
+                    import.exposures.iter().find(|exposure| exposure.local.text(source) == name)?;
                 let module = import.path.last().map_or("other", |part| part.text(source));
                 Some((exposure.local.0, module, exposure.constructors))
             }
@@ -605,11 +567,9 @@ impl Loader {
                     format!("{}{name}", capitalised_words(module))
                 };
                 let constructors = if constructors { ".*" } else { "" };
-                diagnostic
-                    .secondary(file, imported, "imported here")
-                    .help(format!(
-                        "import it under another name, as `{{{name}{constructors}: {renamed}}}`"
-                    ))
+                diagnostic.secondary(file, imported, "imported here").help(format!(
+                    "import it under another name, as `{{{name}{constructors}: {renamed}}}`"
+                ))
             }
             None => diagnostic
                 .note("every module sees the prelude's types and values")
@@ -634,11 +594,11 @@ impl Loader {
         match (loading, header) {
             (Loading::Within(root), None) => Ok(root.clone()),
             (Loading::Package(root), None) => Ok(root),
-            (Loading::Within(_), Some(header)) => Err(Diagnostic::new(
-                "only a package's root module has a `package` header",
-            )
-            .at(text, header.span)
-            .label("this module is inside its package")),
+            (Loading::Within(_), Some(header)) => {
+                Err(Diagnostic::new("only a package's root module has a `package` header")
+                    .at(text, header.span)
+                    .label("this module is inside its package"))
+            }
             (Loading::Package(mut root), Some(header)) => {
                 let directory = path.parent().unwrap_or_else(|| Path::new("."));
                 for (dependency, for_tests) in header_fields(header, text)? {
@@ -664,11 +624,7 @@ impl Loader {
                                 .at(text, dependency.span)
                         })?
                     };
-                    if root
-                        .dependencies
-                        .insert(name.clone(), (module, for_tests))
-                        .is_some()
-                    {
+                    if root.dependencies.insert(name.clone(), (module, for_tests)).is_some() {
                         return Err(Diagnostic::new(format!(
                             "the package depends on `{name}` more than once"
                         ))
@@ -696,10 +652,8 @@ impl Loader {
         if let Some(root) = &self.standard_root
             && let Ok(relative) = path.strip_prefix(root)
         {
-            let mut name = relative
-                .with_extension("")
-                .to_string_lossy()
-                .replace(['/', '\\', '-'], "_");
+            let mut name =
+                relative.with_extension("").to_string_lossy().replace(['/', '\\', '-'], "_");
             if name == "standard" {
                 name = "root".to_string();
             }
@@ -711,14 +665,8 @@ impl Loader {
 
 /// The language version this compiler reads, `MAJOR.MINOR`: its own.
 fn language_version() -> (u64, u64) {
-    let part = |text: &str| {
-        text.parse()
-            .expect("Cargo writes a version's parts as numbers")
-    };
-    (
-        part(env!("CARGO_PKG_VERSION_MAJOR")),
-        part(env!("CARGO_PKG_VERSION_MINOR")),
-    )
+    let part = |text: &str| text.parse().expect("Cargo writes a version's parts as numbers");
+    (part(env!("CARGO_PKG_VERSION_MAJOR")), part(env!("CARGO_PKG_VERSION_MINOR")))
 }
 
 /// A header's dependencies, each with whether it is in `test_uses`, once
@@ -734,10 +682,8 @@ pub(crate) fn header_fields<'a>(
     for field in &header.fields {
         let name = field.name.text(text);
         if seen.contains(&name) {
-            return Err(
-                Diagnostic::new(format!("the header names `{name}` more than once"))
-                    .at(file, field.span),
-            );
+            return Err(Diagnostic::new(format!("the header names `{name}` more than once"))
+                .at(file, field.span));
         }
         seen.push(name);
         match (name, &field.value) {
@@ -773,11 +719,9 @@ pub(crate) fn header_fields<'a>(
                 dependencies.extend(packages.iter().map(|dependency| (dependency, for_tests)));
             }
             ("faun", HeaderValue::Packages(_)) => {
-                return Err(
-                    Diagnostic::new("`faun` is a language version, not packages")
-                        .at(file, field.span)
-                        .help("write it as a string, as `faun: \"0.1\"`"),
-                );
+                return Err(Diagnostic::new("`faun` is a language version, not packages")
+                    .at(file, field.span)
+                    .help("write it as a string, as `faun: \"0.1\"`"));
             }
             ("uses" | "test_uses", HeaderValue::Text(_)) => {
                 return Err(Diagnostic::new(format!("`{name}` holds packages, not a string"))
@@ -810,9 +754,7 @@ fn module_path(root: &Path, parts: &[String]) -> Result<PathBuf, Diagnostic> {
     if parts.is_empty() {
         return Err(Diagnostic::new("an import names no module"));
     }
-    let joined = parts
-        .iter()
-        .fold(root.to_path_buf(), |path, part| path.join(part));
+    let joined = parts.iter().fold(root.to_path_buf(), |path, part| path.join(part));
     module_base(root, &joined)
         .map_err(|error| Diagnostic::new(format!("import `{}` {}", parts.join("."), error.message)))
 }
@@ -834,17 +776,12 @@ pub(crate) fn url_scheme(written: &str) -> Option<&str> {
 /// the base was written relative to.
 pub(crate) fn module_base(from: &Path, joined: &Path) -> Result<PathBuf, Diagnostic> {
     let flat = joined.with_extension("fn");
-    let nested = joined
-        .join(joined.file_name().unwrap_or_default())
-        .with_extension("fn");
+    let nested = joined.join(joined.file_name().unwrap_or_default()).with_extension("fn");
     let shown = |path: &Path| {
         let relative = path.strip_prefix(from).unwrap_or(path);
         format!("`{}`", relative.display())
     };
-    match (
-        crate::standard::is_module(&flat),
-        crate::standard::is_module(&nested),
-    ) {
+    match (crate::standard::is_module(&flat), crate::standard::is_module(&nested)) {
         (true, false) => Ok(flat),
         (false, true) => Ok(nested),
         (true, true) => Err(Diagnostic::new(format!(
@@ -852,11 +789,9 @@ pub(crate) fn module_base(from: &Path, joined: &Path) -> Result<PathBuf, Diagnos
             shown(&flat),
             shown(&nested)
         ))),
-        (false, false) => Err(Diagnostic::new(format!(
-            "finds neither {} nor {}",
-            shown(&flat),
-            shown(&nested)
-        ))),
+        (false, false) => {
+            Err(Diagnostic::new(format!("finds neither {} nor {}", shown(&flat), shown(&nested))))
+        }
     }
 }
 
@@ -919,13 +854,8 @@ fn declare_data(
     let source = file.text();
     let local = symbols.intern(data.name.text(source));
     if own.types.contains_key(&local) {
-        let message = format!(
-            "type `{}` is declared more than once",
-            data.name.text(source)
-        );
-        return Err(Diagnostic::new(message)
-            .at(file, data.name.0)
-            .label("declared again here"));
+        let message = format!("type `{}` is declared more than once", data.name.text(source));
+        return Err(Diagnostic::new(message).at(file, data.name.0).label("declared again here"));
     }
     let canonical = symbols.intern(&format!("{namespace}$${}", data.name.text(source)));
     let mut binding = TypeBinding {
@@ -1014,9 +944,7 @@ fn intern_record_fields(ty: &super::ast::Type, source: &str, symbols: &mut Symbo
                 intern_record_fields(member, source, symbols);
             }
         }
-        super::ast::Type::Function {
-            parameters, result, ..
-        } => {
+        super::ast::Type::Function { parameters, result, .. } => {
             for parameter in parameters {
                 intern_record_fields(parameter, source, symbols);
             }
@@ -1053,9 +981,7 @@ fn declare_value(
         && *previous != canonical
     {
         let message = format!("value `{}` is declared more than once", name.text(source));
-        return Err(Diagnostic::new(message)
-            .at(file, name.0)
-            .label("declared again here"));
+        return Err(Diagnostic::new(message).at(file, name.0).label("declared again here"));
     }
     own.values.insert(local, canonical);
     Ok(())
@@ -1084,14 +1010,8 @@ fn exports(
     for export in declarations {
         let local = symbols.intern(export.name.text(source));
         if let Some(&canonical) = scope.values.get(&local) {
-            insert_unique(
-                &mut public.values,
-                local,
-                canonical,
-                symbols,
-                "exported value",
-            )
-            .map_err(|diagnostic| diagnostic.at(file, export.name.0))?;
+            insert_unique(&mut public.values, local, canonical, symbols, "exported value")
+                .map_err(|diagnostic| diagnostic.at(file, export.name.0))?;
         }
         if let Some(binding) = scope.types.get(&local) {
             if binding.alias && export.constructors {
@@ -1115,10 +1035,8 @@ fn exports(
             }
         }
         if !scope.values.contains_key(&local) && !scope.types.contains_key(&local) {
-            let message = format!(
-                "`{}` is not visible and cannot be exported",
-                export.name.text(source)
-            );
+            let message =
+                format!("`{}` is not visible and cannot be exported", export.name.text(source));
             return Err(Diagnostic::new(message).at(file, export.name.0));
         }
     }
@@ -1139,14 +1057,8 @@ fn expose_import(
         let local = symbols.intern(exposure.local.text(source));
         let mut found = false;
         if let Some(&canonical) = face.values.get(&exported) {
-            insert_unique(
-                &mut scope.values,
-                local,
-                canonical,
-                symbols,
-                "imported value",
-            )
-            .map_err(|diagnostic| diagnostic.at(file, exposure.local.0))?;
+            insert_unique(&mut scope.values, local, canonical, symbols, "imported value")
+                .map_err(|diagnostic| diagnostic.at(file, exposure.local.0))?;
             found = true;
         }
         if let Some(binding) = face.types.get(&exported) {
@@ -1181,16 +1093,10 @@ fn expose_import(
             found = true;
         }
         if !found {
-            let module = import
-                .path
-                .iter()
-                .map(|part| part.text(source))
-                .collect::<Vec<_>>()
-                .join(".");
-            let message = format!(
-                "`{}` is not exported by `{module}`",
-                exposure.exported.text(source)
-            );
+            let module =
+                import.path.iter().map(|part| part.text(source)).collect::<Vec<_>>().join(".");
+            let message =
+                format!("`{}` is not exported by `{module}`", exposure.exported.text(source));
             return Err(Diagnostic::new(message)
                 .at(file, exposure.exported.0)
                 .label(format!("`{module}` does not export this")));
@@ -1307,10 +1213,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
             let root = std::env::temp_dir().join(format!("faun-modules-{unique}"));
             fs::create_dir_all(&root).unwrap();
             Self { root }
@@ -1346,10 +1249,7 @@ mod tests {
     #[test]
     fn imports_only_the_public_interface() {
         let fixture = Fixture::new();
-        fixture.write(
-            "numbers.fn",
-            "export {Nat.*}\nNat : [Zero, Succ(Nat)]\nsecret = Zero\n",
-        );
+        fixture.write("numbers.fn", "export {Nat.*}\nNat : [Zero, Succ(Nat)]\nsecret = Zero\n");
         let entry = fixture.write("main.fn", "import numbers {Nat.*}\nid(x) -> Succ(x)\n");
         let loaded = load_program(&entry, &fixture.empty_prelude(), &fixture.host()).unwrap();
         let entry = loaded.module(loaded.entry);
@@ -1381,18 +1281,14 @@ mod tests {
     fn std_host_is_a_compiler_selected_virtual_module() {
         let fixture = Fixture::new();
         let host = fixture.write("target/host.fn", "export {Host}\nHost : {argc: Nat}\n");
-        let entry = fixture.write(
-            "main.fn",
-            "import std.host {Host}\nid : Host -> Host\nid(h) -> h\n",
-        );
+        let entry =
+            fixture.write("main.fn", "import std.host {Host}\nid : Host -> Host\nid(h) -> h\n");
         let loaded = load_program(&entry, crate::standard_path(), &host).unwrap();
         let canonical = host.canonicalize().unwrap();
         assert_eq!(loaded.module(loaded.host).path, canonical);
 
-        let circular = fixture.write(
-            "target/circular.fn",
-            "import std.host {Host}\nexport {Host}\n",
-        );
+        let circular =
+            fixture.write("target/circular.fn", "import std.host {Host}\nexport {Host}\n");
         let error = load_program(&entry, crate::standard_path(), &circular).unwrap_err();
         assert!(error.message.contains("cannot import `std.host`"));
     }
@@ -1401,17 +1297,10 @@ mod tests {
     fn standard_namespaces_are_path_stable() {
         let fixture = Fixture::new();
         fixture.write("nat.fn", "export {Nat.*}\nNat : [Zero, Succ(Nat)]\n");
-        let root = fixture.write(
-            "standard.fn",
-            "package {}\nimport nat {Nat.*}\nexport {Nat.*}\n",
-        );
+        let root = fixture.write("standard.fn", "package {}\nimport nat {Nat.*}\nexport {Nat.*}\n");
         let entry = fixture.write("main.fn", "id(x) -> x\n");
         let loaded = load_program(&entry, &root, &fixture.host()).unwrap();
-        let nat = loaded
-            .modules
-            .iter()
-            .find(|module| module.path.ends_with("nat.fn"))
-            .unwrap();
+        let nat = loaded.modules.iter().find(|module| module.path.ends_with("nat.fn")).unwrap();
         assert_eq!(loaded.symbols.text(nat.namespace), "Mstd_nat");
     }
 

@@ -18,17 +18,11 @@ pub struct Affine {
 
 impl Affine {
     fn atom(atom: Atom) -> Self {
-        Self {
-            constant: 0,
-            terms: vec![(atom, 1)],
-        }
+        Self { constant: 0, terms: vec![(atom, 1)] }
     }
 
     const fn constant(value: u64) -> Self {
-        Self {
-            constant: value,
-            terms: Vec::new(),
-        }
+        Self { constant: value, terms: Vec::new() }
     }
 
     fn plus(mut self, other: Self) -> Option<Self> {
@@ -63,11 +57,8 @@ impl Affine {
 
 /// Derive one summary per expression where every lexical occurrence agrees.
 pub(super) fn analyze(program: &Program, operations: &[Option<Operation>]) -> Vec<Option<Affine>> {
-    let mut analysis = Analysis {
-        program,
-        operations,
-        found: vec![Finding::Unseen; program.exprs_count()],
-    };
+    let mut analysis =
+        Analysis { program, operations, found: vec![Finding::Unseen; program.exprs_count()] };
     for (at, operation) in operations.iter().enumerate() {
         let id = FnId::at(at);
         if operation.is_some() {
@@ -76,9 +67,8 @@ pub(super) fn analyze(program: &Program, operations: &[Option<Operation>]) -> Ve
         let Some(body) = program.function(id).body() else {
             continue;
         };
-        let scope = (0..program.params(id).len())
-            .map(|at| Affine::atom(Atom(Local::at(at))))
-            .collect();
+        let scope =
+            (0..program.params(id).len()).map(|at| Affine::atom(Atom(Local::at(at)))).collect();
         analysis.body(body, scope);
     }
     analysis
@@ -144,10 +134,7 @@ impl Analysis<'_> {
         let [left, right] = self.program.atoms(args) else {
             return None;
         };
-        let (left, right) = (
-            scope[left.0.index()].clone(),
-            scope[right.0.index()].clone(),
-        );
+        let (left, right) = (scope[left.0.index()].clone(), scope[right.0.index()].clone());
         match self.operations[called.index()]? {
             Operation::Add => left.plus(right),
             Operation::Mul => match (left.number(), right.number()) {

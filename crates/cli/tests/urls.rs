@@ -106,17 +106,8 @@ fn bundled(scratch: &Scratch) -> String {
     let root = scratch.write("library/shapes.fn", LIBRARY);
     scratch.write("library/area.fn", AREA);
     let into = scratch.0.join("served/shapes/1.0.0");
-    let output = scratch.faun(&[
-        "bundle",
-        root.to_str().unwrap(),
-        "-o",
-        into.to_str().unwrap(),
-    ]);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let output = scratch.faun(&["bundle", root.to_str().unwrap(), "-o", into.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let mut names: Vec<String> = fs::read_dir(&into)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
@@ -146,33 +137,19 @@ fn a_package_is_bundled_served_fetched_and_built_against() {
     let entry = app(&scratch, &url);
     let entry = entry.to_str().unwrap();
     let checked = scratch.faun(&["check", entry]);
-    assert!(
-        checked.status.success(),
-        "{}",
-        String::from_utf8_lossy(&checked.stderr)
-    );
-    let cached = scratch
-        .0
-        .join("cache/packages")
-        .join(bundle.trim_end_matches(".tar.zst"));
+    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
+    let cached = scratch.0.join("cache/packages").join(bundle.trim_end_matches(".tar.zst"));
     let root = fs::read_to_string(cached.join("main.fn")).unwrap();
     assert!(root.starts_with("package {faun: \""), "{root}");
     assert!(cached.join("area.fn").is_file());
-    assert!(
-        cached.join("LICENSE").is_file(),
-        "the library's license travels with it"
-    );
+    assert!(cached.join("LICENSE").is_file(), "the library's license travels with it");
     let used = scratch.faun(&["uses", entry]);
     let used = String::from_utf8_lossy(&used.stdout);
     assert!(used.contains(&format!("shapes: {url}")), "{used}");
     // Cached, it is read again with no server to ask.
     fs::remove_dir_all(scratch.0.join("served")).unwrap();
     let offline = scratch.faun(&["check", entry]);
-    assert!(
-        offline.status.success(),
-        "{}",
-        String::from_utf8_lossy(&offline.stderr)
-    );
+    assert!(offline.status.success(), "{}", String::from_utf8_lossy(&offline.stderr));
 }
 
 #[test]
@@ -182,11 +159,7 @@ fn a_redirect_is_followed_and_a_bundle_not_the_one_named_is_refused() {
     let address = serve(&scratch.0.join("served"));
     let moved = app(&scratch, &format!("{address}/moved/shapes/1.0.0/{bundle}"));
     let checked = scratch.faun(&["check", moved.to_str().unwrap()]);
-    assert!(
-        checked.status.success(),
-        "{}",
-        String::from_utf8_lossy(&checked.stderr)
-    );
+    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
 
     let other = Scratch::new("redirect-other");
     let wrong = format!("{}.tar.zst", "1".repeat(32));
@@ -203,10 +176,8 @@ fn a_redirect_is_followed_and_a_bundle_not_the_one_named_is_refused() {
 fn a_bundle_holds_no_path_dependency() {
     let scratch = Scratch::new("paths");
     scratch.write("library/area.fn", AREA);
-    let root = scratch.write(
-        "library/shapes.fn",
-        "package {uses: {area: \"area\"}}\n\nimport area {square}\n",
-    );
+    let root = scratch
+        .write("library/shapes.fn", "package {uses: {area: \"area\"}}\n\nimport area {square}\n");
     let output = scratch.faun(&["bundle", root.to_str().unwrap(), "-o", "/nowhere"]);
     let said = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success());

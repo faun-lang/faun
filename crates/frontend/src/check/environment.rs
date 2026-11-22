@@ -87,9 +87,7 @@ impl<'a> Checker<'a> {
             if let Some(span) =
                 introduced.or_else(|| function.clauses.first().map(|clause| clause.span))
             {
-                checker
-                    .defined
-                    .insert(function.name, (function.module, span));
+                checker.defined.insert(function.name, (function.module, span));
             }
         }
         checker.validate_literal_protocols(program)?;
@@ -137,11 +135,8 @@ impl<'a> Checker<'a> {
             let fresh = self.infer.fresh();
             variables.insert(*parameter, fresh);
         }
-        let arguments: Vec<_> = data
-            .parameters
-            .iter()
-            .map(|parameter| variables[parameter].clone())
-            .collect();
+        let arguments: Vec<_> =
+            data.parameters.iter().map(|parameter| variables[parameter].clone()).collect();
         let result = Ty::Named(data.name, arguments.into());
         for constructor in &data.constructors {
             let fields: Vec<_> = constructor
@@ -154,42 +149,27 @@ impl<'a> Checker<'a> {
             } else {
                 Ty::Function(fields.into(), Rc::new(result.clone()))
             };
-            self.constructors.insert(
-                constructor.name,
-                Scheme {
-                    variables: free_variables(&ty),
-                    ty,
-                },
-            );
+            self.constructors
+                .insert(constructor.name, Scheme { variables: free_variables(&ty), ty });
         }
         if let Some(wrapper) = &data.wrapper {
             let field = self.surface_type(&wrapper.field, &mut variables);
             if matches!(&field, Ty::Record(_, Some(_))) {
-                return Err(
-                    failure(module, data.span, "a declared type's record is closed")
-                        .help("write a record with `*` where it is taken, in a signature"),
-                );
+                return Err(failure(module, data.span, "a declared type's record is closed")
+                    .help("write a record with `*` where it is taken, in a signature"));
             }
             if let Ty::Record(fields, _) = &field {
                 for (name, field_ty) in fields.iter() {
                     let ty = Ty::Function(Rc::from([result.clone()]), Rc::new(field_ty.clone()));
                     self.fields.entry(*name).or_default().push(FieldImpl {
                         owner: data.name,
-                        scheme: Scheme {
-                            variables: free_variables(&ty),
-                            ty,
-                        },
+                        scheme: Scheme { variables: free_variables(&ty), ty },
                     });
                 }
             }
             let ty = Ty::Function(Rc::from([field]), Rc::new(result));
-            self.constructors.insert(
-                wrapper.constructor,
-                Scheme {
-                    variables: free_variables(&ty),
-                    ty,
-                },
-            );
+            self.constructors
+                .insert(wrapper.constructor, Scheme { variables: free_variables(&ty), ty });
         }
         Ok(())
     }
@@ -210,12 +190,7 @@ impl<'a> Checker<'a> {
             return Err(failure(module, signature.span, message)
                 .note("a function is passed into a call, never answered or stored"));
         }
-        if signature
-            .parameters
-            .iter()
-            .chain([&signature.result])
-            .any(has_hole)
-        {
+        if signature.parameters.iter().chain([&signature.result]).any(has_hole) {
             if !signature.constraints.is_empty() {
                 let note = format!(
                     "`{}` writes `_`, so its type is worked out from its clauses",
@@ -239,10 +214,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        let scheme = Scheme {
-            variables: quantified,
-            ty,
-        };
+        let scheme = Scheme { variables: quantified, ty };
         self.set_value(signature.name, scheme.clone());
         self.bounds.insert(signature.name, bounds);
         self.variable_names.insert(
@@ -256,15 +228,12 @@ impl<'a> Checker<'a> {
                 .collect(),
         );
         if let Some(owner) = owner {
-            self.methods
-                .entry(signature.spelling)
-                .or_default()
-                .push(MethodImpl {
-                    owner,
-                    target: signature.name,
-                    scheme,
-                    bound: false,
-                });
+            self.methods.entry(signature.spelling).or_default().push(MethodImpl {
+                owner,
+                target: signature.name,
+                scheme,
+                bound: false,
+            });
         }
         Ok(())
     }
@@ -275,11 +244,8 @@ impl<'a> Checker<'a> {
         signature: &h::SignatureDecl,
         variables: &mut HashMap<Symbol, Ty>,
     ) -> Ty {
-        let parameters = signature
-            .parameters
-            .iter()
-            .map(|ty| self.surface_type(ty, variables))
-            .collect();
+        let parameters =
+            signature.parameters.iter().map(|ty| self.surface_type(ty, variables)).collect();
         let result = self.surface_type(&signature.result, variables);
         Ty::Function(parameters, Rc::new(result))
     }
@@ -300,16 +266,15 @@ impl<'a> Checker<'a> {
                 continue;
             }
             let canonical = self.symbols.text(function.name);
-            let Some(spelling) = canonical
-                .rsplit_once('.')
-                .and_then(|(_, spelled)| self.symbols.find(spelled))
+            let Some(spelling) =
+                canonical.rsplit_once('.').and_then(|(_, spelled)| self.symbols.find(spelled))
             else {
                 continue;
             };
-            methods.entry(spelling).or_default().push(UnsignedMethod {
-                name: function.name,
-                owner,
-            });
+            methods
+                .entry(spelling)
+                .or_default()
+                .push(UnsignedMethod { name: function.name, owner });
         }
         methods
     }
@@ -324,10 +289,7 @@ impl<'a> Checker<'a> {
         scheme: Scheme,
     ) {
         let Some((&spelling, method)) = methods.iter().find_map(|(spelling, methods)| {
-            methods
-                .iter()
-                .find(|method| method.name == name)
-                .map(|method| (spelling, method))
+            methods.iter().find(|method| method.name == name).map(|method| (spelling, method))
         }) else {
             return;
         };
@@ -358,12 +320,9 @@ impl<'a> Checker<'a> {
             let mut progress = false;
             for (constraint, bound) in signature.constraints.iter().zip(&mut bounds) {
                 let (variable, member, ty, through) = match constraint {
-                    h::Constraint::Member {
-                        variable,
-                        member,
-                        ty,
-                        through,
-                    } => (*variable, *member, ty, *through),
+                    h::Constraint::Member { variable, member, ty, through } => {
+                        (*variable, *member, ty, *through)
+                    }
                     h::Constraint::Alias { .. } => {
                         unreachable!("resolution expands every constraint alias")
                     }
@@ -428,26 +387,18 @@ impl<'a> Checker<'a> {
             Ty::Var(_) | Ty::Rigid(_) => ty.clone(),
             Ty::Named(name, arguments) => Ty::Named(
                 *name,
-                arguments
-                    .iter()
-                    .map(|ty| self.open_result_rows(ty, positive))
-                    .collect(),
+                arguments.iter().map(|ty| self.open_result_rows(ty, positive)).collect(),
             ),
             Ty::Function(parameters, result) => Ty::Function(
-                parameters
-                    .iter()
-                    .map(|ty| self.open_result_rows(ty, !positive))
-                    .collect(),
+                parameters.iter().map(|ty| self.open_result_rows(ty, !positive)).collect(),
                 Rc::new(self.open_result_rows(result, positive)),
             ),
             Ty::Variants(tags, tail) => {
                 let tags: Tags = tags
                     .iter()
                     .map(|(name, fields)| {
-                        let fields = fields
-                            .iter()
-                            .map(|ty| self.open_result_rows(ty, positive))
-                            .collect();
+                        let fields =
+                            fields.iter().map(|ty| self.open_result_rows(ty, positive)).collect();
                         (*name, fields)
                     })
                     .collect();
@@ -464,12 +415,9 @@ impl<'a> Checker<'a> {
                     .collect(),
                 tail.clone(),
             ),
-            Ty::Tuple(members) => Ty::Tuple(
-                members
-                    .iter()
-                    .map(|ty| self.open_result_rows(ty, positive))
-                    .collect(),
-            ),
+            Ty::Tuple(members) => {
+                Ty::Tuple(members.iter().map(|ty| self.open_result_rows(ty, positive)).collect())
+            }
         }
     }
 
@@ -477,23 +425,16 @@ impl<'a> Checker<'a> {
         match ty {
             h::Type::Named(name, arguments) => Ty::Named(
                 *name,
-                arguments
-                    .iter()
-                    .map(|ty| self.surface_type(ty, variables))
-                    .collect(),
+                arguments.iter().map(|ty| self.surface_type(ty, variables)).collect(),
             ),
-            h::Type::Variable(name) => variables
-                .entry(*name)
-                .or_insert_with(|| self.infer.fresh())
-                .clone(),
+            h::Type::Variable(name) => {
+                variables.entry(*name).or_insert_with(|| self.infer.fresh()).clone()
+            }
             // Whatever the clauses make it: a variable no scheme quantifies
             // until they have.
             h::Type::Hole => self.infer.fresh(),
             h::Type::Function(parameters, result) => Ty::Function(
-                parameters
-                    .iter()
-                    .map(|ty| self.surface_type(ty, variables))
-                    .collect(),
+                parameters.iter().map(|ty| self.surface_type(ty, variables)).collect(),
                 Rc::new(self.surface_type(result, variables)),
             ),
             // A written row is closed: it is exactly these tags.
@@ -516,18 +457,12 @@ impl<'a> Checker<'a> {
             // `*` stands for whatever other fields a caller's record has:
             // a tail of its own, which the scheme quantifies.
             h::Type::Record(fields, open) => Ty::Record(
-                fields
-                    .iter()
-                    .map(|(name, ty)| (*name, self.surface_type(ty, variables)))
-                    .collect(),
+                fields.iter().map(|(name, ty)| (*name, self.surface_type(ty, variables))).collect(),
                 open.then(|| Rc::new(self.infer.fresh())),
             ),
-            h::Type::Tuple(members) => Ty::Tuple(
-                members
-                    .iter()
-                    .map(|ty| self.surface_type(ty, variables))
-                    .collect(),
-            ),
+            h::Type::Tuple(members) => {
+                Ty::Tuple(members.iter().map(|ty| self.surface_type(ty, variables)).collect())
+            }
         }
     }
 
@@ -557,10 +492,7 @@ impl<'a> Checker<'a> {
                 ));
             };
             let expected = Ty::Function(
-                parameters
-                    .into_iter()
-                    .map(|name| Ty::Named(name, Rc::default()))
-                    .collect(),
+                parameters.into_iter().map(|name| Ty::Named(name, Rc::default())).collect(),
                 Rc::new(Ty::Named(result, Rc::default())),
             );
             if scheme.ty != expected {

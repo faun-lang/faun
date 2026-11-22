@@ -14,11 +14,7 @@ pub(super) struct Pushed {
 /// Both results must have a single use. An escaping buffer may be read
 /// through its address; a separately used start keeps the push live.
 pub(super) fn temporary_pushes(source: &Program) -> HashMap<ValueId, Pushed> {
-    if !source
-        .ops
-        .iter()
-        .any(|op| matches!(op, Op::BufferPrepend { .. }))
-    {
+    if !source.ops.iter().any(|op| matches!(op, Op::BufferPrepend { .. })) {
         return HashMap::default();
     }
     let uses = source.use_counts();
@@ -29,14 +25,7 @@ pub(super) fn temporary_pushes(source: &Program) -> HashMap<ValueId, Pushed> {
                 && uses[buffer.index()] == 1
                 && uses[start.index()] == 1
             {
-                pushes.insert(
-                    buffer,
-                    Pushed {
-                        start,
-                        operands,
-                        shape,
-                    },
-                );
+                pushes.insert(buffer, Pushed { start, operands, shape });
             }
         }
     }
@@ -80,11 +69,8 @@ impl Simplify {
             elements.push(fields);
             (from, first) = (*buffer, *start);
         }
-        let (mut buffer, mut first, mut len) = (
-            rebuild.value(onto),
-            rebuild.value(start),
-            rebuild.value(len),
-        );
+        let (mut buffer, mut first, mut len) =
+            (rebuild.value(onto), rebuild.value(start), rebuild.value(len));
         for (at, fields) in elements.iter().enumerate() {
             if at > 0 {
                 let one = b.constant(Class::Word, 1);

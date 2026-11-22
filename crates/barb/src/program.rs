@@ -98,9 +98,8 @@ pub fn single_field_constant<'a>(program: &'a Program, mut value: Constant<'a>) 
         let super::ConstantView::Constructor(product) = value.view() else {
             unreachable!("a one-field product is constructor encoded")
         };
-        let fields = product
-            .fields_within(&mut budget)
-            .expect("validated constant fields can be revisited");
+        let fields =
+            product.fields_within(&mut budget).expect("validated constant fields can be revisited");
         value = fields[0];
     }
     value
@@ -114,10 +113,7 @@ impl Program {
     // Keep the pool paired with this program's declarations while splitting the
     // mutable storage borrow from immutable metadata. No public schema argument.
     fn constant_parts(&mut self) -> (TypeInfo<'_>, &mut ConstantPool) {
-        (
-            TypeInfo::new(&self.types, &self.ctors, &self.types_pool),
-            &mut self.constants,
-        )
+        (TypeInfo::new(&self.types, &self.ctors, &self.types_pool), &mut self.constants)
     }
 
     /// The name a symbol stands for.
@@ -194,18 +190,9 @@ impl Program {
     fn recognise(&self) -> Recognised {
         let operations = super::arithmetic::recognise(self);
         let sequences = super::arithmetic::recognise_sequences(self, &operations);
-        let floats = self
-            .functions
-            .iter()
-            .map(|function| function.float)
-            .collect();
+        let floats = self.functions.iter().map(|function| function.float).collect();
         let rotations = super::rotation::recognize(self, &operations);
-        Recognised {
-            operations,
-            sequences,
-            floats,
-            rotations,
-        }
+        Recognised { operations, sequences, floats, rotations }
     }
 
     /// What every term, parameter, result and field can hold, as the
@@ -320,8 +307,7 @@ impl Program {
     /// If no entry was set, which [`super::validate`] refuses.
     #[must_use]
     pub const fn entry(&self) -> FnId {
-        self.entry
-            .expect("a program has an entry; validation refuses one without")
+        self.entry.expect("a program has an entry; validation refuses one without")
     }
 
     #[must_use]
@@ -379,11 +365,7 @@ impl Program {
     fn declare_type_with_display(&mut self, name: &str, inline: bool) -> TypeId {
         self.redefined();
         let name = self.symbol(name);
-        self.types.push(Type {
-            name,
-            inline,
-            definition: TypeDefinition::Declared,
-        })
+        self.types.push(Type { name, inline, definition: TypeDefinition::Declared })
     }
 
     /// Give a reserved type its constructors, once, in tag order.
@@ -425,18 +407,11 @@ impl Program {
             let types: Vec<_> = fields.iter().map(|field| field.ty).collect();
             let details: Vec<_> = fields
                 .iter()
-                .map(|field| FieldDetail {
-                    name: field.name.map(|name| self.symbol(name)),
-                })
+                .map(|field| FieldDetail { name: field.name.map(|name| self.symbol(name)) })
                 .collect();
             let fields = append_range(&mut self.types_pool, &types);
             let details = append_range(&mut self.field_details, &details);
-            self.ctors.push(Ctor {
-                name,
-                owner: id,
-                fields,
-                details,
-            });
+            self.ctors.push(Ctor { name, owner: id, fields, details });
         }
         self.types[id].definition = TypeDefinition::Defined(Range::of(start, ctors.len()));
     }
@@ -460,11 +435,8 @@ impl Program {
     /// If the program outgrew the pools it may have.
     pub fn declare(&mut self, name: &str, params: &[TypeId], result: TypeId) -> FnId {
         let names: Vec<_> = (0..params.len()).map(|at| format!("v{at}")).collect();
-        let params: Vec<_> = names
-            .iter()
-            .zip(params)
-            .map(|(name, &ty)| (name.as_str(), ty))
-            .collect();
+        let params: Vec<_> =
+            names.iter().zip(params).map(|(name, &ty)| (name.as_str(), ty)).collect();
         self.declare_named(name, &params, result)
     }
 
@@ -474,13 +446,9 @@ impl Program {
         let name = self.symbol(name);
         let types: Vec<_> = params.iter().map(|(_, ty)| *ty).collect();
         let types = append_range(&mut self.types_pool, &types);
-        let names: Vec<_> = params
-            .iter()
-            .map(|(parameter, _)| self.symbol(parameter))
-            .collect();
+        let names: Vec<_> = params.iter().map(|(parameter, _)| self.symbol(parameter)).collect();
         let start = self.parameters.len();
-        self.parameters
-            .extend(names.into_iter().map(|name| Parameter { name }));
+        self.parameters.extend(names.into_iter().map(|name| Parameter { name }));
         let parameters = Range::of(start, params.len());
         self.functions.push(Function {
             name,

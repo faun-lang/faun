@@ -180,11 +180,7 @@ mod tests {
         let (mut ids, mut at) = (Vec::new(), 8);
         while at < module.len() {
             ids.push(module[at]);
-            assert!(
-                module[at + 1] < 0x80,
-                "section {} is too long to skip",
-                ids.len()
-            );
+            assert!(module[at + 1] < 0x80, "section {} is too long to skip", ids.len());
             at += 2 + usize::from(module[at + 1]);
         }
         assert_eq!(ids, [TYPE, IMPORT, FUNCTION, MEMORY, EXPORT, CODE, DATA]);
@@ -192,11 +188,6 @@ mod tests {
 
     #[test]
     fn one_page_holds_a_greeting() {
-        assert_eq!(
-            pages(&super::super::lower::lower(
-                &faun_core::programs::hello_world()
-            )),
-            1
-        );
+        assert_eq!(pages(&super::super::lower::lower(&faun_core::programs::hello_world())), 1);
     }
 }

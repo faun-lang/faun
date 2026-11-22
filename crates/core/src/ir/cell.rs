@@ -66,9 +66,7 @@ impl Claims {
                 return;
             }
             CELL => self.cells,
-            BUFFER => self
-                .buffers
-                .expect("a buffer is released only where there are any"),
+            BUFFER => self.buffers.expect("a buffer is released only where there are any"),
             _ => return,
         };
         let value = b.convert(A, value);
@@ -89,11 +87,8 @@ impl Claims {
     /// Give up a claim of a kind read while the program runs, which a
     /// descriptor lists and so is never a scalar's.
     pub(super) fn release_by_kind(self, b: &mut Builder<'_>, kind: ValueId, value: ValueId) {
-        let kinds: &[u64] = if self.buffers.is_some() {
-            &[NATURAL, CELL, BUFFER]
-        } else {
-            &[NATURAL, CELL]
-        };
+        let kinds: &[u64] =
+            if self.buffers.is_some() { &[NATURAL, CELL, BUFFER] } else { &[NATURAL, CELL] };
         self.choose(b, kind, value, kinds);
     }
 
@@ -199,10 +194,7 @@ pub(super) fn append(
     fixed: Option<&[(u64, u64)]>,
 ) -> Library {
     let release = program.declare("cell.release", &[A], &[]);
-    let library = Library {
-        release,
-        allocate: naturals.require(Helper::Allocate),
-    };
+    let library = Library { release, allocate: naturals.require(Helper::Allocate) };
     let claims = Claims {
         word_bits,
         retain: naturals.retain,

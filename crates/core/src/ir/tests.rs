@@ -20,12 +20,7 @@ pub(super) fn host(program: &mut barb::Program, nat: barb::TypeId) -> World {
     program.define_type(never, &[]);
     let exit = program.declare("exit!", &[host, nat], never);
     let input = program.declare("read_byte!", &[host], nat);
-    World {
-        host,
-        never,
-        exit,
-        input,
-    }
+    World { host, never, exit, input }
 }
 
 /// `bounded!(host, test, n)`: `n` where `test` is true, and leaving with
@@ -309,10 +304,6 @@ fn a_value_too_wide_for_a_routine_is_refused() {
 /// its tag: a sum of numbers is a tagged union, whose slot is as wide as
 /// what the routine read answers.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one fixture declares its types and host, builds the program, and checks its signature"
-)]
 fn a_constructor_that_carries_something_is_not_a_tag() {
     let routines = crate::platform::Routines::builtin();
     let mut source = barb::Program::default();
@@ -324,13 +315,13 @@ fn a_constructor_that_carries_something_is_not_a_tag() {
     let world = host(&mut source, nat);
     let unwrap = source.declare("unwrap", &[maybe], nat);
     source.define(unwrap, |b, args| {
-        b.match_(args[0], maybe, |b, ctor, fields| {
-            if ctor == some {
-                fields[0]
-            } else {
-                b.con(zero, &[])
-            }
-        })
+        b.match_(
+            args[0],
+            maybe,
+            |b, ctor, fields| {
+                if ctor == some { fields[0] } else { b.con(zero, &[]) }
+            },
+        )
     });
     let main = source.declare_named("main!", &[("host", world.host)], world.never);
     source.define(main, |b, args| {
@@ -349,13 +340,7 @@ fn a_constructor_that_carries_something_is_not_a_tag() {
         .unwrap();
     assert_eq!(
         program.signature(unwrap.params),
-        [
-            Class::fixed(1),
-            Class::Held(barb::Bounds {
-                low: 0,
-                high: Some(511)
-            })
-        ],
+        [Class::fixed(1), Class::Held(barb::Bounds { low: 0, high: Some(511) })],
         "{}",
         program.render()
     );
@@ -381,10 +366,7 @@ fn an_effect_hands_over_what_the_routine_reads() {
     });
     source.set_entry(main);
     let refused = machine(source, &routines).unwrap_err();
-    assert!(
-        refused.contains("`exit!` reads a word, and is handed nothing"),
-        "{refused}"
-    );
+    assert!(refused.contains("`exit!` reads a word, and is handed nothing"), "{refused}");
 }
 
 /// How wide a number is held is what its values can be, worked out by the
@@ -398,9 +380,7 @@ fn how_wide_a_number_is_held_is_what_it_can_be() {
     let two = library.number(2);
     let (nat, add) = (library.nat, library.add);
     let world = host(&mut library.program, nat);
-    let main = library
-        .program
-        .declare_named("main!", &[("host", world.host)], world.never);
+    let main = library.program.declare_named("main!", &[("host", world.host)], world.never);
     library.program.define(main, |b, args| {
         let two = b.known(two);
         let four = b.call(add, &[two, two]);
@@ -408,15 +388,13 @@ fn how_wide_a_number_is_held_is_what_it_can_be() {
     });
     library.program.set_entry(main);
     let program = machine(library.program, &routines).expect("a program");
-    let held: Vec<_> = (0..program.values_count())
-        .map(|at| program.class(ValueId::at(at)))
-        .collect();
+    let held: Vec<_> =
+        (0..program.values_count()).map(|at| program.class(ValueId::at(at))).collect();
 
     // Two and two is four, which three bits hold.
     assert!(held.iter().any(|held| held.width() == Some(3)), "{held:?}");
     assert!(
-        held.iter()
-            .all(|held| held.width().is_some_and(|bits| bits <= 3) || *held == Class::Word),
+        held.iter().all(|held| held.width().is_some_and(|bits| bits <= 3) || *held == Class::Word),
         "{held:?}"
     );
 }

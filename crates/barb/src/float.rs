@@ -133,18 +133,12 @@ mod tests {
 
     #[test]
     fn a_pattern_is_answered_as_the_host_rounds_it() {
-        let add = Float {
-            operation: Operation::Add,
-            format: Format::Binary64,
-        };
+        let add = Float { operation: Operation::Add, format: Format::Binary64 };
         assert_eq!(
             add.calculate(&[0.1f64.to_bits(), 0.2f64.to_bits()]),
             0.300_000_000_000_000_04f64.to_bits()
         );
-        let sqrt = Float {
-            operation: Operation::Sqrt,
-            format: Format::Binary32,
-        };
+        let sqrt = Float { operation: Operation::Sqrt, format: Format::Binary32 };
         assert_eq!(sqrt.calculate(&[2.0f32.to_bits().into()]), 0x3fb5_04f3);
         // Bits above a binary32 pattern are not part of it.
         assert_eq!(

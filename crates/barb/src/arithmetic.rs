@@ -102,11 +102,7 @@ fn recognise_one(program: &Program, id: FnId, facts: &[Option<Operation>]) -> Op
     let (a, b) = (Term::Variable(0), Term::Variable(1));
     for counted in [0, 1] {
         let args = |step| {
-            if counted == 0 {
-                vec![step, b.clone()]
-            } else {
-                vec![b.clone(), step]
-            }
+            if counted == 0 { vec![step, b.clone()] } else { vec![b.clone(), step] }
         };
         let (Some(base), Some(step)) =
             (normal.run(args(zero())), normal.run(args(succ(a.clone()))))
@@ -144,11 +140,7 @@ fn started(
         return None;
     };
     let one = Term::Number(BigUint::one());
-    let start = if op == Operation::Pow {
-        vec![one]
-    } else {
-        vec![one, zero()]
-    };
+    let start = if op == Operation::Pow { vec![one] } else { vec![one, zero()] };
     (args[..2] == [a, b] && args[2..] == start).then_some(op)
 }
 
@@ -200,24 +192,18 @@ fn accumulator(program: &Program, id: FnId, facts: &[Option<Operation>]) -> Opti
     let table = BITS.map(|(x, y)| simplify(replace(&bit, &[(&low_a, x), (&low_b, y)])));
     let product = |x: &Term| canonical(known(Operation::Mul, x.clone(), place.clone()));
     let sum_with = |x: Term| canonical(known(Operation::Add, built.clone(), x));
-    [Operation::And, Operation::Or, Operation::Xor]
-        .into_iter()
-        .find(|&op| {
-            let (from, to) = if op == Operation::And {
-                (built.clone(), built.clone())
-            } else {
-                (sum_with(product(&b)), sum_with(product(&succ(a.clone()))))
-            };
-            let answers = BITS.map(|(x, y)| {
-                let set = op.calculate(&BigUint::from(x), &BigUint::from(y));
-                if set.is_some_and(|n| !n.is_zero()) {
-                    place.clone()
-                } else {
-                    zero()
-                }
-            });
-            from_nought == from && to_nought == to && table == answers
-        })
+    [Operation::And, Operation::Or, Operation::Xor].into_iter().find(|&op| {
+        let (from, to) = if op == Operation::And {
+            (built.clone(), built.clone())
+        } else {
+            (sum_with(product(&b)), sum_with(product(&succ(a.clone()))))
+        };
+        let answers = BITS.map(|(x, y)| {
+            let set = op.calculate(&BigUint::from(x), &BigUint::from(y));
+            if set.is_some_and(|n| !n.is_zero()) { place.clone() } else { zero() }
+        });
+        from_nought == from && to_nought == to && table == answers
+    })
 }
 
 /// The four ways two bits can be.
@@ -229,12 +215,8 @@ const BITS: [(u8, u8); 4] = [(0, 0), (0, 1), (1, 0), (1, 1)];
 fn halving(normal: &Normal<'_>) -> Option<Term> {
     let [a, b, place, built] = [0, 1, 2, 3].map(Term::Variable);
     let two = Term::Number(BigUint::from(2u8));
-    let Term::Recursive(step) = normal.run(vec![
-        succ(a.clone()),
-        succ(b.clone()),
-        place.clone(),
-        built.clone(),
-    ])?
+    let Term::Recursive(step) =
+        normal.run(vec![succ(a.clone()), succ(b.clone()), place.clone(), built.clone()])?
     else {
         return None;
     };
@@ -292,12 +274,7 @@ fn exponentiation(program: &Program, id: FnId, facts: &[Option<Operation>]) -> O
             && canonical(next_exponent) == canonical(known(Operation::Div, e, two.clone()))
             && odd.iter().all(|&bit| {
                 let chosen = simplify(replace(&distribute(kept.clone()), &[(&low, bit)]));
-                canonical(chosen)
-                    == if bit == 1 {
-                        times(&built)
-                    } else {
-                        built.clone()
-                    }
+                canonical(chosen) == if bit == 1 { times(&built) } else { built.clone() }
             })
     };
     let at_one = canonical(normal.run(vec![base.clone(), one.clone(), built.clone()])?);
@@ -329,9 +306,7 @@ fn canonical(term: Term) -> Term {
         Term::Walk(op, args) => Term::Walk(op, args.into_iter().map(canonical).collect()),
         Term::Match(value, arms) => Term::Match(
             Box::new(canonical(*value)),
-            arms.into_iter()
-                .map(|(ctor, arm)| (ctor, canonical(arm)))
-                .collect(),
+            arms.into_iter().map(|(ctor, arm)| (ctor, canonical(arm))).collect(),
         ),
         term @ (Term::Variable(_) | Term::Number(_)) => term,
     }
@@ -366,9 +341,7 @@ fn distribute(term: Term) -> Term {
         Term::Walk(op, args) => Term::Walk(op, each(args)),
         Term::Match(value, arms) => Term::Match(
             Box::new(distribute(*value)),
-            arms.into_iter()
-                .map(|(ctor, arm)| (ctor, distribute(arm)))
-                .collect(),
+            arms.into_iter().map(|(ctor, arm)| (ctor, distribute(arm))).collect(),
         ),
         term @ (Term::Variable(_) | Term::Number(_)) => term,
     }
@@ -389,9 +362,7 @@ fn replace(term: &Term, by: &[(&Term, u8)]) -> Term {
         Term::Walk(op, args) => Term::Walk(*op, each(args)),
         Term::Match(value, arms) => Term::Match(
             Box::new(replace(value, by)),
-            arms.iter()
-                .map(|(ctor, arm)| (*ctor, replace(arm, by)))
-                .collect(),
+            arms.iter().map(|(ctor, arm)| (*ctor, replace(arm, by))).collect(),
         ),
         Term::Variable(_) | Term::Number(_) => term.clone(),
     }
@@ -414,9 +385,7 @@ fn simplify(term: Term) -> Term {
             }
             Term::Match(
                 Box::new(value),
-                arms.into_iter()
-                    .map(|(ctor, arm)| (ctor, simplify(arm)))
-                    .collect(),
+                arms.into_iter().map(|(ctor, arm)| (ctor, simplify(arm))).collect(),
             )
         }
         term => term,
@@ -457,9 +426,8 @@ pub(super) fn recognise_sequences(
     program: &Program,
     facts: &[Option<Operation>],
 ) -> Vec<Option<SequenceOperation>> {
-    let counts: Vec<_> = (0..program.functions().len())
-        .map(|at| length(program, FnId::at(at), facts))
-        .collect();
+    let counts: Vec<_> =
+        (0..program.functions().len()).map(|at| length(program, FnId::at(at), facts)).collect();
     super::sequence::recognise(program, &counts)
 }
 
@@ -470,13 +438,7 @@ fn length(program: &Program, id: FnId, facts: &[Option<Operation>]) -> bool {
     let [sequence] = program.params(id) else {
         return false;
     };
-    let TypeShape::Sequence {
-        empty,
-        push,
-        recursive,
-        ..
-    } = type_shape(program, *sequence)
-    else {
+    let TypeShape::Sequence { empty, push, recursive, .. } = type_shape(program, *sequence) else {
         return false;
     };
     let Some(normal) = Normal::new(program, id, facts, program.function(id).result) else {
@@ -556,11 +518,7 @@ fn division(normal: &Normal<'_>) -> Option<Operation> {
 
 fn comparison(normal: &Normal<'_>, result: TypeId) -> Option<Operation> {
     let ctors = normal.program.ctors(result);
-    if ctors.len() != 2
-        || ctors
-            .iter()
-            .any(|c| !normal.program.types_of(c.fields).is_empty())
-    {
+    if ctors.len() != 2 || ctors.iter().any(|c| !normal.program.types_of(c.fields).is_empty()) {
         return None;
     }
     let (a, b) = (Term::Variable(0), Term::Variable(1));
@@ -601,14 +559,7 @@ impl<'a> Normal<'a> {
         ty: TypeId,
     ) -> Option<Self> {
         let (nil, cons) = natural(program, ty)?;
-        Some(Self {
-            program,
-            id,
-            facts,
-            walks: &[],
-            nil,
-            cons,
-        })
+        Some(Self { program, id, facts, walks: &[], nil, cons })
     }
 
     const fn walking(self, walks: &'a [Option<Operation>]) -> Self {
@@ -710,11 +661,7 @@ impl<'a> Normal<'a> {
             _ => None,
         };
         if let Some((ctor, fields)) = parts {
-            let arm = self
-                .program
-                .arms(arms)
-                .iter()
-                .find(|arm| arm.ctor == ctor)?;
+            let arm = self.program.arms(arms).iter().find(|arm| arm.ctor == ctor)?;
             let mark = locals.len();
             locals.extend(fields);
             let answer = self.body(arm.body, locals, fuel);
@@ -771,11 +718,7 @@ pub(super) fn write_monus(program: &mut Program, number: TypeId) -> FnId {
             }
             let x = fields[0];
             b.match_(c, number, |b, ctor, fields| {
-                if ctor == empty {
-                    b.con(push, &[x])
-                } else {
-                    b.call(id, &[x, fields[0]])
-                }
+                if ctor == empty { b.con(push, &[x]) } else { b.call(id, &[x, fields[0]]) }
             })
         })
     });

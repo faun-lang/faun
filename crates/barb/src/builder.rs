@@ -35,11 +35,7 @@ impl Builder<'_> {
         arity: u32,
         build: impl FnOnce(&mut Builder, &[Atom]) -> Atom,
     ) -> Body {
-        let mut builder = Builder {
-            program,
-            pending: Vec::new(),
-            level: 0,
-        };
+        let mut builder = Builder { program, pending: Vec::new(), level: 0 };
         builder.scope(arity, build)
     }
 

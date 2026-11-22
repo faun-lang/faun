@@ -35,11 +35,9 @@ pub fn of_words() -> (Program, FunctionId) {
     let order = ordering(&mut p);
     p.define(main, |b, _| {
         let mut passes = b.constant(Class::Word, 0);
-        for (a, c, expected) in [
-            (0, u64::MAX, 1),
-            (1 << 63, (1 << 63) - 1, 2),
-            (u64::MAX, u64::MAX, 3),
-        ] {
+        for (a, c, expected) in
+            [(0, u64::MAX, 1), (1 << 63, (1 << 63) - 1, 2), (u64::MAX, u64::MAX, 3)]
+        {
             let word = b.constant(Class::fixed(64), a);
             let a = b.convert(Class::Natural, word);
             let c = b.constant(Class::Natural, c);

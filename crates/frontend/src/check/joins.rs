@@ -204,13 +204,7 @@ impl Checker<'_> {
         ty: &Ty,
         reason: &Mismatch,
     ) -> Refusal {
-        let Join {
-            module: at,
-            ways,
-            ref answer,
-            ref answered,
-            ..
-        } = self.joins[join];
+        let Join { module: at, ways, ref answer, ref answered, .. } = self.joins[join];
         let refused = self.mismatch(module, span, ty, answer, reason);
         let shown = |ty: &Ty| show(&self.infer.resolve(ty), self.symbols);
         let among = matches!(reason, Mismatch::NotAmong { .. });
@@ -228,11 +222,7 @@ impl Checker<'_> {
                     "`is` arms have incompatible types",
                 ),
                 |refused, (arm, ty)| {
-                    refused.also(
-                        at,
-                        *arm,
-                        format!("this is found to be of type `{}`", shown(ty)),
-                    )
+                    refused.also(at, *arm, format!("this is found to be of type `{}`", shown(ty)))
                 },
             ),
             Ways::Answers(Some(written)) => {
@@ -256,15 +246,7 @@ impl Checker<'_> {
     /// A join every way of which is in and known: where each was `[]`,
     /// so is the answer.
     fn decide(&mut self, join: usize) -> Result<(), Refusal> {
-        let Join {
-            module,
-            span,
-            ref answer,
-            met,
-            waiting,
-            closed,
-            ..
-        } = self.joins[join];
+        let Join { module, span, ref answer, met, waiting, closed, .. } = self.joins[join];
         if !closed || waiting > 0 || met {
             return Ok(());
         }

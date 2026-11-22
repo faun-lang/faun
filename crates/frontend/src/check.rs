@@ -167,12 +167,7 @@ pub fn type_check(
     program: n::Program,
     cx: &mut Context,
 ) -> Result<crate::typed::Program, Diagnostic> {
-    type_check_after(
-        program,
-        cx,
-        &mut Environment::default(),
-        &HashMap::default(),
-    )
+    type_check_after(program, cx, &mut Environment::default(), &HashMap::default())
 }
 
 /// What checking leaves for the definitions checked after it, which may
@@ -250,12 +245,7 @@ pub(crate) fn type_check_after(
     earlier: &HashMap<Symbol, n::Data>,
 ) -> Result<crate::typed::Program, Diagnostic> {
     let facts = infer(&program, cx, environment, earlier).map_err(|refusal| cx.told(refusal))?;
-    Ok(elaborate::finish(
-        program,
-        facts,
-        &cx.prelude,
-        &mut cx.sites,
-    ))
+    Ok(elaborate::finish(program, facts, &cx.prelude, &mut cx.sites))
 }
 
 /// What inference finds of `program`, once its declarations and effects are
@@ -275,9 +265,8 @@ fn infer(
         &cx.prelude,
         &cx.sites,
     )?;
-    let facts = checker
-        .check(program)
-        .map_err(|refused| precedence::hinted(refused, program, cx))?;
+    let facts =
+        checker.check(program).map_err(|refused| precedence::hinted(refused, program, cx))?;
     *environment = checker.into_environment();
     Ok(facts)
 }
@@ -405,11 +394,7 @@ enum Misfit {
     Said(String),
     /// What it hands at `at`, the receiver first, is `given` where `wanted`
     /// is.
-    Argument {
-        at: usize,
-        wanted: String,
-        given: String,
-    },
+    Argument { at: usize, wanted: String, given: String },
 }
 
 /// How a member is reached.
@@ -632,11 +617,8 @@ impl Checker<'_> {
             .filter(|function| !function.clauses.is_empty())
             .map(|function| (function.name, function))
             .collect();
-        let unsigned: HashSet<_> = definitions
-            .keys()
-            .filter(|name| !self.values.contains_key(name))
-            .copied()
-            .collect();
+        let unsigned: HashSet<_> =
+            definitions.keys().filter(|name| !self.values.contains_key(name)).copied().collect();
         let methods = self.unsigned_methods(program, &unsigned);
 
         for component in components(&definitions, &unsigned, &methods, self.symbols) {
@@ -671,22 +653,9 @@ impl Checker<'_> {
                     let parameters = (0..arity).map(|_| self.infer.fresh()).collect();
                     Ty::Function(parameters, Rc::new(self.infer.fresh()))
                 };
-                self.set_value(
-                    *name,
-                    Scheme {
-                        variables: Vec::new(),
-                        ty: ty.clone(),
-                    },
-                );
+                self.set_value(*name, Scheme { variables: Vec::new(), ty: ty.clone() });
                 monotypes.insert(*name, ty.clone());
-                self.register_unsigned(
-                    &methods,
-                    *name,
-                    Scheme {
-                        variables: Vec::new(),
-                        ty,
-                    },
-                );
+                self.register_unsigned(&methods, *name, Scheme { variables: Vec::new(), ty });
             }
             // A definition's clauses answer one join, its result.
             for name in &component {
@@ -695,12 +664,8 @@ impl Checker<'_> {
                     unreachable!("a definition's type is a function")
                 };
                 let ways = Ways::Answers(None);
-                let join = self.join(
-                    function.module,
-                    function.clauses[0].span,
-                    ways,
-                    (*result).clone(),
-                );
+                let join =
+                    self.join(function.module, function.clauses[0].span, ways, (*result).clone());
                 for clause in &function.clauses {
                     self.check_clause(function.module, clause, &monotypes[name], Some(join))?;
                 }
@@ -766,9 +731,8 @@ impl Checker<'_> {
                 let ty = self.infer.resolve(&monotypes[&name]);
                 let mut scheme = self.generalize(&ty, &fixed);
                 // A variable only a bound mentions is quantified too.
-                let mentioned = bounds
-                    .iter()
-                    .flat_map(|bound| free_variables(&self.infer.resolve(&bound.ty)));
+                let mentioned =
+                    bounds.iter().flat_map(|bound| free_variables(&self.infer.resolve(&bound.ty)));
                 for variable in mentioned {
                     if !fixed.contains(&variable) && !scheme.variables.contains(&variable) {
                         scheme.variables.push(variable);
@@ -796,12 +760,7 @@ impl Checker<'_> {
                 self.current = self
                     .bounds
                     .get(name)
-                    .map(|bounds| {
-                        bounds
-                            .iter()
-                            .map(|bound| bound.substituted(&rigid))
-                            .collect()
-                    })
+                    .map(|bounds| bounds.iter().map(|bound| bound.substituted(&rigid)).collect())
                     .unwrap_or_default();
                 self.current_names = self
                     .variable_names
@@ -815,10 +774,8 @@ impl Checker<'_> {
                             .collect()
                     })
                     .unwrap_or_default();
-                self.written_result = function
-                    .signature
-                    .as_ref()
-                    .and_then(|signature| signature.result_span);
+                self.written_result =
+                    function.signature.as_ref().and_then(|signature| signature.result_span);
                 let checked = self.check_clause(module, clause, &ty, None);
                 self.written_result = None;
                 checked?;
@@ -857,14 +814,8 @@ impl Checker<'_> {
                 (
                     *site,
                     (
-                        crate::typed::Signature {
-                            parameters,
-                            result: *result,
-                        },
-                        bounds
-                            .iter()
-                            .map(|bound| self.public_bound(bound))
-                            .collect(),
+                        crate::typed::Signature { parameters, result: *result },
+                        bounds.iter().map(|bound| self.public_bound(bound)).collect(),
                     ),
                 )
             })
@@ -879,9 +830,7 @@ impl Checker<'_> {
         self.checked.unsigned_members = methods
             .iter()
             .flat_map(|(spelling, methods)| {
-                methods
-                    .iter()
-                    .map(|method| ((method.owner, *spelling), method.name))
+                methods.iter().map(|method| ((method.owner, *spelling), method.name))
             })
             .collect();
         Ok(std::mem::take(&mut self.checked))
@@ -902,21 +851,13 @@ impl Checker<'_> {
             bounds: self
                 .bounds
                 .get(&name)
-                .map(|bounds| {
-                    bounds
-                        .iter()
-                        .map(|bound| self.public_bound(bound))
-                        .collect()
-                })
+                .map(|bounds| bounds.iter().map(|bound| self.public_bound(bound)).collect())
                 .unwrap_or_default(),
             variables: scheme
                 .variables
                 .iter()
                 .copied()
-                .map(|index| TypeVariable {
-                    index,
-                    rigid: false,
-                })
+                .map(|index| TypeVariable { index, rigid: false })
                 .collect(),
             ty: public_type(&self.infer.resolve(&scheme.ty)),
         }
@@ -1037,10 +978,7 @@ impl Checker<'_> {
                 // A local holds one value, built once at one type, so it
                 // is not generalized: a use at another type, a wider row
                 // most of all, would read that value as something it is not.
-                locals[local.index()] = Some(Scheme {
-                    variables: Vec::new(),
-                    ty,
-                });
+                locals[local.index()] = Some(Scheme { variables: Vec::new(), ty });
             }
         }
         Ok(())
@@ -1063,13 +1001,7 @@ impl Checker<'_> {
         // widened, rather than the signature's row being taken for it.
         self.settle(marks)?;
         let answered = &clause.body.result;
-        self.way(
-            join,
-            module,
-            answered,
-            &actual,
-            Meeting::Subsumed(answered.site),
-        )
+        self.way(join, module, answered, &actual, Meeting::Subsumed(answered.site))
     }
 
     /// A test's pattern at the type of what it tests, each name it binds
@@ -1091,10 +1023,7 @@ impl Checker<'_> {
                 .expect("pattern binding installs its local")
                 .ty
                 .clone();
-            locals[local.index()] = Some(Scheme {
-                variables: Vec::new(),
-                ty,
-            });
+            locals[local.index()] = Some(Scheme { variables: Vec::new(), ty });
         }
         Ok(())
     }
@@ -1127,10 +1056,8 @@ impl Checker<'_> {
                         ))
                     });
                 }
-                locals[local.index()] = Some(Scheme {
-                    variables: Vec::new(),
-                    ty: expected.clone(),
-                });
+                locals[local.index()] =
+                    Some(Scheme { variables: Vec::new(), ty: expected.clone() });
                 Ok(())
             }
             h::Pattern::Or(alternatives) => {
@@ -1195,11 +1122,7 @@ impl Checker<'_> {
                 }
                 Ok(())
             }
-            h::Pattern::Number {
-                magnitude,
-                negative,
-                character,
-            } => {
+            h::Pattern::Number { magnitude, negative, character } => {
                 self.pending_numerals.push(PendingNumeral {
                     site: None,
                     module,
@@ -1251,10 +1174,8 @@ impl Checker<'_> {
             }
             // `{x, *}` names some fields and takes a record with any others.
             h::Pattern::Record(fields, open) => {
-                let field_types: Vec<_> = fields
-                    .iter()
-                    .map(|(name, _)| (*name, self.infer.fresh()))
-                    .collect();
+                let field_types: Vec<_> =
+                    fields.iter().map(|(name, _)| (*name, self.infer.fresh())).collect();
                 let rest = open.then(|| Rc::new(self.infer.fresh()));
                 self.unify_pattern_at(
                     module,
@@ -1292,8 +1213,7 @@ impl Checker<'_> {
         let children = self.expression_types.len();
         let ty = self.infer_expr(module, expression, locals)?;
         self.note_handing(module, expression, &ty, children);
-        self.expression_types
-            .push((module, expression.span, expression.site, ty.clone()));
+        self.expression_types.push((module, expression.span, expression.site, ty.clone()));
         Ok(ty)
     }
 
@@ -1308,9 +1228,9 @@ impl Checker<'_> {
             }
             h::ExprKind::Tuple(members) => members.iter().collect(),
             h::ExprKind::Call(_, arguments) => arguments.iter().collect(),
-            h::ExprKind::Method(receiver, _, _, arguments) => std::iter::once(receiver.as_ref())
-                .chain(arguments)
-                .collect(),
+            h::ExprKind::Method(receiver, _, _, arguments) => {
+                std::iter::once(receiver.as_ref()).chain(arguments).collect()
+            }
             _ => return,
         };
         let noted = &self.expression_types[children..];
@@ -1319,10 +1239,7 @@ impl Checker<'_> {
             if !names_a_function(&child.kind) {
                 continue;
             }
-            let found = noted
-                .iter()
-                .rev()
-                .find(|(_, _, site, _)| *site == child.site);
+            let found = noted.iter().rev().find(|(_, _, site, _)| *site == child.site);
             if let Some((_, _, _, ty)) = found {
                 handed_types.push(ty.clone());
             }
@@ -1351,21 +1268,13 @@ impl Checker<'_> {
             }
             h::ExprKind::Local(local) => {
                 let Some(scheme) = locals[local.index()].as_ref() else {
-                    return Err(failure(
-                        module,
-                        expression.span,
-                        "local has no inferred type",
-                    ));
+                    return Err(failure(module, expression.span, "local has no inferred type"));
                 };
                 Ok(self.infer.instantiate(scheme))
             }
             h::ExprKind::Global(global) => {
                 let Some(scheme) = self.values.get(global).cloned() else {
-                    return Err(failure(
-                        module,
-                        expression.span,
-                        "global has no declared type",
-                    ));
+                    return Err(failure(module, expression.span, "global has no declared type"));
                 };
                 // A use owes the bounds the definition has.
                 let (ty, replacements) = self.infer.instantiated(&scheme);
@@ -1414,13 +1323,7 @@ impl Checker<'_> {
                         "`return` answers its clause or lambda, and a guard answers nothing",
                     ));
                 };
-                self.way(
-                    join,
-                    module,
-                    value,
-                    &answered,
-                    Meeting::Subsumed(value.site),
-                )?;
+                self.way(join, module, value, &answered, Meeting::Subsumed(value.site))?;
                 Ok(self.infer.fresh())
             }
             // A test answers a `Bool`; its pattern types what it binds,
@@ -1441,12 +1344,8 @@ impl Checker<'_> {
             h::ExprKind::Match(value, arms) => {
                 let tested = self.expr(module, value, locals)?;
                 let answer = self.infer.fresh();
-                let join = self.join(
-                    module,
-                    expression.span,
-                    Ways::Arms(value.span),
-                    answer.clone(),
-                );
+                let join =
+                    self.join(module, expression.span, Ways::Arms(value.span), answer.clone());
                 for arm in arms {
                     self.tested_pattern(module, &arm.pattern, &tested, locals, value.span)?;
                     if let Some(guard) = &arm.guard {
@@ -1460,10 +1359,8 @@ impl Checker<'_> {
                 self.close_join(join)?;
                 // Arms close the row they take apart as clauses do; a test
                 // alone does not, since what it does not match goes on.
-                let rows = arms
-                    .iter()
-                    .map(|arm| (arm.pattern.clone(), arm.guard.is_some()))
-                    .collect();
+                let rows =
+                    arms.iter().map(|arm| (arm.pattern.clone(), arm.guard.is_some())).collect();
                 self.pending_closings.push(PendingClosing {
                     module,
                     span: value.span,
@@ -1550,10 +1447,7 @@ impl Checker<'_> {
                         self.unify_at(module, splice.span, &value, &str_)?;
                     }
                 }
-                if parts
-                    .iter()
-                    .all(|part| matches!(part, h::StringPart::Text(_)))
-                {
+                if parts.iter().all(|part| matches!(part, h::StringPart::Text(_))) {
                     let bytes = parts
                         .iter()
                         .flat_map(|part| match part {
@@ -1614,9 +1508,7 @@ impl Checker<'_> {
                 if let Some(test) = patterns.iter().find_map(test_in) {
                     let message = format!("a lambda's parameter cannot test a {test}");
                     return Err(failure(module, expression.span, message)
-                        .note(format!(
-                            "a {test} pattern is a test, which only a clause makes"
-                        ))
+                        .note(format!("a {test} pattern is a test, which only a clause makes"))
                         .help("test it in a clause of a named definition"));
                 }
                 let parameters: Vec<_> = patterns.iter().map(|_| self.infer.fresh()).collect();
@@ -1647,23 +1539,17 @@ impl Checker<'_> {
                 Ok(Ty::Function(parameters.into(), Rc::new(answer)))
             }
             h::ExprKind::Call(head, arguments) if matches!(head.kind, h::ExprKind::Dual(_)) => {
-                let h::ExprKind::Dual(dual) = &head.kind else {
-                    unreachable!("guarded")
-                };
+                let h::ExprKind::Dual(dual) = &head.kind else { unreachable!("guarded") };
                 let mut fields = Vec::with_capacity(arguments.len());
                 for argument in arguments {
                     fields.push(self.expr(module, argument, locals)?);
                 }
-                let sites = arguments
-                    .iter()
-                    .map(|argument| (argument.site, argument.span))
-                    .collect();
+                let sites =
+                    arguments.iter().map(|argument| (argument.site, argument.span)).collect();
                 Ok(self.defer_tag(module, expression.span, dual, Some(fields), sites))
             }
             h::ExprKind::Call(head, arguments) if matches!(head.kind, h::ExprKind::Tag(_)) => {
-                let h::ExprKind::Tag(label) = head.kind else {
-                    unreachable!("guarded")
-                };
+                let h::ExprKind::Tag(label) = head.kind else { unreachable!("guarded") };
                 let mut fields = Vec::with_capacity(arguments.len());
                 for argument in arguments {
                     fields.push(self.expr(module, argument, locals)?);
@@ -1778,10 +1664,8 @@ impl Checker<'_> {
                     std::slice::from_ref(right),
                     locals,
                 )?;
-                if matches!(
-                    operator,
-                    super::ast::BinaryOp::Equal | super::ast::BinaryOp::NotEqual
-                ) {
+                if matches!(operator, super::ast::BinaryOp::Equal | super::ast::BinaryOp::NotEqual)
+                {
                     let bool_ = self.bool_type();
                     self.unify_at(module, expression.span, &result, &bool_)?;
                     Ok(bool_)
@@ -1817,10 +1701,7 @@ impl Checker<'_> {
         let rows: Vec<_> = rows
             .into_iter()
             .flat_map(|(pattern, guarded)| {
-                pattern
-                    .choices()
-                    .into_iter()
-                    .map(move |choice| (choice, guarded))
+                pattern.choices().into_iter().map(move |choice| (choice, guarded))
             })
             .map(|(pattern, guarded)| (self.desugared(pattern), guarded))
             .collect();
@@ -1833,9 +1714,7 @@ impl Checker<'_> {
         }
         match self.infer.resolve(ty) {
             Ty::Variants(tags, tail) => {
-                let tagged = rows
-                    .iter()
-                    .any(|(pattern, _)| matches!(pattern, h::Pattern::Tag(..)));
+                let tagged = rows.iter().any(|(pattern, _)| matches!(pattern, h::Pattern::Tag(..)));
                 match tail.as_deref() {
                     Some(Ty::Rigid(_)) if tagged => {
                         return Err(format!(
@@ -1990,15 +1869,9 @@ impl Checker<'_> {
         arguments: Option<&[h::Expr]>,
         locals: &mut Vec<Option<Scheme>>,
     ) -> Result<Ty, Refusal> {
-        let h::ExprKind::Associated(variable, member) = head.kind else {
-            unreachable!("guarded")
-        };
+        let h::ExprKind::Associated(variable, member) = head.kind else { unreachable!("guarded") };
         let spelled = |checker: &Self| {
-            format!(
-                "{}.{}",
-                checker.symbols.text(variable),
-                checker.symbols.text(member)
-            )
+            format!("{}.{}", checker.symbols.text(variable), checker.symbols.text(member))
         };
         let Some(owner) = self.current_names.get(&variable).cloned() else {
             return Err(failure(
@@ -2042,10 +1915,7 @@ impl Checker<'_> {
                 return Err(failure(
                     module,
                     span,
-                    format!(
-                        "a member a bound gives is called: write `{}(…)`",
-                        spelled(self)
-                    ),
+                    format!("a member a bound gives is called: write `{}(…)`", spelled(self)),
                 ));
             }
             Some(arguments) => arguments,
@@ -2076,11 +1946,7 @@ impl Checker<'_> {
     /// An argument that does not fit `head`'s parameter, pointing as Rust
     /// does at the function called and where it is defined.
     fn misfit_argument(&self, refused: Refusal, module: ModuleId, head: &h::Expr) -> Refusal {
-        let refused = refused.also(
-            module,
-            head.span,
-            "arguments to this function are incorrect",
-        );
+        let refused = refused.also(module, head.span, "arguments to this function are incorrect");
         let defined = match head.kind {
             h::ExprKind::Global(global) => self.defined.get(&global),
             _ => None,
@@ -2103,15 +1969,10 @@ impl Checker<'_> {
             h::ExprKind::Global(global) => Some(self.symbols.spelling(global)),
             _ => None,
         };
-        let called = name.map_or_else(
-            || "the function called".to_owned(),
-            |name| format!("`{name}`"),
-        );
-        let message = format!(
-            "{called} takes {}, but {} given",
-            counted(taken, "argument"),
-            given(handed)
-        );
+        let called =
+            name.map_or_else(|| "the function called".to_owned(), |name| format!("`{name}`"));
+        let message =
+            format!("{called} takes {}, but {} given", counted(taken, "argument"), given(handed));
         let refusal = failure(module, span, message);
         if handed == 0 || handed > taken {
             return refusal;
@@ -2160,10 +2021,8 @@ impl Checker<'_> {
         self.join_met(join);
         let answer = self.join_answer(join);
         let answered_error = self.infer.fresh();
-        let answered = Ty::Named(
-            self.prelude.result,
-            Rc::from([self.infer.fresh(), answered_error.clone()]),
-        );
+        let answered =
+            Ty::Named(self.prelude.result, Rc::from([self.infer.fresh(), answered_error.clone()]));
         self.infer.unify(&answer, &answered).map_err(|_| {
             failure(
                 module,
@@ -2234,11 +2093,7 @@ impl Checker<'_> {
         let actual = show(&actual, self.symbols);
         let error = failure(module, span, "mismatched types");
         let error = error.label(format!("expected `{expected}`, found `{actual}`"));
-        let error = if nothing {
-            error.note(ANSWERS_NOTHING)
-        } else {
-            error
-        };
+        let error = if nothing { error.note(ANSWERS_NOTHING) } else { error };
         match reason {
             Mismatch::Reason("incompatible types") => error,
             _ => error.note(reason.describe(self.symbols)),
@@ -2293,9 +2148,7 @@ fn apply_signature(
 ) -> Result<HashMap<u32, Ty>, Misfit> {
     let (instantiated, replacements) = infer.instantiated(scheme);
     let Ty::Function(parameters, result) = instantiated else {
-        return Err(Misfit::Said(
-            "a method declaration is not a function".to_string(),
-        ));
+        return Err(Misfit::Said("a method declaration is not a function".to_string()));
     };
     // A member reached through its type takes no receiver; its answer is a
     // value of that type.
@@ -2312,32 +2165,26 @@ fn apply_signature(
     let given: Vec<&Ty> = if through_type {
         pending.arguments.iter().collect()
     } else {
-        std::iter::once(&pending.receiver)
-            .chain(&pending.arguments)
-            .collect()
+        std::iter::once(&pending.receiver).chain(&pending.arguments).collect()
     };
     for (at, (argument, parameter)) in given.into_iter().zip(parameters.iter()).enumerate() {
         let at = at + usize::from(through_type);
-        infer
-            .unify(argument, parameter)
-            .map_err(|_| Misfit::Argument {
-                at,
-                wanted: show(&infer.resolve(parameter), symbols),
-                given: show(&infer.resolve(argument), symbols),
-            })?;
+        infer.unify(argument, parameter).map_err(|_| Misfit::Argument {
+            at,
+            wanted: show(&infer.resolve(parameter), symbols),
+            given: show(&infer.resolve(argument), symbols),
+        })?;
     }
     let wanted = infer.resolve(&pending.result);
-    infer
-        .unify(&pending.result, &result)
-        .map_err(|reason| match reason {
-            Mismatch::NotAmong { .. } => Misfit::Said(reason.describe(symbols)),
-            _ => Misfit::Said(format!(
-                "`{}` answers `{}`, where `{}` is wanted",
-                symbols.text(pending.name),
-                show(&infer.resolve(&result), symbols),
-                show(&wanted, symbols)
-            )),
-        })?;
+    infer.unify(&pending.result, &result).map_err(|reason| match reason {
+        Mismatch::NotAmong { .. } => Misfit::Said(reason.describe(symbols)),
+        _ => Misfit::Said(format!(
+            "`{}` answers `{}`, where `{}` is wanted",
+            symbols.text(pending.name),
+            show(&infer.resolve(&result), symbols),
+            show(&wanted, symbols)
+        )),
+    })?;
     Ok(replacements)
 }
 
@@ -2393,10 +2240,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
             let root = std::env::temp_dir().join(format!("faun-check-{unique}"));
             fs::create_dir_all(&root).unwrap();
             Self(root)
@@ -2424,10 +2268,7 @@ mod tests {
                 "str.fn",
                 "export {Str}\nStr : List(U8).(concat : (Str, Str) -> Str\nconcat(left, _) -> left\nequals : (Str, Str) -> Bool\nequals(_, _) -> False)\n",
             );
-            self.write(
-                "result.fn",
-                "export {Result.*}\nResult(a, e) : [Ok(a), Err(e)]\n",
-            );
+            self.write("result.fn", "export {Result.*}\nResult(a, e) : [Ok(a), Err(e)]\n");
             self.write(
             "order.fn",
             "export {Order.*}\nOrder : [Lt, Eq, Gt].(lt : Order -> Bool\nlt(Lt) -> True\nlt(_) -> False\nle : Order -> Bool\nle(Gt) -> False\nle(_) -> True\ngt : Order -> Bool\ngt(Gt) -> True\ngt(_) -> False\nge : Order -> Bool\nge(Lt) -> False\nge(_) -> True\neq : Order -> Bool\neq(Eq) -> True\neq(_) -> False\nor : (Order, Order) -> Order\nor(Eq, next) -> next\nor(decided, _) -> decided)\n",
@@ -2496,10 +2337,7 @@ mod tests {
         assert!(pick.signature.is_some());
         assert_eq!(pick.clauses.len(), 2);
         for (clause, expected) in pick.clauses.iter().zip([1u32, 2]) {
-            assert_eq!(
-                clause.body.result.kind,
-                h::ExprKind::Number(expected.into())
-            );
+            assert_eq!(clause.body.result.kind, h::ExprKind::Number(expected.into()));
         }
         assert!(named("$$external").clauses.is_empty());
         assert!(named("$$external").signature.is_some());
@@ -2529,12 +2367,8 @@ mod tests {
             .collect();
         assert_eq!(expressions.len(), 3);
         for ty in [cx.prelude.str_, cx.prelude.nat, cx.prelude.int] {
-            assert!(
-                expressions
-                    .iter()
-                    .any(|expr| expr.ty == InferredType::Named(ty, Vec::new())
-                        && matches!(expr.kind, crate::typed::ExprKind::Literal(_)))
-            );
+            assert!(expressions.iter().any(|expr| expr.ty == InferredType::Named(ty, Vec::new())
+                && matches!(expr.kind, crate::typed::ExprKind::Literal(_))));
         }
     }
 
@@ -2566,11 +2400,7 @@ mod tests {
         assert_eq!(expected.len(), 2);
         let checked = type_check(declared, &mut cx).unwrap();
         for (name, site, span) in expected {
-            let function = checked
-                .functions
-                .iter()
-                .find(|function| function.name == name)
-                .unwrap();
+            let function = checked.functions.iter().find(|function| function.name == name).unwrap();
             let crate::typed::Definition::Body(clauses) = &function.definition else {
                 panic!("a written body")
             };
@@ -2592,16 +2422,8 @@ mod tests {
         );
         let checked = crate::checked(program, &mut cx).unwrap();
         let expressions = expressions(&checked);
-        assert!(
-            expressions
-                .iter()
-                .any(|expr| matches!(expr.kind, ExprKind::Project(..)))
-        );
-        assert!(
-            expressions
-                .iter()
-                .any(|expr| matches!(expr.kind, ExprKind::Widen(_)))
-        );
+        assert!(expressions.iter().any(|expr| matches!(expr.kind, ExprKind::Project(..))));
+        assert!(expressions.iter().any(|expr| matches!(expr.kind, ExprKind::Widen(_))));
         assert!(
             expressions
                 .iter()
@@ -2629,20 +2451,11 @@ mod tests {
             .items
             .iter()
             .find_map(|item| {
-                if let h::Item::Signature(signature) = item {
-                    Some(signature.name)
-                } else {
-                    None
-                }
+                if let h::Item::Signature(signature) = item { Some(signature.name) } else { None }
             })
             .unwrap();
         let checked = crate::checked(program, &mut cx).unwrap();
-        let scheme = &checked
-            .functions
-            .iter()
-            .find(|function| function.name == id)
-            .unwrap()
-            .scheme;
+        let scheme = &checked.functions.iter().find(|function| function.name == id).unwrap().scheme;
         assert_eq!(scheme.variables.len(), 1);
         let InferredType::Function(parameters, result) = &scheme.ty else {
             panic!("id function type")
@@ -2674,11 +2487,7 @@ mod tests {
         let (program, mut cx) =
             fixture.load("id : a -> a\nid(x) -> x\nlocal : Int\nlocal = (\n  f = id\n  f(-1)\n)\n");
         let failure = crate::checked(program, &mut cx).unwrap_err();
-        assert!(
-            failure.message.contains("passed straight into a call"),
-            "{}",
-            failure.message
-        );
+        assert!(failure.message.contains("passed straight into a call"), "{}", failure.message);
     }
 
     /// Data a generic definition builds from a function it is handed holds
@@ -2699,11 +2508,7 @@ mod tests {
             );
             let (program, mut cx) = fixture.load(&source);
             let failure = crate::checked(program, &mut cx).unwrap_err();
-            assert!(
-                failure.message.contains("holds a function"),
-                "{builder}: {}",
-                failure.message
-            );
+            assert!(failure.message.contains("holds a function"), "{builder}: {}", failure.message);
         }
     }
 
@@ -2716,11 +2521,7 @@ mod tests {
         let checked = crate::checked(program, &mut cx).unwrap();
         let targets = methods(&checked);
         assert!(targets.contains(&cx.prelude.bool_not));
-        assert!(
-            targets
-                .iter()
-                .any(|target| cx.symbols.text(*target).ends_with("Nat.add"))
-        );
+        assert!(targets.iter().any(|target| cx.symbols.text(*target).ends_with("Nat.add")));
     }
 
     /// A method several types have, called on a value nothing else says the
@@ -2805,16 +2606,12 @@ mod tests {
         let loaded = modules::load_program(&entry, root, &crate::test_host()).unwrap();
         let (program, mut cx) = crate::resolve(loaded).unwrap();
         let checked = crate::checked(program, &mut cx).unwrap();
-        let methods: HashSet<_> = methods(&checked)
-            .into_iter()
-            .map(|target| cx.symbols.text(target))
-            .collect();
+        let methods: HashSet<_> =
+            methods(&checked).into_iter().map(|target| cx.symbols.text(target)).collect();
         for ty in ["Nat", "Int", "U8"] {
             for operation in ["add", "sub", "mul", "div", "mod"] {
                 assert!(
-                    methods
-                        .iter()
-                        .any(|name| name.ends_with(&format!("{ty}.{operation}"))),
+                    methods.iter().any(|name| name.ends_with(&format!("{ty}.{operation}"))),
                     "missing {ty}.{operation}"
                 );
             }
@@ -2827,11 +2624,7 @@ mod tests {
         let (program, mut cx) =
             fixture.load("stop! : Nat -> Nat\nstop!(n) -> n\nbad : Nat\nbad = stop!(0)\n");
         let failure = crate::checked(program, &mut cx).unwrap_err();
-        assert!(
-            failure
-                .message
-                .contains("pure definitions cannot call effect")
-        );
+        assert!(failure.message.contains("pure definitions cannot call effect"));
 
         let (program, mut cx) = fixture.load(
             "stop! : Nat -> Nat\nstop!(n) -> n\nid : Nat -> Nat\nid(n) -> n\nbad! : Nat -> Nat\nbad!(n) -> id(stop!(n))\n",
@@ -2856,10 +2649,7 @@ mod tests {
             let source = format!("{stop}bad! : Bool -> Bool\nbad!(b) -> (\n  {body}\n  ok\n)\n");
             let (program, mut cx) = fixture.load(&source);
             let failure = crate::checked(program, &mut cx).unwrap_err();
-            assert_eq!(
-                failure.message, "effect `stop!` must stand on its own",
-                "{body}"
-            );
+            assert_eq!(failure.message, "effect `stop!` must stand on its own", "{body}");
             assert_eq!(
                 failure.labels[0].text, "on a line of a block inside an expression",
                 "{body}"

@@ -188,11 +188,7 @@ impl Sites {
     }
 
     pub(crate) const fn expr(&mut self, span: Span, kind: ExprKind) -> Expr {
-        Expr {
-            site: self.fresh(),
-            span,
-            kind,
-        }
+        Expr { site: self.fresh(), span, kind }
     }
 }
 
@@ -301,10 +297,9 @@ impl<D: Clone> Pattern<D> {
                 .into_iter()
                 .map(|fields| Self::Constructor(*constructor, fields))
                 .collect(),
-            Self::Tag(label, fields) => Self::rows(fields)
-                .into_iter()
-                .map(|fields| Self::Tag(*label, fields))
-                .collect(),
+            Self::Tag(label, fields) => {
+                Self::rows(fields).into_iter().map(|fields| Self::Tag(*label, fields)).collect()
+            }
             Self::Dual(dual, fields) => Self::rows(fields)
                 .into_iter()
                 .map(|fields| Self::Dual(dual.clone(), fields))
@@ -339,16 +334,12 @@ impl<D: Clone> Pattern<D> {
 /// [`Pattern::choices`] of a list pattern: its elements' rows, each with each
 /// choice of its rest.
 fn list_choices<D: Clone>(elements: &[Pattern<D>], rest: Option<&Pattern<D>>) -> Vec<Pattern<D>> {
-    let rests: Vec<Option<Pattern<D>>> = rest.map_or_else(
-        || vec![None],
-        |rest| rest.choices().into_iter().map(Some).collect(),
-    );
+    let rests: Vec<Option<Pattern<D>>> =
+        rest.map_or_else(|| vec![None], |rest| rest.choices().into_iter().map(Some).collect());
     Pattern::rows(elements)
         .into_iter()
         .flat_map(|row| {
-            rests
-                .iter()
-                .map(move |rest| Pattern::List(row.clone(), rest.clone().map(Box::new)))
+            rests.iter().map(move |rest| Pattern::List(row.clone(), rest.clone().map(Box::new)))
         })
         .collect()
 }
@@ -361,8 +352,7 @@ fn ending_choices<D: Clone>(front: &Pattern<D>, last: &[Pattern<D>]) -> Vec<Patt
         .choices()
         .into_iter()
         .flat_map(|front| {
-            rows.iter()
-                .map(move |row| Pattern::Ending(Box::new(front.clone()), row.clone()))
+            rows.iter().map(move |row| Pattern::Ending(Box::new(front.clone()), row.clone()))
         })
         .collect()
 }
@@ -522,10 +512,7 @@ impl Expr {
                 }
             }
             ExprKind::List(elements, rest) => {
-                elements
-                    .iter_mut()
-                    .chain(rest.as_deref_mut())
-                    .for_each(visit);
+                elements.iter_mut().chain(rest.as_deref_mut()).for_each(visit);
             }
             ExprKind::Record(fields) => {
                 for (_, value) in fields.iter_mut() {
@@ -561,10 +548,7 @@ impl Expr {
             ExprKind::Match(value, arms) => {
                 visit(value);
                 for arm in arms {
-                    arm.guard
-                        .iter_mut()
-                        .chain([&mut arm.body])
-                        .for_each(&mut visit);
+                    arm.guard.iter_mut().chain([&mut arm.body]).for_each(&mut visit);
                 }
             }
             ExprKind::Block(body) => body.exprs_mut().for_each(visit),

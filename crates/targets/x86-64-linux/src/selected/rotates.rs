@@ -33,11 +33,8 @@ impl Plan {
             for (op, results) in p.walk_within(body) {
                 if let [result] = *results {
                     defs[result.index()] = Some(op);
-                    if let Op::Binary {
-                        op: Binary::Add | Binary::Or | Binary::Xor,
-                        left,
-                        right,
-                    } = *op
+                    if let Op::Binary { op: Binary::Add | Binary::Or | Binary::Xor, left, right } =
+                        *op
                     {
                         joins.push((result, left, right));
                     }
@@ -47,10 +44,7 @@ impl Plan {
         let shapes = Shapes { p, defs: &defs };
         let mut plan = Self::default();
         for (result, left, right) in joins {
-            if let Some(rotate) = shapes
-                .join(left, right)
-                .or_else(|| shapes.join(right, left))
-            {
+            if let Some(rotate) = shapes.join(left, right).or_else(|| shapes.join(right, left)) {
                 plan.roots.insert(result, rotate);
             }
         }
@@ -83,10 +77,7 @@ impl Plan {
                     Op::Constant { .. }
                         | Op::Convert { .. }
                         | Op::Shift { .. }
-                        | Op::Binary {
-                            op: Binary::Mul | Binary::ShiftUp,
-                            ..
-                        }
+                        | Op::Binary { op: Binary::Mul | Binary::ShiftUp, .. }
                 ) {
                     self.omitted.insert(value);
                     removed.extend(p.operands(op));
@@ -116,11 +107,7 @@ impl Shapes<'_> {
             Some(Op::Convert { value }) => (value, self.bits(high)),
             _ => (high, WORD_BITS),
         };
-        let Op::Shift {
-            direction: Direction::Down,
-            value: moved,
-            by,
-        } = self.op(high_shift)?
+        let Op::Shift { direction: Direction::Down, value: moved, by } = self.op(high_shift)?
         else {
             return None;
         };
@@ -134,10 +121,7 @@ impl Shapes<'_> {
         let (low_shift, bits) = match self.op(low)? {
             Op::Convert { value } => (value, self.bits(low)),
             // A 64-bit left shift already drops the bits above the word.
-            Op::Shift {
-                direction: Direction::Up,
-                ..
-            } if self.bits(low) == 64 => (low, 64),
+            Op::Shift { direction: Direction::Up, .. } if self.bits(low) == 64 => (low, 64),
             _ => return None,
         };
         if !matches!(bits, 8 | 16 | 32 | 64) {
@@ -167,34 +151,19 @@ impl Shapes<'_> {
 
     fn shifted(&self, shifted: ValueId) -> Option<(ValueId, Count)> {
         match self.op(shifted)? {
-            Op::Shift {
-                direction: Direction::Up,
-                value,
-                by,
-            } => Some((value, Count::Immediate(u8::try_from(by).ok()?))),
-            Op::Binary {
-                op: Binary::ShiftUp,
-                left,
-                right,
-            } => Some((left, Count::Register(right))),
-            Op::Binary {
-                op: Binary::Mul,
-                left,
-                right,
-            } => self
-                .scaled(left, right)
-                .or_else(|| self.scaled(right, left)),
+            Op::Shift { direction: Direction::Up, value, by } => {
+                Some((value, Count::Immediate(u8::try_from(by).ok()?)))
+            }
+            Op::Binary { op: Binary::ShiftUp, left, right } => Some((left, Count::Register(right))),
+            Op::Binary { op: Binary::Mul, left, right } => {
+                self.scaled(left, right).or_else(|| self.scaled(right, left))
+            }
             _ => None,
         }
     }
 
     fn scaled(&self, value: ValueId, power: ValueId) -> Option<(ValueId, Count)> {
-        let Op::Binary {
-            op: Binary::ShiftUp,
-            left,
-            right,
-        } = self.op(power)?
-        else {
+        let Op::Binary { op: Binary::ShiftUp, left, right } = self.op(power)? else {
             return None;
         };
         matches!(self.op(left), Some(Op::Constant { value: 1 }))

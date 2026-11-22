@@ -57,11 +57,7 @@ fn run(program: &Program) -> (u64, i32) {
     let path = dir.join("image");
     fs::write(&path, Mos6502Sim65.emit(program)).expect("the image");
 
-    let output = Command::new("sim65")
-        .arg("-c")
-        .arg(&path)
-        .output()
-        .expect("sim65 on the path");
+    let output = Command::new("sim65").arg("-c").arg(&path).output().expect("sim65 on the path");
     fs::remove_dir_all(&dir).ok();
 
     let status = output.status.code().expect("the image was not signalled");
@@ -87,22 +83,11 @@ fn a_loop_iteration_stays_within_its_cycle_ceiling() {
 
     // The sums the loop is supposed to reach, as the machine keeps them:
     // the low byte is all an exit status carries.
-    assert_eq!(
-        small,
-        i32::from(44850u16.to_le_bytes()[0]),
-        "the sum to {low}"
-    );
-    assert_eq!(
-        large,
-        i32::from(57918u16.to_le_bytes()[0]),
-        "the sum to {high}"
-    );
+    assert_eq!(small, i32::from(44850u16.to_le_bytes()[0]), "the sum to {low}");
+    assert_eq!(large, i32::from(57918u16.to_le_bytes()[0]), "the sum to {high}");
 
     let each = (dear - cheap) / (high - low);
-    assert!(
-        each <= CEILING,
-        "an iteration costs {each} cycles; the ceiling is {CEILING}"
-    );
+    assert!(each <= CEILING, "an iteration costs {each} cycles; the ceiling is {CEILING}");
 }
 
 /// Value-counting loops took tens of thousands of iterations for these

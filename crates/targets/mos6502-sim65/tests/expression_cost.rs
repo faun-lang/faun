@@ -46,14 +46,8 @@ fn measure(case: Case, size: usize, ceiling: u64) {
     let program = faun::lower(&case.source(), &Mos6502Sim65).expect("a guarded source expression");
     // Reading (above), preparation and emission happen once per case, not
     // per input. Every invocation below executes this same image.
-    let image = Mos6502Sim65
-        .compile_machine_ir(&program)
-        .expect("scalar compilation");
-    assert!(
-        image.len() <= size,
-        "{case:?}: {} bytes, ceiling {size}",
-        image.len()
-    );
+    let image = Mos6502Sim65.compile_machine_ir(&program).expect("scalar compilation");
+    assert!(image.len() <= size, "{case:?}: {} bytes, ceiling {size}", image.len());
     let dir = std::env::temp_dir().join(format!(
         "faun-expression-cost-{}-{case:?}-{}",
         std::process::id(),
@@ -69,10 +63,7 @@ fn measure(case: Case, size: usize, ceiling: u64) {
     for &argc in COUNTS {
         let (status, cycles) = run(&path, argc);
         assert_eq!(status, case.expected(argc), "{case:?}, argc={argc}");
-        assert!(
-            cycles <= ceiling,
-            "{case:?}, argc={argc}: {cycles} cycles, ceiling {ceiling}"
-        );
+        assert!(cycles <= ceiling, "{case:?}, argc={argc}: {cycles} cycles, ceiling {ceiling}");
     }
     fs::remove_dir_all(&dir).expect("the scratch directory to go");
 }
@@ -87,10 +78,8 @@ fn run(path: &Path, argc: u16) -> (i32, u64) {
         .expect("sim65 on the path");
     let text = String::from_utf8_lossy(&output.stderr).into_owned()
         + &String::from_utf8_lossy(&output.stdout);
-    let status = output
-        .status
-        .code()
-        .unwrap_or_else(|| panic!("the simulator was signalled: {text}"));
+    let status =
+        output.status.code().unwrap_or_else(|| panic!("the simulator was signalled: {text}"));
     let cycles = text
         .lines()
         .rev()

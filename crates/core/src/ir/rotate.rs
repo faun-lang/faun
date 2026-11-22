@@ -119,9 +119,7 @@ impl Rotate {
             for (op, results) in source.walk(shape.answer) {
                 rebuild.copy(b, *op, results, &mut Self::default());
             }
-            let values = answer
-                .terminator
-                .map_or_else(Vec::new, |exit| rebuild.args(exit.values));
+            let values = answer.terminator.map_or_else(Vec::new, |exit| rebuild.args(exit.values));
             b.break_(&values);
         };
         let round = |b: &mut Builder| b.continue_(next);
@@ -220,11 +218,7 @@ fn at_classes(
         .zip(params)
         .map(|(&value, &param)| {
             let class = source.class(param);
-            if b.class(value) == class {
-                value
-            } else {
-                b.convert(class, value)
-            }
+            if b.class(value) == class { value } else { b.convert(class, value) }
         })
         .collect()
 }
@@ -234,17 +228,10 @@ fn at_classes(
 /// loop leaving with what the answer gives: and if so, its parts.
 fn shape(source: &Program, body: RegionId) -> Option<Shape> {
     let region = source.region(body);
-    let ops: Vec<(Op, Vec<ValueId>)> = source
-        .walk(body)
-        .map(|(op, results)| (*op, results.to_vec()))
-        .collect();
+    let ops: Vec<(Op, Vec<ValueId>)> =
+        source.walk(body).map(|(op, results)| (*op, results.to_vec())).collect();
     let ((last, answered), header) = ops.split_last()?;
-    let Op::If {
-        condition,
-        then_region,
-        else_region,
-    } = *last
-    else {
+    let Op::If { condition, then_region, else_region } = *last else {
         return None;
     };
     let leaves = region.terminator?;
@@ -278,18 +265,12 @@ fn arms(
 ) -> Option<(RegionId, RegionId, bool)> {
     let answers = |arm: RegionId| {
         let region = source.region(arm);
-        region
-            .terminator
-            .is_some_and(|exit| exit.exit == Exit::Yield)
+        region.terminator.is_some_and(|exit| exit.exit == Exit::Yield)
             && region.ops.len() <= ANSWER
             && source.walk(arm).all(|(op, _)| !holds_region(*op))
     };
-    let goes_round = |arm: RegionId| {
-        source
-            .region(arm)
-            .terminator
-            .is_none_or(|exit| exit.exit != Exit::Yield)
-    };
+    let goes_round =
+        |arm: RegionId| source.region(arm).terminator.is_none_or(|exit| exit.exit != Exit::Yield);
     if answers(then_region) && goes_round(else_region) {
         Some((then_region, else_region, true))
     } else if answers(else_region) && goes_round(then_region) {
@@ -333,11 +314,9 @@ fn within_exits(source: &Program, region: RegionId) -> Vec<ValueId> {
         leaving.extend_from_slice(source.outgoing(region));
         for (op, _) in source.walk(region) {
             match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => regions.extend([then_region, else_region]),
+                Op::If { then_region, else_region, .. } => {
+                    regions.extend([then_region, else_region]);
+                }
                 Op::Loop { body, .. } => regions.push(body),
                 _ => {}
             }

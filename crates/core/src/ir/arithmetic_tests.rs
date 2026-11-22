@@ -17,20 +17,11 @@ fn unknown_or_overflowing_bounds_never_choose_a_machine_word() {
         let machine = lower(&source, &crate::platform::Routines::builtin()).unwrap();
         let body = machine.function(machine.entry()).body().unwrap();
         assert!(machine.walk(body).any(|(op, results)| {
-            matches!(
-                op,
-                Op::Binary {
-                    op: Binary::Add,
-                    ..
-                }
-            ) && machine.class(results[0]) == Class::Natural
+            matches!(op, Op::Binary { op: Binary::Add, .. })
+                && machine.class(results[0]) == Class::Natural
         }));
         if magnitude.bits() > 64 {
-            assert!(
-                machine
-                    .every(body)
-                    .any(|op| matches!(op, Op::NaturalConstant(_)))
-            );
+            assert!(machine.every(body).any(|op| matches!(op, Op::NaturalConstant(_))));
         }
     }
 }
@@ -39,9 +30,7 @@ fn unknown_or_overflowing_bounds_never_choose_a_machine_word() {
 fn an_unbounded_entry_result_is_not_silently_truncated() {
     let mut source = crate::programs::two_and_two_in_barb();
     let nat = source.params(barb::FnId::at(0))[0];
-    let value = source
-        .intern_natural(nat, &(BigUint::from(1u8) << 100usize))
-        .unwrap();
+    let value = source.intern_natural(nat, &(BigUint::from(1u8) << 100usize)).unwrap();
     source.define(source.entry(), |b, _| b.known(value));
     let error = lower(&source, &crate::platform::Routines::builtin()).unwrap_err();
     assert!(error.contains("unbounded"), "{error}");
@@ -64,18 +53,12 @@ fn a_natural_constant_is_compact_and_does_not_alias_a_word() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "build, lower and inspect each operation's program"
-)]
+#[expect(clippy::too_many_lines, reason = "build, lower and inspect each operation's program")]
 fn runtime_arithmetic_survives_barb_lowering_as_operations() {
     let routines = crate::platform::Routines::builtin();
-    for (name, expected) in [
-        ("sub", Binary::Monus),
-        ("mul", Binary::Mul),
-        ("div", Binary::Div),
-        ("mod", Binary::Mod),
-    ] {
+    for (name, expected) in
+        [("sub", Binary::Monus), ("mul", Binary::Mul), ("div", Binary::Div), ("mod", Binary::Mod)]
+    {
         let mut library = barb::fixture::Library::new();
         let operation = match expected {
             Binary::Monus => library.sub,
@@ -107,9 +90,7 @@ fn runtime_arithmetic_survives_barb_lowering_as_operations() {
         validate(&machine).unwrap();
         let body = machine.function(machine.entry()).body().unwrap();
         assert!(
-            machine
-                .every(body)
-                .any(|op| matches!(op, Op::Binary { op, .. } if *op == expected)),
+            machine.every(body).any(|op| matches!(op, Op::Binary { op, .. } if *op == expected)),
             "{name}"
         );
         assert!(
@@ -117,10 +98,7 @@ fn runtime_arithmetic_survives_barb_lowering_as_operations() {
             "{name} must not become a portable value-counting loop"
         );
         assert_eq!(
-            machine
-                .every(body)
-                .filter(|op| matches!(op, Op::If { .. }))
-                .count(),
+            machine.every(body).filter(|op| matches!(op, Op::If { .. })).count(),
             1,
             "{name}: only the count's guard branches; a monus needs none of its own"
         );
@@ -182,13 +160,7 @@ fn an_early_exit_refines_the_continuation() {
     let sum = program.bindings(body.bindings).iter().copied().find(|expr| {
         matches!(program.expr(*expr), barb::Expr::Call(called, _) if facts.operation(called) == Some(barb::Operation::Add))
     }).expect("runtime addition");
-    assert_eq!(
-        facts.held(sum),
-        barb::Bounds {
-            low: 0,
-            high: Some(2)
-        }
-    );
+    assert_eq!(facts.held(sum), barb::Bounds { low: 0, high: Some(2) });
     let machine = lower(&program, &routines).unwrap();
     assert!((0..machine.values_count()).all(|at| machine.class(ValueId::at(at)) != Class::Natural));
 }

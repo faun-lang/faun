@@ -46,10 +46,8 @@ pub(super) fn breakers(program: &Program) -> Vec<bool> {
                         .collect()
                 })
                 .collect();
-            let cycles: Vec<_> = rounds(&left)
-                .into_iter()
-                .filter(|within| within.len() > 1)
-                .collect();
+            let cycles: Vec<_> =
+                rounds(&left).into_iter().filter(|within| within.len() > 1).collect();
             if cycles.is_empty() {
                 break;
             }

@@ -58,20 +58,11 @@ impl Package {
         let body = source
             .lines()
             .enumerate()
-            .map(|(at, line)| {
-                if at == 0 {
-                    line
-                } else {
-                    line.get(indent..).unwrap_or("")
-                }
-            })
+            .map(|(at, line)| if at == 0 { line } else { line.get(indent..).unwrap_or("") })
             .collect::<Vec<_>>()
             .join("\n");
-        fs::write(
-            directory.join("main.fn"),
-            format!("import std.host {{Host}}\n\n{body}\n"),
-        )
-        .unwrap();
+        fs::write(directory.join("main.fn"), format!("import std.host {{Host}}\n\n{body}\n"))
+            .unwrap();
         fs::write(directory.join("sealed.fn"), SEALED).unwrap();
         Self(directory)
     }
@@ -110,17 +101,10 @@ pub(crate) fn run_failing(
 pub(crate) fn run_counted(entry: &std::path::Path, input: &[u8]) -> (u32, String, u64) {
     let mut barb = faun_frontend::lower_to_barb(entry, &faun_driver::platform(&X86_64Linux))
         .unwrap_or_else(|error| panic!("{}", error.message));
-    let mut streams = Streams {
-        input: input.iter().copied().collect(),
-        ..Streams::default()
-    };
+    let mut streams = Streams { input: input.iter().copied().collect(), ..Streams::default() };
     let (status, spent) = try_run_spending(&mut barb, &mut streams, 100_000_000)
         .unwrap_or_else(|error| panic!("{error:?}"));
-    (
-        status,
-        String::from_utf8(streams.output).expect("text written"),
-        spent,
-    )
+    (status, String::from_utf8(streams.output).expect("text written"), spent)
 }
 
 /// Files by name, beneath where a program runs.
@@ -131,16 +115,9 @@ pub(crate) type Directory = BTreeMap<String, Vec<u8>>;
 pub(crate) fn run_among(entry: &std::path::Path, files: Directory) -> (u32, String, Directory) {
     let mut barb = faun_frontend::lower_to_barb(entry, &faun_driver::platform(&X86_64Linux))
         .unwrap_or_else(|error| panic!("{}", error.message));
-    let mut streams = Streams {
-        files,
-        ..Streams::default()
-    };
+    let mut streams = Streams { files, ..Streams::default() };
     let status = run_on(&mut barb, &mut streams, 100_000_000);
-    (
-        status,
-        String::from_utf8(streams.output).expect("text written"),
-        streams.files,
-    )
+    (status, String::from_utf8(streams.output).expect("text written"), streams.files)
 }
 
 /// What a program did with the files it opened.
@@ -158,10 +135,8 @@ pub(crate) fn run_handling(entry: &std::path::Path) -> (u32, Handled) {
         .unwrap_or_else(|error| panic!("{}", error.message));
     let mut streams = Streams::default();
     let status = run_on(&mut barb, &mut streams, 100_000_000);
-    let handled = Handled {
-        left_open: streams.open.iter().flatten().count(),
-        misused: streams.misused,
-    };
+    let handled =
+        Handled { left_open: streams.open.iter().flatten().count(), misused: streams.misused };
     (status, handled)
 }
 
@@ -209,11 +184,7 @@ pub(crate) fn test_file_within(
 
 /// `path:line` of where an expectation was written.
 fn written(location: &faun_frontend::diagnostic::Location) -> String {
-    format!(
-        "{}:{}",
-        location.path.file_name().unwrap().to_string_lossy(),
-        location.line
-    )
+    format!("{}:{}", location.path.file_name().unwrap().to_string_lossy(), location.line)
 }
 
 /// Ask the expectations of the package at `entry` on the reference
@@ -308,23 +279,15 @@ fn run_barb_fueled(
     errno: Option<u64>,
     fuel: u64,
 ) -> (u32, String) {
-    let mut streams = Streams {
-        input: input.iter().copied().collect(),
-        errno,
-        ..Streams::default()
-    };
+    let mut streams =
+        Streams { input: input.iter().copied().collect(), errno, ..Streams::default() };
     let status = run_on(&mut barb, &mut streams, fuel);
-    (
-        status,
-        String::from_utf8(streams.output).expect("text written"),
-    )
+    (status, String::from_utf8(streams.output).expect("text written"))
 }
 
 /// Run `barb` against `streams`: the status it exits with.
 fn run_on(barb: &mut barb::Program, streams: &mut Streams, fuel: u64) -> u32 {
-    try_run_spending(barb, streams, fuel)
-        .unwrap_or_else(|error| panic!("{error:?}"))
-        .0
+    try_run_spending(barb, streams, fuel).unwrap_or_else(|error| panic!("{error:?}")).0
 }
 
 /// The same, and how much of `fuel` it spent.
@@ -347,9 +310,7 @@ fn try_run_spending(
     barb::optimize(barb);
     let machine = faun_core::lower_to_machine_ir(barb, &X86_64Linux.routines())
         .unwrap_or_else(|error| panic!("{error}"));
-    let prepared = X86_64Linux
-        .prepare(&machine)
-        .unwrap_or_else(|error| panic!("{error}"));
+    let prepared = X86_64Linux.prepare(&machine).unwrap_or_else(|error| panic!("{error}"));
     let main = prepared.entry();
     // `argc` is handed only where the program reads it.
     let handed = vec![BigUint::from(1u8); prepared.parameter_names(main).count()];
@@ -357,17 +318,11 @@ fn try_run_spending(
         &prepared,
         main,
         &handed,
-        evaluate::Config {
-            fuel,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { fuel, ..evaluate::Config::default() },
         streams,
     )?;
     let halted = evaluation.halted().expect("a program that exits");
-    Ok((
-        u32::try_from(&halted[0]).expect("a status"),
-        fuel - evaluation.fuel_remaining,
-    ))
+    Ok((u32::try_from(&halted[0]).expect("a status"), fuel - evaluation.fuel_remaining))
 }
 
 impl Drop for Package {
@@ -449,11 +404,7 @@ impl Streams {
             }
             None => return Err(2),
         }
-        self.open.push(Some(Opened {
-            name,
-            at: 0,
-            append: flags & O_APPEND != 0,
-        }));
+        self.open.push(Some(Opened { name, at: 0, append: flags & O_APPEND != 0 }));
         Ok(u64::try_from(self.open.len()).expect("a descriptor") + 2)
     }
 
@@ -515,12 +466,10 @@ impl Host for Streams {
         let answered = match name {
             "exit!" => return Ok(HostResult::Halt(args.to_vec())),
             // Up to as many as asked, where they are to lie: how many.
-            "read_fd!" => self
-                .take(word(&args[0]), count(&args[2]))
-                .and_then(|taken| {
-                    memory.write(word(&args[1]), &taken).map_err(|_| 14u64)?;
-                    Ok(u64::try_from(taken.len()).expect("a count"))
-                }),
+            "read_fd!" => self.take(word(&args[0]), count(&args[2])).and_then(|taken| {
+                memory.write(word(&args[1]), &taken).map_err(|_| 14u64)?;
+                Ok(u64::try_from(taken.len()).expect("a count"))
+            }),
             // All of it, every time: how many.
             "write_fd!" => {
                 let bytes = memory.read(word(&args[1]), count(&args[2]))?.to_vec();
@@ -529,8 +478,7 @@ impl Host for Streams {
                     let fuel = memory.fuel_remaining();
                     self.records.extend(std::iter::repeat_n(fuel, ended));
                 }
-                self.put(word(&args[0]), &bytes)
-                    .map(|went| u64::try_from(went).expect("a count"))
+                self.put(word(&args[0]), &bytes).map(|went| u64::try_from(went).expect("a count"))
             }
             "open_at!" => {
                 // A name is handed ended by a nought byte, as Linux reads it.

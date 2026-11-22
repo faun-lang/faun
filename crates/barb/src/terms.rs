@@ -63,10 +63,7 @@ impl TermArena {
     }
 
     pub(super) fn hold_body(&mut self, bindings: &[ExprId], tail: ExprId) -> Body {
-        Body {
-            bindings: append_range(&mut self.bindings, bindings),
-            tail,
-        }
+        Body { bindings: append_range(&mut self.bindings, bindings), tail }
     }
 
     pub(super) fn hold_arms(&mut self, arms: &[Arm]) -> Range {

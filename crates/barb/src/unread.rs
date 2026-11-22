@@ -58,10 +58,7 @@ pub(crate) fn unread(program: &mut Program) {
             }
             other => other,
         };
-        bodies.push((
-            id,
-            copy::body(program, body, locals, params, Some(&mut edit)),
-        ));
+        bodies.push((id, copy::body(program, body, locals, params, Some(&mut edit))));
     }
     program.replace_bodies(bodies);
 }
@@ -108,11 +105,7 @@ fn replacement(
         return Some(Atom(Local::at(at)));
     }
     let ty = program.params(callee)[at];
-    program
-        .params(within)
-        .iter()
-        .position(|&own| own == ty)
-        .map(|own| Atom(Local::at(own)))
+    program.params(within).iter().position(|&own| own == ty).map(|own| Atom(Local::at(own)))
 }
 
 /// Which parameters of each definition are read, by definition.

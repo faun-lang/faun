@@ -715,12 +715,7 @@ pub(super) fn append(
         .keys()
         .any(|(growth, _)| matches!(growth, Growth::Prepend | Growth::Extend))
         .then(|| define_copies(program, runtime));
-    let mut library = Library {
-        release,
-        routines,
-        copies,
-        word_bits,
-    };
+    let mut library = Library { release, routines, copies, word_bits };
     define_joins(program, &mut library, &joins);
     library
 }
@@ -750,12 +745,8 @@ fn define_growths(
             if routines.contains_key(&key) {
                 continue;
             }
-            let id = define_growth(
-                program,
-                growth,
-                (&element, descriptor),
-                (runtime, routines.len()),
-            );
+            let id =
+                define_growth(program, growth, (&element, descriptor), (runtime, routines.len()));
             routines.insert(key, id);
         }
     }
@@ -1010,10 +1001,7 @@ fn scalar_workspace(p: &mut Program, heap: FunctionId) -> FunctionId {
 /// preceding read. The kernel supplies their zeroed headers and payloads.
 pub(super) fn input_storage(p: &mut Program, capacity: u64) -> DataId {
     let bytes = (ELEMENTS * 8 + capacity).next_multiple_of(8);
-    p.global(&vec![
-        0;
-        usize::try_from(2 * bytes).expect("bounded input size")
-    ])
+    p.global(&vec![0; usize::try_from(2 * bytes).expect("bounded input size")])
 }
 
 /// A slot is free when its last sequence or slice has released it. Like the
@@ -1233,11 +1221,7 @@ fn define_copies(program: &mut Program, runtime: Runtime) -> Copies {
     define_copy_reversed(program, copy_reversed, runtime);
     let reverse = program.declare("seq.reverse", &[A, W, A], &[]);
     define_reverse(program, reverse, runtime.word_bits());
-    Copies {
-        copy,
-        copy_reversed,
-        reverse,
-    }
+    Copies { copy, copy_reversed, reverse }
 }
 
 /// `seq.room.n(target, start, len, count)`: a buffer nothing else holds with
@@ -1587,29 +1571,19 @@ fn define_claims(program: &mut Program, runtime: Runtime) {
         let (object, descriptor, from, to) = (args[0], args[1], args[2], args[3]);
         let descriptor = b.convert(A, descriptor);
         let stride = b.load(Width::Word, object, Offset::Words(STRIDE));
-        each_claim(
-            b,
-            (runtime.claims, true),
-            descriptor,
-            (from, to),
-            &|b, at| element_at(b, object, (stride, at), word_bits),
-        );
+        each_claim(b, (runtime.claims, true), descriptor, (from, to), &|b, at| {
+            element_at(b, object, (stride, at), word_bits)
+        });
         b.ret(&[]);
     });
     program.define(runtime.claiming, |b, args| {
         let (dest, count, stride, descriptor) = (args[0], args[1], args[2], args[3]);
         let descriptor = b.convert(A, descriptor);
         let zero = number(b, 0);
-        each_claim(
-            b,
-            (runtime.claims, false),
-            descriptor,
-            (zero, count),
-            &|b, at| {
-                let distance = b.binary(Binary::Mul, at, stride);
-                byte_offset(b, dest, distance)
-            },
-        );
+        each_claim(b, (runtime.claims, false), descriptor, (zero, count), &|b, at| {
+            let distance = b.binary(Binary::Mul, at, stride);
+            byte_offset(b, dest, distance)
+        });
         b.ret(&[]);
     });
 }

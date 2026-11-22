@@ -225,16 +225,9 @@ pub enum LiteralExpr {
 pub fn decimal(digits: BigUint, scale: u32, negative: bool, float: &Float) -> LiteralExpr {
     let value = LiteralExpr::Call(
         float.of_decimal,
-        vec![
-            LiteralExpr::Natural(digits),
-            LiteralExpr::Natural(BigUint::from(scale)),
-        ],
+        vec![LiteralExpr::Natural(digits), LiteralExpr::Natural(BigUint::from(scale))],
     );
-    if negative {
-        LiteralExpr::Call(float.neg, vec![value])
-    } else {
-        value
-    }
+    if negative { LiteralExpr::Call(float.neg, vec![value]) } else { value }
 }
 
 /// Elaborate a numeral after context has selected `Nat` or `Int`.
@@ -265,10 +258,7 @@ pub fn numeral(
                 below: word.below.clone(),
             });
         }
-        return Ok(LiteralExpr::Call(
-            word.of_nat,
-            vec![LiteralExpr::Natural(magnitude)],
-        ));
+        return Ok(LiteralExpr::Call(word.of_nat, vec![LiteralExpr::Natural(magnitude)]));
     }
     let natural = LiteralExpr::Natural(magnitude);
     match (ty, negative) {
@@ -303,10 +293,9 @@ pub fn character(
     }
     let scalar = u32::try_from(magnitude).ok().and_then(char::from_u32);
     match scalar {
-        Some(scalar) if !scalar.is_ascii() => Err(LiteralElaborationError::NotOneByte {
-            scalar,
-            name: word.name.clone(),
-        }),
+        Some(scalar) if !scalar.is_ascii() => {
+            Err(LiteralElaborationError::NotOneByte { scalar, name: word.name.clone() })
+        }
         _ => Ok(()),
     }
 }
@@ -337,29 +326,18 @@ impl fmt::Display for LiteralElaborationError {
         match self {
             Self::NegativeNat => f.write_str("a negative numeral cannot be a `Nat`"),
             Self::Negative(name) => write!(f, "a `{name}` has no negative numerals"),
-            Self::TooLarge {
-                written,
-                character: true,
-                name,
-                ..
-            } => {
+            Self::TooLarge { written, character: true, name, .. } => {
                 // A scalar the literal held, so it fits a `u32` and is a `char`.
                 let scalar = u32::try_from(written).expect("a character literal is a scalar");
                 let shown = char::from_u32(scalar).expect("a character literal is a scalar");
                 let shown = shown.escape_debug();
-                write!(
-                    f,
-                    "`'{shown}'` (U+{scalar:04X}, {written}) is out of range for `{name}`"
-                )
+                write!(f, "`'{shown}'` (U+{scalar:04X}, {written}) is out of range for `{name}`")
             }
             Self::TooLarge { written, name, .. } => {
                 write!(f, "`{written}` is out of range for `{name}`")
             }
             Self::NotOneByte { scalar, name } => {
-                write!(
-                    f,
-                    "`{scalar:?}` is not one byte in UTF-8, so it cannot be a `{name}`"
-                )
+                write!(f, "`{scalar:?}` is not one byte in UTF-8, so it cannot be a `{name}`")
             }
         }
     }
@@ -425,10 +403,7 @@ impl std::error::Error for LiteralElaborationError {}
 /// Build a `Str` directly from valid UTF-8 bytes using its private wrappers.
 #[must_use]
 pub fn string(bytes: &[u8], prelude: &PreludeIds) -> LiteralExpr {
-    LiteralExpr::Construct(
-        prelude.str_constructor,
-        vec![LiteralExpr::Bytes(bytes.to_vec())],
-    )
+    LiteralExpr::Construct(prelude.str_constructor, vec![LiteralExpr::Bytes(bytes.to_vec())])
 }
 
 /// The word the prelude exports as `name`, where it has an `of_nat` and its
@@ -439,11 +414,7 @@ fn word(program: &Modules<'_>, name: &str) -> Option<Word> {
     let equals = method(program, &binding, name, "equals").ok()?;
     let local = symbol(program.symbols, name).ok()?;
     let module = program.modules.iter().find(|module| {
-        module
-            .scope
-            .types
-            .get(&local)
-            .is_some_and(|found| found.canonical == binding.canonical)
+        module.scope.types.get(&local).is_some_and(|found| found.canonical == binding.canonical)
             && module.syntax.items.iter().any(|item| {
                 matches!(item, crate::ast::Item::Data(data)
                 if program.sources.get(module.source).is_some_and(|source| {
@@ -465,13 +436,7 @@ fn word(program: &Modules<'_>, name: &str) -> Option<Word> {
         }
         _ => None,
     })?;
-    Some(Word {
-        ty: binding.canonical,
-        name: name.to_owned(),
-        of_nat,
-        equals,
-        below,
-    })
+    Some(Word { ty: binding.canonical, name: name.to_owned(), of_nat, equals, below })
 }
 
 fn binding(program: &Modules<'_>, name: &str) -> Result<TypeBinding, Diagnostic> {
@@ -528,9 +493,7 @@ fn constructor(
 ) -> Result<Symbol, Diagnostic> {
     let local = symbol(program.symbols, name)?;
     binding.constructors.get(&local).copied().ok_or_else(|| {
-        Diagnostic::new(format!(
-            "standard type `{owner}` has no constructor `{name}`"
-        ))
+        Diagnostic::new(format!("standard type `{owner}` has no constructor `{name}`"))
     })
 }
 
@@ -552,10 +515,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
             let root = std::env::temp_dir().join(format!("faun-blessed-{unique}"));
             fs::create_dir_all(&root).unwrap();
             Self(root)
@@ -591,10 +551,7 @@ mod tests {
             "str.fn",
             "export {Str}\nStr : List(U8).(concat : (Str, Str) -> Str\nconcat(left, _) -> left\nequals : (Str, Str) -> Bool\nequals(_, _) -> False)\n",
         );
-        fixture.write(
-            "result.fn",
-            "export {Result.*}\nResult(a, e) : [Ok(a), Err(e)]\n",
-        );
+        fixture.write("result.fn", "export {Result.*}\nResult(a, e) : [Ok(a), Err(e)]\n");
         fixture.write(
             "order.fn",
             "export {Order.*}\nOrder : [Lt, Eq, Gt].(lt : Order -> Bool\nlt(Lt) -> True\nlt(_) -> False\nle : Order -> Bool\nle(Gt) -> False\nle(_) -> True\ngt : Order -> Bool\ngt(Gt) -> True\ngt(_) -> False\nge : Order -> Bool\nge(Lt) -> False\nge(_) -> True\neq : Order -> Bool\neq(Eq) -> True\neq(_) -> False\nor : (Order, Order) -> Order\nor(Eq, next) -> next\nor(decided, _) -> decided)\n",

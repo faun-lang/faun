@@ -166,10 +166,7 @@ impl<'a> Walk<'a> {
     }
 
     fn read(&mut self, value: ValueId, site: Site, claim: bool) {
-        self.uses
-            .entry(value)
-            .or_default()
-            .push(Use { site, claim });
+        self.uses.entry(value).or_default().push(Use { site, claim });
     }
 
     /// Read `region`, on `path`, left by a yield to the `if` at `within`,
@@ -181,20 +178,13 @@ impl<'a> Walk<'a> {
         (within, inside): (Option<usize>, Option<RegionId>),
         path: usize,
     ) {
-        let ops: Vec<(Op, Vec<ValueId>)> = self
-            .source
-            .walk(region)
-            .map(|(op, results)| (*op, results.to_vec()))
-            .collect();
+        let ops: Vec<(Op, Vec<ValueId>)> =
+            self.source.walk(region).map(|(op, results)| (*op, results.to_vec())).collect();
         for (op, results) in ops {
             self.instruction(op, results, (inside, path));
         }
         self.position += 1;
-        let site = Site {
-            position: self.position,
-            inside,
-            path,
-        };
+        let site = Site { position: self.position, inside, path };
         if let Some(terminator) = self.source.region(region).terminator {
             self.leave(terminator, site, (within, inside));
         }
@@ -211,11 +201,7 @@ impl<'a> Walk<'a> {
         let source = self.source;
         let at = self.ops.len();
         self.position += 1;
-        let site = Site {
-            position: self.position,
-            inside,
-            path,
-        };
+        let site = Site { position: self.position, inside, path };
         let mut taken = Vec::new();
         ownership::taken_by(source, &op, &results, self.owned, &mut taken);
         for operand in source.operands(&op) {
@@ -235,11 +221,7 @@ impl<'a> Walk<'a> {
     fn held(&mut self, op: Op, at: usize, (inside, path): (Option<RegionId>, usize)) {
         let source = self.source;
         match op {
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } => {
+            Op::If { then_region, else_region, .. } => {
                 let first = self.arm(path, at, true);
                 self.region(then_region, (Some(at), inside), first);
                 let second = self.arm(path, at, false);
@@ -299,11 +281,7 @@ impl<'a> Walk<'a> {
             return false;
         };
         self.homes.get(&value) == Some(&site.inside)
-            && uses
-                .iter()
-                .filter(|reading| reading.site.position == site.position)
-                .count()
-                == 1
+            && uses.iter().filter(|reading| reading.site.position == site.position).count() == 1
             && uses.iter().all(|reading| {
                 reading.site.position == site.position
                     || self.exclusive(reading.site.path, site.path)
@@ -367,11 +345,7 @@ impl<'a> Walk<'a> {
     /// where its loop does either.
     fn shape(&self, buffer: ValueId) -> Option<ShapeId> {
         self.ops.iter().find_map(|(op, _, _)| match *op {
-            Op::BufferField {
-                buffer: read,
-                shape,
-                ..
-            } if read == buffer => Some(shape),
+            Op::BufferField { buffer: read, shape, .. } if read == buffer => Some(shape),
             Op::BufferReplace { operands, shape } if self.source.values(operands)[0] == buffer => {
                 Some(shape)
             }
@@ -409,11 +383,7 @@ impl<'a> Walk<'a> {
             let (site, initial) = self.initial(body);
             let entered = initial[index];
             if !(self.fresh(entered, &carried, &mut known) && self.moved(entered, site)) {
-                found
-                    .owned
-                    .entry(body)
-                    .or_default()
-                    .push((index, shapes[&(body, index)]));
+                found.owned.entry(body).or_default().push((index, shapes[&(body, index)]));
             }
         }
         for (op, results, site) in &self.ops {
@@ -441,9 +411,7 @@ impl<'a> Walk<'a> {
             for (index, &param) in params.iter().enumerate() {
                 let sequence = params.get(index..index + 3).is_some_and(|run| {
                     source.class(run[0]) == Class::Buffer
-                        && run[1..]
-                            .iter()
-                            .all(|&leaf| source.class(leaf).fits(Class::Word))
+                        && run[1..].iter().all(|&leaf| source.class(leaf).fits(Class::Word))
                 });
                 if sequence && let Some(shape) = self.shape(param).filter(|&shape| ownable(shape)) {
                     shapes.insert((body, index), shape);

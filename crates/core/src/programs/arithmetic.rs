@@ -15,25 +15,9 @@ pub fn boundaries(bits: u16, op: Binary) -> Program {
     let max = u64::MAX >> (64 - bits);
     let high = 1u64 << (bits - 1);
     let mut pairs = if op == Binary::Mul {
-        vec![
-            (0, max),
-            (max, 0),
-            (1, max),
-            (max, 1),
-            (max / 3, 3),
-            (high / 2, 2),
-        ]
+        vec![(0, max), (max, 0), (1, max), (max, 1), (max / 3, 3), (high / 2, 2)]
     } else {
-        vec![
-            (0, 0),
-            (max, 0),
-            (max, 1),
-            (max, max),
-            (max, high),
-            (high, max),
-            (max, 3),
-            (1, max),
-        ]
+        vec![(0, 0), (max, 0), (max, 1), (max, max), (max, high), (high, max), (max, 3), (1, max)]
     };
     pairs.retain(|&(left, right)| left <= max && right <= max);
     cases(bits, op, &pairs)
@@ -76,10 +60,7 @@ pub fn cases(bits: u16, op: Binary, pairs: &[(u64, u64)]) -> Program {
             let result = b.call_one(check, &args);
             passed = b.binary(Binary::Add, passed, result);
         }
-        let count = b.constant(
-            Class::Word,
-            u64::try_from(pairs.len()).expect("a few cases"),
-        );
+        let count = b.constant(Class::Word, u64::try_from(pairs.len()).expect("a few cases"));
         let failures = b.binary(Binary::Sub, count, passed);
         b.ret(&[failures]);
     });
@@ -107,15 +88,8 @@ pub fn byte_products() -> Program {
         b.ret(&[equal]);
     });
     program.define(main, |b, _| {
-        let cases: [(u64, u64); 7] = [
-            (0, 255),
-            (1, 255),
-            (2, 128),
-            (3, 85),
-            (17, 17),
-            (129, 2),
-            (255, 255),
-        ];
+        let cases: [(u64, u64); 7] =
+            [(0, 255), (1, 255), (2, 128), (3, 85), (17, 17), (129, 2), (255, 255)];
         let mut passed = b.constant(Class::Word, 0);
         for (left, right) in cases {
             let expected = (left * right) & 0xff;
@@ -123,10 +97,7 @@ pub fn byte_products() -> Program {
             let equal = b.call_one(check, &args);
             passed = b.binary(Binary::Add, passed, equal);
         }
-        let count = b.constant(
-            Class::Word,
-            u64::try_from(cases.len()).expect("a few cases"),
-        );
+        let count = b.constant(Class::Word, u64::try_from(cases.len()).expect("a few cases"));
         let failures = b.binary(Binary::Sub, count, passed);
         b.ret(&[failures]);
     });
@@ -154,15 +125,8 @@ pub fn widened_byte_average() -> Program {
         b.ret(&[equal]);
     });
     program.define(main, |b, _| {
-        let cases: [(u64, u64); 7] = [
-            (0, 0),
-            (0, 255),
-            (1, 2),
-            (100, 200),
-            (127, 129),
-            (254, 255),
-            (255, 255),
-        ];
+        let cases: [(u64, u64); 7] =
+            [(0, 0), (0, 255), (1, 2), (100, 200), (127, 129), (254, 255), (255, 255)];
         let mut passed = b.constant(Class::Word, 0);
         for (left, right) in cases {
             let expected = left.midpoint(right);
@@ -170,10 +134,7 @@ pub fn widened_byte_average() -> Program {
             let equal = b.call_one(check, &args);
             passed = b.binary(Binary::Add, passed, equal);
         }
-        let count = b.constant(
-            Class::Word,
-            u64::try_from(cases.len()).expect("a few cases"),
-        );
+        let count = b.constant(Class::Word, u64::try_from(cases.len()).expect("a few cases"));
         let failures = b.binary(Binary::Sub, count, passed);
         b.ret(&[failures]);
     });
@@ -256,22 +217,14 @@ pub fn doubles_across_bytes() -> Program {
         let mut passed = b.constant(Class::Word, 0);
         // Nothing to carry, the lowest bit that carries, a byte of them, and
         // every bit the narrow class holds.
-        let cases = [
-            (0x0034, 0x0068),
-            (0x0080, 0x0100),
-            (0x00ff, 0x01fe),
-            (0x7fff, 0xfffe),
-        ];
+        let cases = [(0x0034, 0x0068), (0x0080, 0x0100), (0x00ff, 0x01fe), (0x7fff, 0xfffe)];
         for (input, expected) in cases {
             let input = b.constant(narrow, input);
             let expected = b.constant(wide, expected);
             let equal = b.call_one(check, &[input, expected]);
             passed = b.binary(Binary::Add, passed, equal);
         }
-        let count = b.constant(
-            Class::Word,
-            u64::try_from(cases.len()).expect("a few cases"),
-        );
+        let count = b.constant(Class::Word, u64::try_from(cases.len()).expect("a few cases"));
         let failures = b.binary(Binary::Sub, count, passed);
         b.ret(&[failures]);
     });
@@ -324,10 +277,7 @@ pub fn shifts_by_powers_of_two() -> Program {
             let answer = b.call_one(down, &args);
             passed = b.binary(Binary::Add, passed, answer);
         }
-        let count = b.constant(
-            Class::Word,
-            u64::try_from(2 * checks.len()).expect("a few cases"),
-        );
+        let count = b.constant(Class::Word, u64::try_from(2 * checks.len()).expect("a few cases"));
         let failures = b.binary(Binary::Sub, count, passed);
         b.ret(&[failures]);
     });

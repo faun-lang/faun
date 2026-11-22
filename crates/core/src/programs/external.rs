@@ -12,11 +12,7 @@ pub fn interleaved() -> Program {
     let byte = Class::fixed(9);
     let read = p.external("read_byte!", &[], Returns::Values(&[byte]));
     let increment = p.declare("read_byte!", &[Class::Word], &[Class::Word]);
-    let write = p.external(
-        "write!",
-        &[Class::Address, Class::Word],
-        Returns::Values(&[]),
-    );
+    let write = p.external("write!", &[Class::Address, Class::Word], Returns::Values(&[]));
     let wrapper = p.declare("exit!", &[Class::Word], &[Class::Word]);
     let again = p.external("read_byte!", &[], Returns::Values(&[byte]));
     let exit = p.external("exit!", &[Class::Word], Returns::Never);

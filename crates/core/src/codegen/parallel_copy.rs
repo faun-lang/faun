@@ -27,10 +27,7 @@ pub struct Copy<R> {
 
 impl<R: Register> Copy<R> {
     pub const fn between(source: Place<R>, destination: Place<R>) -> Self {
-        Self {
-            source: CopySource::Place(source),
-            destination,
-        }
+        Self { source: CopySource::Place(source), destination }
     }
 
     /// Whether it copies from memory to memory, through a register.
@@ -70,12 +67,7 @@ impl<R: Register> Move<R> {
                 (CopySource::Place(Place::Register(_)), Place::Frame(_)) => (1, 0, 1, 0),
                 (CopySource::Place(Place::Frame(_)), Place::Frame(_)) => (2, 1, 1, 1),
             };
-        MoveRequirements {
-            instructions,
-            memory_reads,
-            memory_writes,
-            scratch_gprs,
-        }
+        MoveRequirements { instructions, memory_reads, memory_writes, scratch_gprs }
     }
 }
 
@@ -97,9 +89,7 @@ pub struct TransitionCost {
 impl TransitionCost {
     fn add(self, requirements: MoveRequirements) -> Option<Self> {
         Some(Self {
-            instructions: self
-                .instructions
-                .checked_add(u32::from(requirements.instructions))?,
+            instructions: self.instructions.checked_add(u32::from(requirements.instructions))?,
             memory_accesses: self.memory_accesses.checked_add(
                 u32::from(requirements.memory_reads) + u32::from(requirements.memory_writes),
             )?,
@@ -175,9 +165,7 @@ pub fn plan<R: Register>(
     let mut moves = Vec::with_capacity(pending.len().saturating_add(1));
     while !pending.is_empty() {
         if let Some(ready) = pending.iter().position(|copy| {
-            !pending
-                .iter()
-                .any(|other| other.source == CopySource::Place(copy.destination))
+            !pending.iter().any(|other| other.source == CopySource::Place(copy.destination))
         }) {
             let copy = pending.remove(ready);
             moves.push(Move {
@@ -197,11 +185,7 @@ pub fn plan<R: Register>(
             return Err(PlanError::TemporaryInUse(temporary));
         }
         let saved = pending[0].destination;
-        moves.push(Move {
-            source: CopySource::Place(saved),
-            destination: temporary,
-            origin: None,
-        });
+        moves.push(Move { source: CopySource::Place(saved), destination: temporary, origin: None });
         for copy in &mut pending {
             if copy.source == CopySource::Place(saved) {
                 copy.source = CopySource::Place(temporary);
@@ -211,9 +195,7 @@ pub fn plan<R: Register>(
 
     let mut cost = TransitionCost::default();
     for movement in &moves {
-        cost = cost
-            .add(movement.requirements())
-            .ok_or(PlanError::CostOverflow)?;
+        cost = cost.add(movement.requirements()).ok_or(PlanError::CostOverflow)?;
     }
     Ok(MovePlan { moves, cost })
 }
@@ -233,10 +215,7 @@ fn validate<R: Register>(copies: &[Copy<R>]) -> Result<(), PlanError<R>> {
         return Err(PlanError::TooManyCopies);
     }
     for (at, copy) in copies.iter().enumerate() {
-        if copies[..at]
-            .iter()
-            .any(|earlier| earlier.destination == copy.destination)
-        {
+        if copies[..at].iter().any(|earlier| earlier.destination == copy.destination) {
             return Err(PlanError::DuplicateDestination(copy.destination));
         }
     }
@@ -281,16 +260,8 @@ mod tests {
         assert_eq!(
             plan.moves(),
             &[
-                Move {
-                    source: CopySource::Place(RCX),
-                    destination: RDX,
-                    origin: Some(CopyId(1)),
-                },
-                Move {
-                    source: CopySource::Place(RAX),
-                    destination: RCX,
-                    origin: Some(CopyId(0)),
-                },
+                Move { source: CopySource::Place(RCX), destination: RDX, origin: Some(CopyId(1)) },
+                Move { source: CopySource::Place(RAX), destination: RCX, origin: Some(CopyId(0)) },
             ]
         );
     }
@@ -298,24 +269,13 @@ mod tests {
     #[test]
     fn a_cycle_saves_one_location_and_retains_copy_identity() {
         let temporary = frame(0);
-        let plan = plan(
-            &[Copy::between(RAX, RCX), Copy::between(RCX, RAX)],
-            Some(temporary),
-        )
-        .unwrap();
+        let plan =
+            plan(&[Copy::between(RAX, RCX), Copy::between(RCX, RAX)], Some(temporary)).unwrap();
         assert_eq!(
             plan.moves(),
             &[
-                Move {
-                    source: CopySource::Place(RCX),
-                    destination: temporary,
-                    origin: None,
-                },
-                Move {
-                    source: CopySource::Place(RAX),
-                    destination: RCX,
-                    origin: Some(CopyId(0)),
-                },
+                Move { source: CopySource::Place(RCX), destination: temporary, origin: None },
+                Move { source: CopySource::Place(RAX), destination: RCX, origin: Some(CopyId(0)) },
                 Move {
                     source: CopySource::Place(temporary),
                     destination: RAX,
@@ -340,22 +300,13 @@ mod tests {
         assert_eq!(requirements.memory_reads, 1);
         assert_eq!(requirements.memory_writes, 1);
         assert_eq!(requirements.scratch_gprs, 1);
-        assert_eq!(
-            plan.cost(),
-            TransitionCost {
-                instructions: 2,
-                memory_accesses: 2,
-            }
-        );
+        assert_eq!(plan.cost(), TransitionCost { instructions: 2, memory_accesses: 2 });
     }
 
     #[test]
     fn fixed_register_destinations_are_ordinary_copies() {
         let plan = plan(
-            &[
-                Copy::between(frame(0), Place::Register(Reg::Rdi)),
-                Copy::between(frame(1), RSI),
-            ],
+            &[Copy::between(frame(0), Place::Register(Reg::Rdi)), Copy::between(frame(1), RSI)],
             None,
         )
         .unwrap();

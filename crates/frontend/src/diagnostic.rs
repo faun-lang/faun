@@ -58,20 +58,12 @@ pub trait Advised: Sized {
 
 /// `count` of `noun`, as a sentence says it: `1 argument`, `2 arguments`.
 pub(crate) fn counted(count: usize, noun: &str) -> String {
-    if count == 1 {
-        format!("1 {noun}")
-    } else {
-        format!("{count} {noun}s")
-    }
+    if count == 1 { format!("1 {noun}") } else { format!("{count} {noun}s") }
 }
 
 /// How many `were given`, as a sentence says it: `1 was`, `2 were`.
 pub(crate) fn given(count: usize) -> String {
-    if count == 1 {
-        "1 was".to_owned()
-    } else {
-        format!("{count} were")
-    }
+    if count == 1 { "1 was".to_owned() } else { format!("{count} were") }
 }
 
 /// Why a pass after loading refuses a program: what it says, where, and
@@ -140,12 +132,7 @@ impl Refusal {
 
 impl From<String> for Refusal {
     fn from(message: String) -> Self {
-        Self {
-            message,
-            at: None,
-            advice: Box::default(),
-            secondary: Vec::new(),
-        }
+        Self { message, at: None, advice: Box::default(), secondary: Vec::new() }
     }
 }
 
@@ -242,10 +229,7 @@ impl Diagnostic {
     /// The same, at a place already resolved.
     #[must_use]
     pub fn at_location(mut self, location: Location) -> Self {
-        let primary = Label {
-            location,
-            text: String::new(),
-        };
+        let primary = Label { location, text: String::new() };
         if self.labels.is_empty() {
             self.labels.push(primary);
         } else {
@@ -307,10 +291,7 @@ impl Diagnostic {
             }
         }
         let also = std::mem::take(&mut self.also);
-        self.also = also
-            .into_iter()
-            .map(|also| also.relative_to(base))
-            .collect();
+        self.also = also.into_iter().map(|also| also.relative_to(base)).collect();
         self
     }
 
@@ -345,13 +326,7 @@ impl Diagnostic {
             });
             if index > 0 {
                 let first = &labels[0].1.location;
-                write!(
-                    f,
-                    "\n{gutter}::: {}:{}:{}",
-                    path.display(),
-                    first.line,
-                    first.column
-                )?;
+                write!(f, "\n{gutter}::: {}:{}:{}", path.display(), first.line, first.column)?;
             }
             write!(f, "\n{gutter} |")?;
             let mut previous: Option<usize> = None;
@@ -391,10 +366,7 @@ fn write_marks(f: &mut fmt::Formatter<'_>, gutter: &str, labels: &[(bool, &Label
     let (rightmost, hung) = labels.split_last().expect("a line has a place");
     write!(f, "\n{gutter} | ")?;
     write_row(f, &labels, rightmost.1.text.as_str())?;
-    let hung: Vec<_> = hung
-        .iter()
-        .filter(|(_, label)| !label.text.is_empty())
-        .collect();
+    let hung: Vec<_> = hung.iter().filter(|(_, label)| !label.text.is_empty()).collect();
     if hung.is_empty() {
         return Ok(());
     }
@@ -415,12 +387,7 @@ fn write_row(f: &mut fmt::Formatter<'_>, labels: &[(bool, &Label)], text: &str) 
     for (primary, label) in labels {
         let at = &label.location;
         let mark = if *primary { "^" } else { "-" };
-        write!(
-            f,
-            "{}{}",
-            " ".repeat(at.column - written),
-            mark.repeat(at.width)
-        )?;
+        write!(f, "{}{}", " ".repeat(at.column - written), mark.repeat(at.width))?;
         written = at.column + at.width;
     }
     if !text.is_empty() {
@@ -446,20 +413,10 @@ fn write_pipes(f: &mut fmt::Formatter<'_>, labels: &[&(bool, &Label)], text: &st
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "error: {}", self.message)?;
-        let widest = self
-            .labels
-            .iter()
-            .map(|label| label.location.line.to_string().len())
-            .max();
+        let widest = self.labels.iter().map(|label| label.location.line.to_string().len()).max();
         let gutter = " ".repeat(widest.unwrap_or(1));
         if let Some(at) = self.location() {
-            write!(
-                f,
-                "\n{gutter}--> {}:{}:{}",
-                at.path.display(),
-                at.line,
-                at.column
-            )?;
+            write!(f, "\n{gutter}--> {}:{}:{}", at.path.display(), at.line, at.column)?;
             self.write_snippets(f, &gutter)?;
             if !self.notes.is_empty() || !self.help.is_empty() {
                 write!(f, "\n{gutter} |")?;
@@ -495,10 +452,7 @@ mod tests {
     #[test]
     fn a_located_diagnostic_shows_its_line_and_span() {
         let mut sources = Sources::default();
-        let id = sources.add(
-            "main.fn",
-            "main! : Host -> []\nmain!(host) ->\n  host.exit!(True)\n",
-        );
+        let id = sources.add("main.fn", "main! : Host -> []\nmain!(host) ->\n  host.exit!(True)\n");
         let source = sources.get(id).unwrap();
         let text = source.text();
         let start = text.find("True").unwrap();

@@ -73,11 +73,7 @@ impl Encoder {
     pub(crate) fn address(&mut self, dst: Reg, data: DataId) {
         let instruction = self.words.len();
         self.words.push(0);
-        self.relocs.push(Reloc {
-            instruction,
-            register: dst,
-            data,
-        });
+        self.relocs.push(Reloc { instruction, register: dst, data });
     }
 
     pub(crate) fn syscall(&mut self, number: u64) {

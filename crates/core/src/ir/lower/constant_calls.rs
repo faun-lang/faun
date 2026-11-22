@@ -39,11 +39,7 @@ fn constants_returned(program: &Program, body: RegionId) -> Option<Vec<u64>> {
         };
         written.insert(results[0], value);
     }
-    program
-        .values(terminator.values)
-        .iter()
-        .map(|value| written.get(value).copied())
-        .collect()
+    program.values(terminator.values).iter().map(|value| written.get(value).copied()).collect()
 }
 
 struct Answered(BTreeMap<FunctionId, Vec<u64>>);

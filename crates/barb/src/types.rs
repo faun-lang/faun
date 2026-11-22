@@ -13,32 +13,12 @@ use crate::index::Pool;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TypeShape {
     Uninhabited,
-    Unit {
-        constructor: CtorId,
-    },
-    Wrapper {
-        constructor: CtorId,
-        field: TypeId,
-    },
-    Product {
-        constructor: CtorId,
-    },
-    Natural {
-        empty: CtorId,
-        push: CtorId,
-        recursive: usize,
-    },
-    Sequence {
-        empty: CtorId,
-        push: CtorId,
-        recursive: usize,
-        element: TypeId,
-    },
-    Spine {
-        empty: CtorId,
-        push: CtorId,
-        recursive: usize,
-    },
+    Unit { constructor: CtorId },
+    Wrapper { constructor: CtorId, field: TypeId },
+    Product { constructor: CtorId },
+    Natural { empty: CtorId, push: CtorId, recursive: usize },
+    Sequence { empty: CtorId, push: CtorId, recursive: usize, element: TypeId },
+    Spine { empty: CtorId, push: CtorId, recursive: usize },
     Enumeration,
     Sum,
 }
@@ -56,11 +36,7 @@ impl<'a> TypeInfo<'a> {
         ctors: &'a Pool<CtorId, Ctor>,
         fields: &'a [TypeId],
     ) -> Self {
-        Self {
-            types,
-            ctors,
-            fields,
-        }
+        Self { types, ctors, fields }
     }
 
     /// How many types are declared, which bounds any walk through them.
@@ -106,10 +82,7 @@ impl<'a> TypeInfo<'a> {
             let constructor = self.ctor_at(id, 0);
             return match self.fields(constructor) {
                 [] => TypeShape::Unit { constructor },
-                [field] => TypeShape::Wrapper {
-                    constructor,
-                    field: *field,
-                },
+                [field] => TypeShape::Wrapper { constructor, field: *field },
                 _ => TypeShape::Product { constructor },
             };
         }
@@ -118,11 +91,7 @@ impl<'a> TypeInfo<'a> {
         {
             return spine;
         }
-        if self.all_nullary(id, count) {
-            TypeShape::Enumeration
-        } else {
-            TypeShape::Sum
-        }
+        if self.all_nullary(id, count) { TypeShape::Enumeration } else { TypeShape::Sum }
     }
 
     fn spine(self, id: TypeId) -> Option<TypeShape> {
@@ -131,11 +100,8 @@ impl<'a> TypeInfo<'a> {
             if !self.fields(empty).is_empty() {
                 continue;
             }
-            let mut recursive = self
-                .fields(push)
-                .iter()
-                .enumerate()
-                .filter(|(_, field)| **field == id);
+            let mut recursive =
+                self.fields(push).iter().enumerate().filter(|(_, field)| **field == id);
             let (Some((recursive, _)), None) = (recursive.next(), recursive.next()) else {
                 continue;
             };
@@ -146,22 +112,9 @@ impl<'a> TypeInfo<'a> {
                 .filter(|(at, _)| *at != recursive)
                 .map(|(_, field)| *field);
             return Some(match (payload.next(), payload.next()) {
-                (None, None) => TypeShape::Natural {
-                    empty,
-                    push,
-                    recursive,
-                },
-                (Some(element), None) => TypeShape::Sequence {
-                    empty,
-                    push,
-                    recursive,
-                    element,
-                },
-                _ => TypeShape::Spine {
-                    empty,
-                    push,
-                    recursive,
-                },
+                (None, None) => TypeShape::Natural { empty, push, recursive },
+                (Some(element), None) => TypeShape::Sequence { empty, push, recursive, element },
+                _ => TypeShape::Spine { empty, push, recursive },
             });
         }
         None

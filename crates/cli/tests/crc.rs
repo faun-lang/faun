@@ -14,11 +14,8 @@ fn crc32(bytes: &[u8]) -> u32 {
     for &byte in bytes {
         register ^= u32::from(byte);
         for _ in 0..8 {
-            register = if register & 1 == 1 {
-                0xedb8_8320 ^ (register >> 1)
-            } else {
-                register >> 1
-            };
+            register =
+                if register & 1 == 1 { 0xedb8_8320 ^ (register >> 1) } else { register >> 1 };
         }
     }
     !register
@@ -64,11 +61,8 @@ fn build(dir: &Path) -> PathBuf {
 
 /// What the example prints for `input`.
 fn printed(image: &Path, input: &[u8]) -> String {
-    let mut child = Command::new(image)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child =
+        Command::new(image).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     let written = input.to_vec();
     let writer = std::thread::spawn(move || stdin.write_all(&written).unwrap());
@@ -84,18 +78,9 @@ fn long_inputs_agree_with_checksums_worked_out_here() {
     let image = build(&dir);
     // 0xff is the largest each sum can grow by, and 17 MB passes four
     // reductions of Adler-32; the lengths leave each tail of eight.
-    let inputs = [
-        vec![0xff; 17_000_003],
-        noise(9_000_005),
-        noise(7),
-        Vec::new(),
-    ];
+    let inputs = [vec![0xff; 17_000_003], noise(9_000_005), noise(7), Vec::new()];
     for input in inputs {
-        let expected = format!(
-            "crc32 {:08x}\nadler32 {:08x}\n",
-            crc32(&input),
-            adler32(&input)
-        );
+        let expected = format!("crc32 {:08x}\nadler32 {:08x}\n", crc32(&input), adler32(&input));
         assert_eq!(printed(&image, &input), expected, "{} bytes", input.len());
     }
     let _ = std::fs::remove_dir_all(&dir);

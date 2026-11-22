@@ -17,20 +17,12 @@ use faun_frontend::modules;
 const RUNS: usize = 5;
 
 fn main() {
-    let only = std::env::args()
-        .skip(1)
-        .find(|argument| !argument.starts_with('-'));
+    let only = std::env::args().skip(1).find(|argument| !argument.starts_with('-'));
     let directory = std::env::temp_dir().join(format!("faun-check-bench-{}", std::process::id()));
     std::fs::create_dir_all(&directory).expect("a temporary directory");
-    println!(
-        "{:26} {:>9} {:>9} {:>9} {:>9}",
-        "case", "load", "resolve", "check", "total"
-    );
+    println!("{:26} {:>9} {:>9} {:>9} {:>9}", "case", "load", "resolve", "check", "total");
     for (name, source) in cases() {
-        if only
-            .as_ref()
-            .is_some_and(|only| !name.contains(only.as_str()))
-        {
+        if only.as_ref().is_some_and(|only| !name.contains(only.as_str())) {
             continue;
         }
         let entry = directory.join(format!("{}.fn", name.replace(' ', "-")));
@@ -63,11 +55,7 @@ fn cases() -> Vec<(String, String)> {
     ];
     for (name, build, size) in scaled {
         // A type that doubles at each step doubles again with one more.
-        let larger = if name == "doubling types" {
-            size + 2
-        } else {
-            size * 2
-        };
+        let larger = if name == "doubling types" { size + 2 } else { size * 2 };
         for size in [size, larger] {
             cases.push((format!("{name} {size}"), build(size)));
         }
@@ -164,10 +152,7 @@ fn wide_tags(count: usize) -> String {
 
 /// One method called `count` times in a row.
 fn method_chain(count: usize) -> String {
-    format!(
-        "chain : Nat -> Nat\nchain(n) -> n{}\n",
-        ".add(1)".repeat(count)
-    )
+    format!("chain : Nat -> Nat\nchain(n) -> n{}\n", ".add(1)".repeat(count))
 }
 
 /// A list literal of `count` numerals, each given its type.
@@ -191,16 +176,11 @@ fn print_statements(count: usize) -> String {
 fn benchmark(name: &str, entry: &Path) {
     let host = faun_frontend::standard_path().with_file_name("hosts/x86_64-linux.fn");
     let load = || modules::load_program(entry, faun_frontend::standard_path(), &host);
-    if let Err(diagnostic) = load()
-        .map_err(|error| error.to_string())
-        .and_then(|loaded| {
-            let (program, mut cx) =
-                faun_frontend::resolve(loaded).map_err(|error| error.to_string())?;
-            faun_frontend::checked(program, &mut cx)
-                .map(drop)
-                .map_err(|error| error.to_string())
-        })
-    {
+    if let Err(diagnostic) = load().map_err(|error| error.to_string()).and_then(|loaded| {
+        let (program, mut cx) =
+            faun_frontend::resolve(loaded).map_err(|error| error.to_string())?;
+        faun_frontend::checked(program, &mut cx).map(drop).map_err(|error| error.to_string())
+    }) {
         panic!("{name} is not a well-typed program:\n{diagnostic}");
     }
     let (mut loading, mut resolving, mut checking) = (Duration::MAX, Duration::MAX, Duration::MAX);

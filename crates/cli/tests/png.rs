@@ -136,12 +136,7 @@ fn every_image_decodes_to_the_reference_and_every_corrupt_one_is_refused() {
             Some((len, crc)) => {
                 assert_eq!(status, 0, "{}", name(&path));
                 assert_eq!(pixels.len(), len, "{}", name(&path));
-                assert_eq!(
-                    crc32(&pixels),
-                    crc,
-                    "{} decodes to pypng's pixels",
-                    name(&path)
-                );
+                assert_eq!(crc32(&pixels), crc, "{} decodes to pypng's pixels", name(&path));
             }
             None => assert_eq!(status, 1, "{} is refused", name(&path)),
         }

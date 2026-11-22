@@ -162,9 +162,7 @@ impl Fusion<'_> {
                 _ => None,
             })
             .collect();
-        callees
-            .into_iter()
-            .any(|callee| self.producer(callee).is_some() || self.reversal(callee))
+        callees.into_iter().any(|callee| self.producer(callee).is_some() || self.reversal(callee))
     }
 
     /// Whether `id` is a producer:
@@ -476,16 +474,10 @@ impl Fusion<'_> {
             } else {
                 self.step(&pair, p_step, c_step)
             };
-            arms.push(Arm {
-                ctor: arm.ctor,
-                body,
-            });
+            arms.push(Arm { ctor: arm.ctor, body });
         }
         let arms = self.program.terms.hold_arms(&arms);
-        let tail = self
-            .program
-            .terms
-            .push(Expr::Match(pair.p_locals[list], arms));
+        let tail = self.program.terms.push(Expr::Match(pair.p_locals[list], arms));
         let body = self.program.terms.hold_body(&[], tail);
         self.program.replace_bodies(vec![(pair.id, body)]);
         self.pure.push(true);
@@ -498,12 +490,7 @@ impl Fusion<'_> {
         let Producer { list, acc } = self.producers[&producer].expect("a producer");
         let Consumer { list: taken } = self.consumers[&consumer].expect("a consumer");
         let but = |params: &[TypeId], skip: usize| -> Vec<TypeId> {
-            params
-                .iter()
-                .enumerate()
-                .filter(|&(at, _)| at != skip)
-                .map(|(_, &ty)| ty)
-                .collect()
+            params.iter().enumerate().filter(|&(at, _)| at != skip).map(|(_, &ty)| ty).collect()
         };
         let mut params = but(self.program.params(producer), acc);
         let before = params.len();
@@ -587,17 +574,10 @@ impl Fusion<'_> {
                     inner.extend((0..fields).map(|at| Atom(Local::at(scope.level + at))));
                     let taken =
                         self.step_body(pair, arm.body, inner, scope.level + fields, (rest, c_step));
-                    rebuilt.push(Arm {
-                        ctor: arm.ctor,
-                        body: taken,
-                    });
+                    rebuilt.push(Arm { ctor: arm.ctor, body: taken });
                 }
                 let arms = self.program.terms.hold_arms(&rebuilt);
-                copy::push(
-                    self.program,
-                    &mut scope,
-                    Expr::Match(locals[on.0.index()], arms),
-                )
+                copy::push(self.program, &mut scope, Expr::Match(locals[on.0.index()], arms))
             }
             _ => unreachable!("a producer's step ends in matches, then its call"),
         };
@@ -700,13 +680,8 @@ impl Fusion<'_> {
             }
             other => other,
         };
-        let answer = copy::into(
-            self.program,
-            c_step.body,
-            consumed,
-            &mut scope,
-            Some(&mut redirect),
-        );
+        let answer =
+            copy::into(self.program, c_step.body, consumed, &mut scope, Some(&mut redirect));
         copy::close(self.program, scope, answer)
     }
 
@@ -719,10 +694,7 @@ impl Fusion<'_> {
         written: &[Atom],
         args: &[Atom],
     ) -> Deferred {
-        debug_assert!(
-            self.reversal(made.callee),
-            "only a reversal is deferred for one"
-        );
+        debug_assert!(self.reversal(made.callee), "only a reversal is deferred for one");
         let ty = self.program.params(callee)[0];
         Deferred {
             callee: self.prepending(ty, callee),
@@ -768,8 +740,7 @@ impl Fusion<'_> {
             return id;
         }
         let found =
-            self.recognised
-                .sequence_over(self.program, SequenceOperation::Prepend, &[ty, ty]);
+            self.recognised.sequence_over(self.program, SequenceOperation::Prepend, &[ty, ty]);
         let id = found.unwrap_or_else(|| {
             let id = super::sequence::write_prepend(self.program, ty, reverse);
             self.pure.push(true);
@@ -786,10 +757,6 @@ impl Fusion<'_> {
         copy::close(self.program, scope, answer)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one walk rewrites calls and rebuilds arms, sharing the deferred producers"
-    )]
     fn rewrite_into(
         &mut self,
         body: Body,
@@ -800,11 +767,7 @@ impl Fusion<'_> {
         let bindings = self.program.bindings(body.bindings).to_vec();
         let mut deferred: HashMap<usize, Deferred> = HashMap::default();
         let count = bindings.len();
-        for (at, &binding) in bindings
-            .iter()
-            .chain(std::iter::once(&body.tail))
-            .enumerate()
-        {
+        for (at, &binding) in bindings.iter().chain(std::iter::once(&body.tail)).enumerate() {
             let level = base + at;
             let value = match self.program.expr(binding) {
                 Expr::Call(callee, args) => {
@@ -851,11 +814,7 @@ impl Fusion<'_> {
         args: &[Atom],
         deferred: &mut HashMap<usize, Deferred>,
     ) -> Deferred {
-        let plain = Deferred {
-            callee,
-            written: written.to_vec(),
-            args: args.to_vec(),
-        };
+        let plain = Deferred { callee, written: written.to_vec(), args: args.to_vec() };
         if self.reversal(callee)
             && let Some(made) = deferred.remove(&written[0].0.index())
         {
@@ -870,11 +829,7 @@ impl Fusion<'_> {
         let Producer { acc, .. } = self.producer(made.callee).expect("deferred producers are");
         let fused = self.fused(made.callee, callee);
         let others = |held: &[Atom], skip: usize| -> Vec<Atom> {
-            held.iter()
-                .enumerate()
-                .filter(|&(at, _)| at != skip)
-                .map(|(_, &atom)| atom)
-                .collect()
+            held.iter().enumerate().filter(|&(at, _)| at != skip).map(|(_, &atom)| atom).collect()
         };
         let mut written_args = others(&made.written, acc);
         written_args.extend(others(written, taken));
@@ -884,11 +839,7 @@ impl Fusion<'_> {
         // consumer did; it is asked again as it stands.
         self.producers.remove(&fused);
         self.consumers.remove(&fused);
-        Deferred {
-            callee: fused,
-            written: written_args,
-            args: mapped,
-        }
+        Deferred { callee: fused, written: written_args, args: mapped }
     }
 
     /// Whether a call is a producer's, building onto nothing, whose answer
@@ -918,8 +869,7 @@ impl Fusion<'_> {
                 return false;
             };
             let args = self.program.atoms(args).to_vec();
-            self.consumer(callee)
-                .is_some_and(|Consumer { list }| args[list].0.index() == level)
+            self.consumer(callee).is_some_and(|Consumer { list }| args[list].0.index() == level)
         })
     }
 }
@@ -929,17 +879,10 @@ impl Fusion<'_> {
 /// but its length.
 fn walked(program: &Program, ty: TypeId) -> Option<(super::CtorId, super::CtorId, usize)> {
     match super::type_shape(program, ty) {
-        super::TypeShape::Natural {
-            empty,
-            push,
-            recursive,
+        super::TypeShape::Natural { empty, push, recursive }
+        | super::TypeShape::Sequence { empty, push, recursive, .. } => {
+            Some((empty, push, recursive))
         }
-        | super::TypeShape::Sequence {
-            empty,
-            push,
-            recursive,
-            ..
-        } => Some((empty, push, recursive)),
         _ => None,
     }
 }

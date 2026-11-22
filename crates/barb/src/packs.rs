@@ -167,13 +167,7 @@ impl Relating<'_> {
                 }
                 false
             }
-            Kind::Call {
-                callee,
-                args,
-                operation,
-                sequence,
-                ..
-            } => {
+            Kind::Call { callee, args, operation, sequence, .. } => {
                 self.call(*callee, args, (*operation, *sequence), site);
                 false
             }
@@ -211,10 +205,7 @@ impl Relating<'_> {
         site: Option<Site>,
     ) {
         let (operation, sequence) = recognized;
-        if matches!(
-            operation,
-            Some(Operation::Equals { .. } | Operation::LessThan { .. })
-        ) {
+        if matches!(operation, Some(Operation::Equals { .. } | Operation::LessThan { .. })) {
             self.group(args.iter().copied());
         }
         let Some(site) = site else {
@@ -255,12 +246,7 @@ impl Relating<'_> {
     fn goes_round(&mut self, callee: usize, args: &[Var]) {
         if self.recursive && self.round[callee] == self.round[self.id] {
             let counts = &self.functions[callee].counts;
-            self.group(
-                args.iter()
-                    .zip(counts)
-                    .filter(|&(_, &counts)| counts)
-                    .map(|(&arg, _)| arg),
-            );
+            self.group(args.iter().zip(counts).filter(|&(_, &counts)| counts).map(|(&arg, _)| arg));
         }
     }
 
@@ -294,9 +280,7 @@ impl Relating<'_> {
         // A definition's counts together, where a recursion keeps a
         // relation between them that no one value carries: a count and the
         // rest of what it walks.
-        let related: Vec<Site> = (0..params)
-            .filter(|&at| relevant[at] && counts[at])
-            .collect();
+        let related: Vec<Site> = (0..params).filter(|&at| relevant[at] && counts[at]).collect();
         for pair in related.windows(2) {
             packing.union(pair[0], pair[1]);
         }
@@ -319,10 +303,7 @@ struct Packing {
 
 impl Packing {
     fn new(sites: usize) -> Self {
-        Self {
-            parent: (0..sites).collect(),
-            size: vec![1; sites],
-        }
+        Self { parent: (0..sites).collect(), size: vec![1; sites] }
     }
 
     fn find(&mut self, mut at: usize) -> usize {
@@ -338,11 +319,7 @@ impl Packing {
         if a == b || self.size[a] + self.size[b] > PACK {
             return;
         }
-        let (keep, join) = if self.size[a] >= self.size[b] {
-            (a, b)
-        } else {
-            (b, a)
-        };
+        let (keep, join) = if self.size[a] >= self.size[b] { (a, b) } else { (b, a) };
         self.parent[join] = keep;
         self.size[keep] += self.size[join];
     }

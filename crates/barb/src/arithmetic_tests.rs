@@ -3,11 +3,7 @@ use super::constant::Held;
 use super::evaluate::{CannotFold, Evaluator};
 
 fn budget(work: u64) -> Budget {
-    Budget::new(FoldLimits {
-        work,
-        max_depth: 512,
-        ..FoldLimits::default()
-    })
+    Budget::new(FoldLimits { work, max_depth: 512, ..FoldLimits::default() })
 }
 use super::*;
 use num_bigint::BigUint;
@@ -53,10 +49,7 @@ fn variant(renamed: bool, miss: Miss) -> Program {
         p.define_type(bool_, &[("False", &[]), ("True", &[])]);
     }
     let (zero, succ) = (named_ctor(&p, nat, "Zero"), named_ctor(&p, nat, "Succ"));
-    let (false_, true_) = (
-        named_ctor(&p, bool_, "False"),
-        named_ctor(&p, bool_, "True"),
-    );
+    let (false_, true_) = (named_ctor(&p, bool_, "False"), named_ctor(&p, bool_, "True"));
     let two = [nat, nat];
 
     let add = p.declare(if renamed { "plus" } else { "add" }, &two, nat);
@@ -74,11 +67,7 @@ fn variant(renamed: bool, miss: Miss) -> Program {
     p.define(sub, |b, args| {
         b.match_(args[0], nat, |b, ctor, left| {
             if ctor == zero {
-                return if miss == Miss::Sub {
-                    args[1]
-                } else {
-                    b.con(zero, &[])
-                };
+                return if miss == Miss::Sub { args[1] } else { b.con(zero, &[]) };
             }
             b.match_(args[1], nat, |b, ctor, right| {
                 if ctor == zero {
@@ -106,35 +95,25 @@ fn variant(renamed: bool, miss: Miss) -> Program {
     p.define(equals, |b, args| {
         b.match_(args[0], nat, |b, ctor, left| {
             let left_zero = ctor == zero;
-            b.match_(args[1], nat, |b, ctor, right| {
-                match (left_zero, ctor == zero) {
-                    (true, true) => b.con(true_, &[]),
-                    (true, false) if miss == Miss::Equals => b.con(true_, &[]),
-                    (true, false) | (false, true) => b.con(false_, &[]),
-                    (false, false) => b.call(equals, &[left[0], right[0]]),
-                }
+            b.match_(args[1], nat, |b, ctor, right| match (left_zero, ctor == zero) {
+                (true, true) => b.con(true_, &[]),
+                (true, false) if miss == Miss::Equals => b.con(true_, &[]),
+                (true, false) | (false, true) => b.con(false_, &[]),
+                (false, false) => b.call(equals, &[left[0], right[0]]),
             })
         })
     });
     let mod_step = p.declare("mod_step", &[bool_, nat], nat);
     p.define(mod_step, |b, args| {
         b.match_(args[0], bool_, |b, ctor, _| {
-            if ctor == true_ {
-                b.con(zero, &[])
-            } else {
-                b.con(succ, &[args[1]])
-            }
+            if ctor == true_ { b.con(zero, &[]) } else { b.con(succ, &[args[1]]) }
         })
     });
     let modulo = p.declare("mod", &two, nat);
     p.define(modulo, |b, args| {
         b.match_(args[1], nat, |b, ctor, divisor| {
             if ctor == zero {
-                return if miss == Miss::Mod {
-                    b.con(zero, &[])
-                } else {
-                    args[0]
-                };
+                return if miss == Miss::Mod { b.con(zero, &[]) } else { args[0] };
             }
             b.match_(args[0], nat, |b, ctor, dividend| {
                 if ctor == zero {
@@ -149,23 +128,19 @@ fn variant(renamed: bool, miss: Miss) -> Program {
     });
     let div_step = p.declare("div_step", &[bool_, nat], nat);
     p.define(div_step, |b, args| {
-        b.match_(args[0], bool_, |b, ctor, _| {
-            if ctor == true_ {
-                b.con(succ, &[args[1]])
-            } else {
-                args[1]
-            }
-        })
+        b.match_(
+            args[0],
+            bool_,
+            |b, ctor, _| {
+                if ctor == true_ { b.con(succ, &[args[1]]) } else { args[1] }
+            },
+        )
     });
     let div = p.declare("div", &two, nat);
     p.define(div, |b, args| {
         b.match_(args[1], nat, |b, ctor, divisor| {
             if ctor == zero {
-                return if miss == Miss::Div {
-                    args[0]
-                } else {
-                    b.con(zero, &[])
-                };
+                return if miss == Miss::Div { args[0] } else { b.con(zero, &[]) };
             }
             b.match_(args[0], nat, |b, ctor, dividend| {
                 if ctor == zero {
@@ -188,21 +163,11 @@ fn variant(renamed: bool, miss: Miss) -> Program {
 
 /// The constructor of `owner` called `name`, wherever it was declared.
 fn named_ctor(program: &Program, owner: TypeId, name: &str) -> CtorId {
-    let tag = program
-        .ctors(owner)
-        .iter()
-        .position(|ctor| program.name(ctor.name) == name)
-        .unwrap();
+    let tag = program.ctors(owner).iter().position(|ctor| program.name(ctor.name) == name).unwrap();
     program.ctor_at(owner, u32::try_from(tag).unwrap())
 }
 fn named(program: &Program, name: &str) -> FnId {
-    FnId::at(
-        program
-            .functions()
-            .iter()
-            .position(|f| program.name(f.name) == name)
-            .unwrap(),
-    )
+    FnId::at(program.functions().iter().position(|f| program.name(f.name) == name).unwrap())
 }
 fn number(program: &Program, owner: TypeId, n: u64) -> Held {
     Held::number(program.type_info(), owner, &BigUint::from(n))
@@ -243,19 +208,10 @@ fn library_equations_are_recognized_before_and_after_folding() {
 #[test]
 fn recognition_is_structural_and_zero_divisor_near_misses_are_not_operations() {
     let program = variant(true, Miss::Nothing);
-    assert_eq!(
-        program.analyze().operation(named(&program, "plus")),
-        Some(Operation::Add)
-    );
-    assert_eq!(
-        program.analyze().operation(named(&program, "mod")),
-        Some(Operation::Mod)
-    );
+    assert_eq!(program.analyze().operation(named(&program, "plus")), Some(Operation::Add));
+    assert_eq!(program.analyze().operation(named(&program, "mod")), Some(Operation::Mod));
     let program = variant(false, Miss::Nothing);
-    assert_eq!(
-        program.analyze().operation(named(&program, "div")),
-        Some(Operation::Div)
-    );
+    assert_eq!(program.analyze().operation(named(&program, "div")), Some(Operation::Div));
     for (miss, name) in [
         (Miss::Div, "div"),
         (Miss::Mod, "mod"),
@@ -265,11 +221,7 @@ fn recognition_is_structural_and_zero_divisor_near_misses_are_not_operations() {
     ] {
         let program = variant(false, miss);
         validate(&program).unwrap();
-        assert_eq!(
-            program.analyze().operation(named(&program, name)),
-            None,
-            "{name}"
-        );
+        assert_eq!(program.analyze().operation(named(&program, name)), None, "{name}");
     }
 }
 
@@ -285,12 +237,9 @@ fn structural_evaluation_matches_arithmetic_for_small_inputs() {
             for b in 0..8 {
                 let args = vec![Ok(number(&program, ty, a)), Ok(number(&program, ty, b))];
                 let body = program.function(id).body().unwrap();
-                let baseline = Evaluator {
-                    program: &program,
-                    operations: &unknown,
-                }
-                .body(body, args.clone(), &mut budget(1_000_000))
-                .unwrap_or_else(|reason| panic!("baseline {name}({a}, {b}): {reason:?}"));
+                let baseline = Evaluator { program: &program, operations: &unknown }
+                    .body(body, args.clone(), &mut budget(1_000_000))
+                    .unwrap_or_else(|reason| panic!("baseline {name}({a}, {b}): {reason:?}"));
                 // Evaluate a call so the recognized fast path is exercised at
                 // the root too, including zero-divisor and comparison cases.
                 let mut caller = program.clone();
@@ -298,16 +247,9 @@ fn structural_evaluation_matches_arithmetic_for_small_inputs() {
                 caller.define(test, |builder, args| builder.call(id, args));
                 let mut ops = operations.clone();
                 ops.push(None);
-                let fast = Evaluator {
-                    program: &caller,
-                    operations: &ops,
-                }
-                .body(
-                    caller.function(test).body().unwrap(),
-                    args,
-                    &mut budget(1000),
-                )
-                .unwrap();
+                let fast = Evaluator { program: &caller, operations: &ops }
+                    .body(caller.function(test).body().unwrap(), args, &mut budget(1000))
+                    .unwrap();
                 assert_eq!(baseline.owner(), fast.owner());
                 assert_eq!(baseline.encoded(), fast.encoded(), "{name}({a}, {b})");
             }
@@ -349,21 +291,13 @@ fn unrecognized_recursion_still_has_an_evaluation_budget() {
     let id = program.declare("count", &[nat], nat);
     program.define(id, |b, args| {
         b.match_(args[0], nat, |b, ctor, fields| {
-            if ctor == zero {
-                b.con(zero, &[])
-            } else {
-                b.call(id, &[fields[0]])
-            }
+            if ctor == zero { b.con(zero, &[]) } else { b.call(id, &[fields[0]]) }
         })
     });
     let ty = program.params(id)[0];
     let operations = arithmetic::recognise(&program);
     assert_eq!(operations[id.index()], None);
-    let result = Evaluator {
-        program: &program,
-        operations: &operations,
-    }
-    .body(
+    let result = Evaluator { program: &program, operations: &operations }.body(
         program.function(id).body().unwrap(),
         vec![Ok(number(&program, ty, 1_000_000))],
         &mut budget(32),
@@ -405,14 +339,8 @@ fn arithmetic_interval_bounds_contain_every_small_answer() {
         for a1 in a0..6 {
             for b0 in 0..5 {
                 for b1 in b0..6 {
-                    let a = Bounds {
-                        low: a0,
-                        high: Some(a1),
-                    };
-                    let b = Bounds {
-                        low: b0,
-                        high: Some(b1),
-                    };
+                    let a = Bounds { low: a0, high: Some(a1) };
+                    let b = Bounds { low: b0, high: Some(b1) };
                     for (op, bounds) in [
                         (Operation::Add, a.plus(b)),
                         (Operation::Monus, a.monus(b)),
@@ -444,10 +372,7 @@ fn arithmetic_interval_bounds_contain_every_small_answer() {
     assert_eq!(Bounds::ANY.remainder(Bounds::at(0)), Bounds::ANY);
     assert_eq!(Bounds::ANY.quotient(Bounds::at(0)), Bounds::at(0));
     assert_eq!(Bounds::at(0).merged(Bounds::at(0), true), Bounds::at(0));
-    assert_eq!(
-        Bounds::at(u64::MAX).merged(Bounds::at(1), true).high,
-        Some(u64::MAX)
-    );
+    assert_eq!(Bounds::at(u64::MAX).merged(Bounds::at(1), true).high, Some(u64::MAX));
     assert_eq!(Bounds::at(2).power(Bounds::at(64)).high, None);
     assert_eq!(Bounds::ANY.power(Bounds::at(0)).high, None);
     assert_eq!(Bounds::at(1).power(Bounds::ANY), Bounds::at(1));
@@ -514,22 +439,14 @@ fn a_sum_modulo_anything_else_is_left_as_it_stands() {
 #[test]
 fn only_what_carries_through_a_remainder_is_pushed_inside_one() {
     // Two different values, so that nothing collapses for being the same.
-    let inner: [(&str, Pick); 3] = [
-        ("sub", |t| t.sub),
-        ("div", |t| t.div),
-        ("mod", |t| t.modulo),
-    ];
+    let inner: [(&str, Pick); 3] = [("sub", |t| t.sub), ("div", |t| t.div), ("mod", |t| t.modulo)];
     for (held, operation) in inner {
         let rendered = reduced(|b, t| {
             let inside = b.call(operation(t), &[t.n, t.four]);
             b.call(t.modulo, &[inside, t.two_fifty_six])
         });
         let wanted = usize::from(held == "mod") + 1;
-        assert_eq!(
-            rendered.matches("mod(").count(),
-            wanted,
-            "{held}: {rendered}"
-        );
+        assert_eq!(rendered.matches("mod(").count(), wanted, "{held}: {rendered}");
     }
 }
 
@@ -553,10 +470,6 @@ type Pick = fn(&Terms) -> FnId;
 
 /// `main!` as the optimizer leaves it, for a program exiting with what
 /// `held` works out of the count it was handed.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the host, the constants and the operations `held` may use"
-)]
 fn reduced(held: impl FnOnce(&mut Builder<'_>, &Terms) -> Atom) -> String {
     let mut library = fixture::Library::new();
     let two = library.number(2);
@@ -579,18 +492,7 @@ fn reduced(held: impl FnOnce(&mut Builder<'_>, &Terms) -> Atom) -> String {
         let two_fifty_six = b.call(mul, &[sixteen, sixteen]);
         let six = b.call(add, &[four, two]);
         let ten = b.call(add, &[four, six]);
-        let terms = Terms {
-            n,
-            four,
-            sixteen,
-            two_fifty_six,
-            ten,
-            add,
-            sub,
-            mul,
-            div,
-            modulo,
-        };
+        let terms = Terms { n, four, sixteen, two_fifty_six, ten, add, sub, mul, div, modulo };
         let status = held(b, &terms);
         b.call(exit, &[args[0], status])
     });
@@ -615,13 +517,9 @@ fn a_field_holds_what_was_built_into_it() {
     let pair = program.declare_type("Pair");
     program.define_type(pair, &[("Pair", &[order, nat])]);
     let outcome = program.declare("outcome", &[pair], order);
-    program.define(outcome, |b, args| {
-        b.match_(args[0], pair, |_, _, fields| fields[0])
-    });
+    program.define(outcome, |b, args| b.match_(args[0], pair, |_, _, fields| fields[0]));
     let count = program.declare("count", &[pair], nat);
-    program.define(count, |b, args| {
-        b.match_(args[0], pair, |_, _, fields| fields[1])
-    });
+    program.define(count, |b, args| b.match_(args[0], pair, |_, _, fields| fields[1]));
     let (gt, zero) = (program.ctor_at(order, 2), program.ctor_at(nat, 0));
     let pair_ctor = program.ctor_at(pair, 0);
     let main = program.declare("main", &[], order);
@@ -652,18 +550,10 @@ fn a_field_built_out_of_sight_is_known_only_by_its_type() {
     program.define_type(pair, &[("Pair", &[order, nat])]);
     let pair_ctor = program.ctor_at(pair, 0);
     let main = program.declare_named("main", &[("handed", pair)], order);
-    program.define(main, |b, args| {
-        b.match_(args[0], pair, |_, _, fields| fields[0])
-    });
+    program.define(main, |b, args| b.match_(args[0], pair, |_, _, fields| fields[0]));
     program.set_entry(main);
     let facts = program.analyze();
-    assert_eq!(
-        facts.answers(main),
-        Bounds {
-            low: 0,
-            high: Some(2)
-        }
-    );
+    assert_eq!(facts.answers(main), Bounds { low: 0, high: Some(2) });
     assert_eq!(facts.field(&program, pair_ctor, 1), Bounds::ANY);
 }
 
@@ -680,11 +570,7 @@ fn a_long_countdown_settles_with_nought_as_its_least() {
     let down = program.declare("down", &[nat], nat);
     program.define(down, |b, args| {
         b.match_(args[0], nat, |b, ctor, fields| {
-            if ctor == zero {
-                b.con(zero, &[])
-            } else {
-                b.call(down, &[fields[0]])
-            }
+            if ctor == zero { b.con(zero, &[]) } else { b.call(down, &[fields[0]]) }
         })
     });
     let main = program.declare("main", &[], nat);
@@ -694,13 +580,7 @@ fn a_long_countdown_settles_with_nought_as_its_least() {
     });
     program.set_entry(main);
     let facts = program.analyze();
-    assert_eq!(
-        facts.takes(down),
-        [Bounds {
-            low: 0,
-            high: Some(300)
-        }]
-    );
+    assert_eq!(facts.takes(down), [Bounds { low: 0, high: Some(300) }]);
     assert_eq!(facts.answers(main), Bounds::at(0));
 }
 
@@ -715,9 +595,8 @@ fn a_call_chain_longer_than_the_rounds_still_settles() {
     program.define_type(nat, &[("Zero", &[]), ("Succ", &[nat])]);
     let (zero, succ) = (program.ctor_at(nat, 0), program.ctor_at(nat, 1));
     let main = program.declare("main", &[], nat);
-    let chain: Vec<FnId> = (0..48)
-        .map(|at| program.declare(&format!("link{at}"), &[], nat))
-        .collect();
+    let chain: Vec<FnId> =
+        (0..48).map(|at| program.declare(&format!("link{at}"), &[], nat)).collect();
     program.define(main, |b, _| b.call(chain[0], &[]));
     for pair in chain.windows(2) {
         program.define(pair[0], |b, _| b.call(pair[1], &[]));
@@ -761,10 +640,7 @@ fn a_remainder_of_a_widened_count_stays_below_its_divisor() {
     });
     program.set_entry(main);
     let facts = program.analyze();
-    let below = Bounds {
-        low: 0,
-        high: Some(255),
-    };
+    let below = Bounds { low: 0, high: Some(255) };
     assert_eq!(facts.answers(count), Bounds::ANY);
     assert_eq!(facts.answers(library.modulo), below);
     assert_eq!(facts.takes(sink), [below]);
@@ -775,10 +651,7 @@ fn a_remainder_of_a_widened_count_stays_below_its_divisor() {
 /// for good: narrowing cannot take back what a field copied into itself
 /// holds. Widened to the next machine width instead, it stays bounded.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "two loops over one field, written as their equations"
-)]
+#[expect(clippy::too_many_lines, reason = "two loops over one field, written as their equations")]
 fn a_field_kept_below_a_width_is_widened_to_that_width() {
     let mut library = fixture::Library::new();
     let (nat, zero) = (library.nat, library.zero);
@@ -827,11 +700,7 @@ fn a_field_kept_below_a_width_is_widened_to_that_width() {
     program.set_entry(main);
     let facts = program.analyze();
     let held = facts.field(program, make, 0);
-    assert!(
-        held.high
-            .is_some_and(|high| (4095..=u64::from(u16::MAX)).contains(&high)),
-        "{held:?}"
-    );
+    assert!(held.high.is_some_and(|high| (4095..=u64::from(u16::MAX)).contains(&high)), "{held:?}");
 }
 
 /// How a step of a list is counted, for [`counted`].
@@ -918,11 +787,7 @@ fn a_count_of_a_list_is_its_length() {
 fn a_near_miss_of_a_count_is_not_a_length() {
     for step in [Step::PlusElement, Step::Twice, Step::FromOne] {
         let (program, count) = counted(step, false);
-        assert_eq!(
-            program.analyze().sequence_operation(count),
-            None,
-            "{step:?}"
-        );
+        assert_eq!(program.analyze().sequence_operation(count), None, "{step:?}");
     }
 }
 
@@ -1005,11 +870,7 @@ fn call_operand_ranges_follow_the_branch_and_do_not_escape_it() {
             (!args.is_empty()).then(|| (callee, args[0]))
         })
         .collect();
-    for (callee, low, high) in [
-        (lib.mul, 0, Some(99)),
-        (lib.add, 100, None),
-        (lib.sub, 0, None),
-    ] {
+    for (callee, low, high) in [(lib.mul, 0, Some(99)), (lib.add, 100, None), (lib.sub, 0, None)] {
         assert!(calls.contains(&(callee, Bounds { low, high })));
     }
 }
@@ -1036,9 +897,7 @@ fn boxed_reversal() -> Program {
             } else {
                 let pushed = b.con(push, &[fields[0], args[1]]);
                 let held = b.con(box_, &[pushed]);
-                b.match_(held, boxed, |b, _, inside| {
-                    b.call(reverse, &[fields[1], inside[0]])
-                })
+                b.match_(held, boxed, |b, _, inside| b.call(reverse, &[fields[1], inside[0]]))
             }
         })
     });
@@ -1053,10 +912,7 @@ fn canonicalizing_first_recognizes_a_reversal_written_roundabout() {
     let reverse = named(&program, "reverse_onto");
     assert_eq!(program.analyze().sequence_operation(reverse), None);
     canonical(&mut program);
-    assert_eq!(
-        program.analyze().sequence_operation(reverse),
-        Some(SequenceOperation::ReverseOnto)
-    );
+    assert_eq!(program.analyze().sequence_operation(reverse), Some(SequenceOperation::ReverseOnto));
 }
 
 /// Over real programs, octagons prove at least what differences alone and

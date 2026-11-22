@@ -21,20 +21,11 @@ fn same(original: &Program, optimized: &Program, id: FnId) -> FnId {
 
 /// The names of the bodyless calls `trace` recorded.
 fn names(program: &Program, trace: &[FnId]) -> Vec<String> {
-    trace
-        .iter()
-        .map(|&id| program.name(program.function(id).name).to_owned())
-        .collect()
+    trace.iter().map(|&id| program.name(program.function(id).name).to_owned()).collect()
 }
 
 fn named(program: &Program, name: &str) -> FnId {
-    FnId::at(
-        program
-            .functions()
-            .iter()
-            .position(|f| program.name(f.name) == name)
-            .unwrap(),
-    )
+    FnId::at(program.functions().iter().position(|f| program.name(f.name) == name).unwrap())
 }
 
 /// How a program may be optimized: not at all, by each stage of the
@@ -78,13 +69,7 @@ fn run(program: &Program, id: FnId, args: Vec<Value>, trace: &mut Vec<FnId>) -> 
         expr(program, b.tail, &env, trace)
     }
     fn expr(program: &Program, id: ExprId, env: &[Value], trace: &mut Vec<FnId>) -> Value {
-        let args = |range| {
-            program
-                .atoms(range)
-                .iter()
-                .map(|a| env[a.0.index()].clone())
-                .collect()
-        };
+        let args = |range| program.atoms(range).iter().map(|a| env[a.0.index()].clone()).collect();
         match program.expr(id) {
             Expr::Atom(a) => env[a.0.index()].clone(),
             Expr::Static(value) => {
@@ -185,12 +170,9 @@ fn algebraic_arithmetic_collects_constants_in_safe_directions() {
     let three = original.intern_number(ty, 3).unwrap();
     let five = original.intern_number(ty, 5).unwrap();
     let mut probes = vec![];
-    for (name, called, expected) in [
-        ("sum", add, 8),
-        ("product", mul, 15),
-        ("monus", monus, 8),
-        ("quotient", div, 15),
-    ] {
+    for (name, called, expected) in
+        [("sum", add, 8), ("product", mul, 15), ("monus", monus, 8), ("quotient", div, 15)]
+    {
         let id = algebra_probe(&mut original, name, called, ty, three, five);
         probes.push((name, id, called, expected));
     }
@@ -241,9 +223,7 @@ fn affine_facts_stop_at_nonlinear_products_and_the_term_limit() {
     let params = vec![ty; 9];
     let crowded = program.declare("crowded", &params, ty);
     program.define(crowded, |b, args| {
-        args[1..]
-            .iter()
-            .fold(args[0], |sum, &term| b.call(add, &[sum, term]))
+        args[1..].iter().fold(args[0], |sum, &term| b.call(add, &[sum, term]))
     });
     super::fixture::enter(&mut program, &[nonlinear, crowded]);
     validate(&program).unwrap();
@@ -385,26 +365,19 @@ fn eager_effects_survive_folding_inlining_laws_and_cleanup() {
             run(&optimized, optimized.entry(), vec![], &mut trace),
             super::tests::nat(&original, ty, 0)
         );
-        assert_eq!(
-            names(&optimized, &trace),
-            ["first_effect", "second_effect"],
-            "{schedule}"
-        );
+        assert_eq!(names(&optimized, &trace), ["first_effect", "second_effect"], "{schedule}");
     }
     // The evaluator must decline the whole helper, even though its answer is
     // known: a refusal is not permission to skip an eager binding.
     let ops = arithmetic::recognise(&original);
     assert_eq!(
-        Evaluator {
-            program: &original,
-            operations: &ops
-        }
-        .body(
-            original.function(helper).body().unwrap(),
-            vec![],
-            &mut Budget::new(FoldLimits::default())
-        )
-        .unwrap_err(),
+        Evaluator { program: &original, operations: &ops }
+            .body(
+                original.function(helper).body().unwrap(),
+                vec![],
+                &mut Budget::new(FoldLimits::default())
+            )
+            .unwrap_err(),
         CannotFold::ExternalCall
     );
 }
@@ -426,12 +399,7 @@ fn normalization_and_cleanup_keep_effects_on_their_original_paths() {
     optimize(&mut program);
     for (n, effect) in [(0, "zero_effect"), (1, "successor_effect")] {
         let mut trace = vec![];
-        run(
-            &program,
-            program.entry(),
-            vec![super::tests::nat(&program, ty, n)],
-            &mut trace,
-        );
+        run(&program, program.entry(), vec![super::tests::nat(&program, ty, n)], &mut trace);
         assert_eq!(names(&program, &trace), [effect]);
     }
 }
@@ -477,10 +445,7 @@ fn unknown_nonreturning_bindings_are_not_folded_away() {
     program.set_entry(test);
     validate(&program).expect("stopping is not asked");
     fold(&mut program);
-    assert!(matches!(
-        program.expr(program.function(test).body().unwrap().tail),
-        Expr::Call(..)
-    ));
+    assert!(matches!(program.expr(program.function(test).body().unwrap().tail), Expr::Call(..)));
 }
 
 #[test]
@@ -505,19 +470,10 @@ fn refolding_only_rewrites_selected_functions() {
     super::normalize::resimplify(&mut program, &[]);
     assert_eq!(program, original);
     super::normalize::resimplify(&mut program, &[first]);
-    assert!(matches!(
-        program.expr(program.function(first).body().unwrap().tail),
-        Expr::Static(..)
-    ));
-    assert_eq!(
-        expressions(&program, second),
-        expressions(&original, second)
-    );
+    assert!(matches!(program.expr(program.function(first).body().unwrap().tail), Expr::Static(..)));
+    assert_eq!(expressions(&program, second), expressions(&original, second));
     let mut trace = vec![];
-    assert_eq!(
-        run(&program, first, vec![], &mut trace),
-        super::tests::nat(&program, ty, 9)
-    );
+    assert_eq!(run(&program, first, vec![], &mut trace), super::tests::nat(&program, ty, 9));
     assert_eq!(trace, [effect]);
 
     // Recognition and external declarations remain untouched on the local path.
@@ -538,11 +494,7 @@ fn refolding_several_definitions_still_orders_callees_first() {
         .collect();
     for (at, &id) in ids.iter().enumerate() {
         program.define(id, |b, _| {
-            if let Some(&next) = ids.get(at + 1) {
-                b.call(next, &[])
-            } else {
-                b.known(zero)
-            }
+            if let Some(&next) = ids.get(at + 1) { b.call(next, &[]) } else { b.known(zero) }
         });
     }
     super::normalize::resimplify(&mut program, &ids);
@@ -569,35 +521,19 @@ fn fold_fuel_is_shared_across_the_whole_program() {
         });
         tests.push(id);
     }
-    fold_with_limits(
-        &mut program,
-        FoldLimits {
-            work: 500,
-            ..FoldLimits::default()
-        },
-    );
+    fold_with_limits(&mut program, FoldLimits { work: 500, ..FoldLimits::default() });
     let folded = tests
         .iter()
         .filter(|&&id| {
-            matches!(
-                program.expr(program.function(id).body().unwrap().tail),
-                Expr::Static(..)
-            )
+            matches!(program.expr(program.function(id).body().unwrap().tail), Expr::Static(..))
         })
         .count();
     assert!(folded > 0 && folded < tests.len(), "folded {folded}");
     let last = *tests.last().unwrap();
-    assert_eq!(
-        run(&program, last, vec![], &mut vec![]),
-        super::tests::nat(&program, ty, 9)
-    );
+    assert_eq!(run(&program, last, vec![], &mut vec![]), super::tests::nat(&program, ty, 9));
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "size refusal, work refusal, and success for the same arithmetic expression"
-)]
 fn bigint_size_and_work_are_guarded_before_native_operations() {
     let mut program = library();
     let mul = named(&program, "mul");
@@ -610,35 +546,21 @@ fn bigint_size_and_work_are_guarded_before_native_operations() {
         b.call(mul, &[n, n])
     });
     let ops = arithmetic::recognise(&program);
-    let evaluator = Evaluator {
-        program: &program,
-        operations: &ops,
-    };
+    let evaluator = Evaluator { program: &program, operations: &ops };
     let body = program.function(test).body().unwrap();
-    let mut size = Budget::new(FoldLimits {
-        max_bytes: 600,
-        ..FoldLimits::default()
-    });
+    let mut size = Budget::new(FoldLimits { max_bytes: 600, ..FoldLimits::default() });
     assert_eq!(
         evaluator.body(body, vec![], &mut size).unwrap_err(),
         CannotFold::Limit(LimitExceeded::ValueSize)
     );
     assert!(size.remaining > 0, "size, not fuel, declined");
-    let mut work = Budget::new(FoldLimits {
-        work: 4000,
-        ..FoldLimits::default()
-    });
+    let mut work = Budget::new(FoldLimits { work: 4000, ..FoldLimits::default() });
     assert_eq!(
         evaluator.body(body, vec![], &mut work).unwrap_err(),
         CannotFold::Limit(LimitExceeded::Work)
     );
-    assert_eq!(
-        work.remaining, 0,
-        "bigint work is charged, not just one expression"
-    );
-    let value = evaluator
-        .body(body, vec![], &mut Budget::new(FoldLimits::default()))
-        .unwrap();
+    assert_eq!(work.remaining, 0, "bigint work is charged, not just one expression");
+    let value = evaluator.body(body, vec![], &mut Budget::new(FoldLimits::default())).unwrap();
     let ConstantView::Natural(number) = value.as_constant(program.type_info()).view() else {
         panic!("a natural");
     };
@@ -649,11 +571,7 @@ fn calls_to(program: &Program, id: FnId, called: FnId) -> usize {
     let mut bodies = vec![program.function(id).body().unwrap()];
     let mut count = 0;
     while let Some(body) = bodies.pop() {
-        for &expr in program
-            .bindings(body.bindings)
-            .iter()
-            .chain(std::iter::once(&body.tail))
-        {
+        for &expr in program.bindings(body.bindings).iter().chain(std::iter::once(&body.tail)) {
             match program.expr(expr) {
                 Expr::Call(target, _) if target == called => count += 1,
                 Expr::Match(_, arms) => bodies.extend(program.arms(arms).iter().map(|a| a.body)),
@@ -704,21 +622,12 @@ fn inline_budgets_charge_copied_nodes_per_callee_caller_and_program() {
         let mut program = original.clone();
         normalize_with_limits(
             &mut program,
-            InlineLimits {
-                max_callee,
-                per_function,
-                total,
-                max_depth: 8,
-                small_callee: 0,
-            },
+            InlineLimits { max_callee, per_function, total, max_depth: 8, small_callee: 0 },
         );
         for (&id, expected) in callers.iter().zip(expected) {
             assert_eq!(calls_to(&program, id, helper), expected);
             let mut trace = vec![];
-            assert_eq!(
-                run(&program, id, vec![], &mut trace),
-                super::tests::nat(&program, ty, 0)
-            );
+            assert_eq!(run(&program, id, vec![], &mut trace), super::tests::nat(&program, ty, 0));
             assert_eq!(trace, vec![effect; 20]);
         }
     }
@@ -742,23 +651,14 @@ fn large_helpers_and_deep_helper_chains_are_not_blindly_copied() {
         program.define(id, |b, _| b.call(called, &[]));
         last = id;
     }
-    normalize_with_limits(
-        &mut program,
-        InlineLimits {
-            max_depth: 4,
-            ..InlineLimits::default()
-        },
-    );
+    normalize_with_limits(&mut program, InlineLimits { max_depth: 4, ..InlineLimits::default() });
     let first = named(&program, "deep_0");
     assert_eq!(calls_to(&program, first, wide), 1);
     let Expr::Call(called, _) = program.expr(program.function(last).body().unwrap().tail) else {
         panic!("depth cap must retain a call")
     };
     assert_eq!(called, named(&program, "deep_94"));
-    assert_eq!(
-        run(&program, last, vec![], &mut vec![]),
-        super::tests::nat(&program, ty, 0)
-    );
+    assert_eq!(run(&program, last, vec![], &mut vec![]), super::tests::nat(&program, ty, 0));
 }
 
 #[test]
@@ -767,25 +667,14 @@ fn constructor_size_is_checked_before_concatenating_fields() {
     let record = program.declare_type("Pair");
     program.define_type(record, &[("Pair", &[ty, ty])]);
     let ctor = program.ctor_at(record, 0);
-    let value = program
-        .intern_natural(ty, &(num_bigint::BigUint::from(1u8) << 200usize))
-        .unwrap();
+    let value = program.intern_natural(ty, &(num_bigint::BigUint::from(1u8) << 200usize)).unwrap();
     let test = program.declare("pair", &[], record);
     program.define(test, |b, _| {
         let n = b.known(value);
         b.con(ctor, &[n, n])
     });
-    fold_with_limits(
-        &mut program,
-        FoldLimits {
-            max_bytes: 32,
-            ..FoldLimits::default()
-        },
-    );
-    assert!(matches!(
-        program.expr(program.function(test).body().unwrap().tail),
-        Expr::Con(..)
-    ));
+    fold_with_limits(&mut program, FoldLimits { max_bytes: 32, ..FoldLimits::default() });
+    assert!(matches!(program.expr(program.function(test).body().unwrap().tail), Expr::Con(..)));
 }
 
 fn nested_capture_program() -> Program {
@@ -822,11 +711,7 @@ fn expressions(program: &Program, id: FnId) -> Vec<Expr> {
     let mut pending = vec![program.function(id).body().unwrap()];
     let mut found = vec![];
     while let Some(body) = pending.pop() {
-        for &id in program
-            .bindings(body.bindings)
-            .iter()
-            .chain(std::iter::once(&body.tail))
-        {
+        for &id in program.bindings(body.bindings).iter().chain(std::iter::once(&body.tail)) {
             let expr = program.expr(id);
             if let Expr::Match(_, arms) = expr {
                 pending.extend(program.arms(arms).iter().map(|a| a.body));
@@ -855,17 +740,12 @@ fn cleanup_preserves_nested_captures_and_eager_constructor_arguments() {
     );
     for a in 0..4 {
         for b in 0..4 {
-            let args = vec![
-                super::tests::nat(&original, ty, a),
-                super::tests::nat(&original, ty, b),
-            ];
+            let args =
+                vec![super::tests::nat(&original, ty, a), super::tests::nat(&original, ty, b)];
             let expected = run(&original, test, args.clone(), &mut vec![]);
             let mut trace = vec![];
             assert_eq!(run(&cleaned, test, args, &mut trace), expected);
-            assert_eq!(
-                trace,
-                [named(&original, "first"), named(&original, "second")]
-            );
+            assert_eq!(trace, [named(&original, "first"), named(&original, "second")]);
         }
     }
 }
@@ -890,19 +770,10 @@ fn cleanup_substitutes_aliases_captured_across_removed_bindings() {
     program.set_entry(test);
     super::cleanup::cleanup(&mut program);
     validate(&program).unwrap();
-    assert!(
-        program
-            .bindings(program.function(test).body().unwrap().bindings)
-            .is_empty()
-    );
+    assert!(program.bindings(program.function(test).body().unwrap().bindings).is_empty());
     for n in 0..4 {
         assert_eq!(
-            run(
-                &program,
-                test,
-                vec![super::tests::nat(&program, ty, n)],
-                &mut vec![]
-            ),
+            run(&program, test, vec![super::tests::nat(&program, ty, n)], &mut vec![]),
             super::tests::nat(&program, ty, n + 1)
         );
     }
@@ -927,20 +798,12 @@ fn cleanup_retains_unused_calls_and_matches_in_order() {
     // A call reaching no external routine is pure: unread, it goes.
     assert_eq!(calls_to(&program, test, pure), 0);
     assert_eq!(
-        expressions(&program, test)
-            .iter()
-            .filter(|expr| matches!(expr, Expr::Match(..)))
-            .count(),
+        expressions(&program, test).iter().filter(|expr| matches!(expr, Expr::Match(..))).count(),
         1
     );
     for n in 0..2 {
         let mut trace = vec![];
-        run(
-            &program,
-            test,
-            vec![super::tests::nat(&program, ty, n)],
-            &mut trace,
-        );
+        run(&program, test, vec![super::tests::nat(&program, ty, n)], &mut trace);
         assert_eq!(trace, [first, second]);
     }
 }
@@ -960,27 +823,14 @@ fn cleanup_removes_a_wide_dead_constructor_chain_in_one_pass() {
         zero
     });
     super::cleanup::cleanup(&mut program);
-    assert!(
-        program
-            .bindings(program.function(test).body().unwrap().bindings)
-            .len()
-            <= 1
-    );
-    assert!(
-        !expressions(&program, test)
-            .iter()
-            .any(|expr| matches!(expr, Expr::Con(..)))
-    );
+    assert!(program.bindings(program.function(test).body().unwrap().bindings).len() <= 1);
+    assert!(!expressions(&program, test).iter().any(|expr| matches!(expr, Expr::Con(..))));
 }
 
 /// The bindings of `test`'s own body, not those of its arms.
 fn top_level(program: &Program, test: FnId) -> Vec<Expr> {
     let body = program.function(test).body().unwrap();
-    program
-        .bindings(body.bindings)
-        .iter()
-        .map(|&id| program.expr(id))
-        .collect()
+    program.bindings(body.bindings).iter().map(|&id| program.expr(id)).collect()
 }
 
 /// `sunk(a, b)` builds `b + 2` ahead of a match on `a` and reads it only
@@ -1018,18 +868,13 @@ fn cleanup_sinks_inert_work_into_the_one_arm_that_reads_it() {
     validate(&program).unwrap();
     assert!(top_level(&program, test).is_empty());
     assert_eq!(
-        expressions(&program, test)
-            .iter()
-            .filter(|expr| matches!(expr, Expr::Con(..)))
-            .count(),
+        expressions(&program, test).iter().filter(|expr| matches!(expr, Expr::Con(..))).count(),
         2
     );
     for a in 0..3 {
         for b in 0..3 {
-            let args = vec![
-                super::tests::nat(&original, ty, a),
-                super::tests::nat(&original, ty, b),
-            ];
+            let args =
+                vec![super::tests::nat(&original, ty, a), super::tests::nat(&original, ty, b)];
             assert_eq!(
                 run(&program, test, args.clone(), &mut vec![]),
                 run(&original, test, args, &mut vec![])
@@ -1048,20 +893,20 @@ fn cleanup_sinks_a_match_with_its_fields() {
     let zero = original.intern_number(ty, 0).unwrap();
     let test = original.declare("before", &[ty, ty], ty);
     original.define(test, |b, args| {
-        let before = b.match_(args[1], ty, |b, built, fields| {
-            if built == nought {
-                b.known(zero)
-            } else {
-                fields[0]
-            }
-        });
-        b.match_(args[0], ty, |b, built, _| {
-            if built == nought {
-                b.known(zero)
-            } else {
-                b.con(succ, &[before])
-            }
-        })
+        let before = b.match_(
+            args[1],
+            ty,
+            |b, built, fields| {
+                if built == nought { b.known(zero) } else { fields[0] }
+            },
+        );
+        b.match_(
+            args[0],
+            ty,
+            |b, built, _| {
+                if built == nought { b.known(zero) } else { b.con(succ, &[before]) }
+            },
+        )
     });
     original.set_entry(test);
     let mut program = original.clone();
@@ -1070,10 +915,8 @@ fn cleanup_sinks_a_match_with_its_fields() {
     assert!(top_level(&program, test).is_empty());
     for a in 0..3 {
         for b in 0..3 {
-            let args = vec![
-                super::tests::nat(&original, ty, a),
-                super::tests::nat(&original, ty, b),
-            ];
+            let args =
+                vec![super::tests::nat(&original, ty, a), super::tests::nat(&original, ty, b)];
             assert_eq!(
                 run(&program, test, args.clone(), &mut vec![]),
                 run(&original, test, args, &mut vec![])
@@ -1100,11 +943,7 @@ fn cleanup_sinks_a_pure_call_and_keeps_one_reaching_an_effect() {
         let pured = b.call(pure, &[args[0]]);
         let effected = b.call(wrapped, &[]);
         b.match_(args[0], ty, |b, built, _| {
-            if built == nought {
-                b.con(succ, &[pured])
-            } else {
-                b.con(succ, &[effected])
-            }
+            if built == nought { b.con(succ, &[pured]) } else { b.con(succ, &[effected]) }
         })
     });
     original.set_entry(test);
@@ -1133,10 +972,7 @@ fn cleanup_keeps_work_two_arms_read_ahead_of_them() {
     super::cleanup::cleanup(&mut program);
     validate(&program).unwrap();
     assert_eq!(
-        top_level(&program, test)
-            .iter()
-            .filter(|expr| matches!(expr, Expr::Con(..)))
-            .count(),
+        top_level(&program, test).iter().filter(|expr| matches!(expr, Expr::Con(..))).count(),
         2
     );
 }
@@ -1152,25 +988,14 @@ fn cleanup_keeps_a_call_one_arm_reads_where_it_was() {
     let test = program.declare("called", &[ty], ty);
     program.define(test, |b, args| {
         let called = b.call(first, &[]);
-        b.match_(args[0], ty, |b, built, _| {
-            if built == nought {
-                called
-            } else {
-                b.known(zero)
-            }
-        })
+        b.match_(args[0], ty, |b, built, _| if built == nought { called } else { b.known(zero) })
     });
     program.set_entry(test);
     super::cleanup::cleanup(&mut program);
     validate(&program).unwrap();
     for n in 0..2 {
         let mut trace = vec![];
-        run(
-            &program,
-            test,
-            vec![super::tests::nat(&program, ty, n)],
-            &mut trace,
-        );
+        run(&program, test, vec![super::tests::nat(&program, ty, n)], &mut trace);
         assert_eq!(trace, [first]);
     }
 }
@@ -1179,13 +1004,7 @@ fn cleanup_keeps_a_call_one_arm_reads_where_it_was() {
 fn zero_fold_budget_is_an_exact_noop() {
     let mut program = library();
     let original = program.clone();
-    fold_with_limits(
-        &mut program,
-        FoldLimits {
-            work: 0,
-            ..FoldLimits::default()
-        },
-    );
+    fold_with_limits(&mut program, FoldLimits { work: 0, ..FoldLimits::default() });
     assert_eq!(program, original);
 }
 
@@ -1200,11 +1019,7 @@ fn counting(tail: bool) -> (Program, FnId, TypeId) {
         b.match_(args[0], ty, |b, _, fields| {
             if let [rest] = fields {
                 let counted = b.call(count, &[*rest]);
-                if tail {
-                    counted
-                } else {
-                    b.con(succ, &[counted])
-                }
+                if tail { counted } else { b.con(succ, &[counted]) }
             } else {
                 args[0]
             }
@@ -1218,20 +1033,10 @@ fn a_loop_longer_than_the_depth_limit_still_evaluates() {
     let (program, count, ty) = counting(true);
     let value = Held::number(program.type_info(), ty, &num_bigint::BigUint::from(1000u32));
     let ops = arithmetic::recognise(&program);
-    let mut budget = Budget::new(FoldLimits {
-        max_depth: 16,
-        ..FoldLimits::default()
-    });
-    let answer = Evaluator {
-        program: &program,
-        operations: &ops,
-    }
-    .body(
-        program.function(count).body().unwrap(),
-        vec![Ok(value)],
-        &mut budget,
-    )
-    .unwrap();
+    let mut budget = Budget::new(FoldLimits { max_depth: 16, ..FoldLimits::default() });
+    let answer = Evaluator { program: &program, operations: &ops }
+        .body(program.function(count).body().unwrap(), vec![Ok(value)], &mut budget)
+        .unwrap();
     let nought = Held::number(program.type_info(), ty, &num_bigint::BigUint::default());
     assert_eq!(answer.encoded(), nought.encoded());
 }
@@ -1239,27 +1044,13 @@ fn a_loop_longer_than_the_depth_limit_still_evaluates() {
 #[test]
 fn deep_evaluation_declines_without_exhausting_aggregate_fuel() {
     let (program, count, ty) = counting(false);
-    let value = Held::number(
-        program.type_info(),
-        ty,
-        &num_bigint::BigUint::from(1_000_000u32),
-    );
+    let value = Held::number(program.type_info(), ty, &num_bigint::BigUint::from(1_000_000u32));
     let ops = arithmetic::recognise(&program);
-    let mut budget = Budget::new(FoldLimits {
-        max_depth: 16,
-        ..FoldLimits::default()
-    });
+    let mut budget = Budget::new(FoldLimits { max_depth: 16, ..FoldLimits::default() });
     assert_eq!(
-        Evaluator {
-            program: &program,
-            operations: &ops
-        }
-        .body(
-            program.function(count).body().unwrap(),
-            vec![Ok(value)],
-            &mut budget
-        )
-        .unwrap_err(),
+        Evaluator { program: &program, operations: &ops }
+            .body(program.function(count).body().unwrap(), vec![Ok(value)], &mut budget)
+            .unwrap_err(),
         CannotFold::Limit(LimitExceeded::Depth)
     );
     assert!(budget.remaining > 0);
@@ -1289,10 +1080,7 @@ struct Walks {
     true_: super::CtorId,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one definition per walk, each as a library writes it"
-)]
+#[expect(clippy::too_many_lines, reason = "one definition per walk, each as a library writes it")]
 fn walks() -> (Program, Walks) {
     let library = super::fixture::Library::new();
     let (nat, zero, succ, add) = (library.nat, library.zero, library.succ, library.add);
@@ -1391,15 +1179,9 @@ fn walks() -> (Program, Walks) {
 
 impl Walks {
     fn list_of(&self, program: &Program, values: &[u64]) -> Value {
-        values
-            .iter()
-            .rev()
-            .fold(Value(self.nil, vec![]), |rest, &n| {
-                Value(
-                    self.cons,
-                    vec![super::tests::nat(program, self.nat, n), rest],
-                )
-            })
+        values.iter().rev().fold(Value(self.nil, vec![]), |rest, &n| {
+            Value(self.cons, vec![super::tests::nat(program, self.nat, n), rest])
+        })
     }
 }
 
@@ -1512,10 +1294,7 @@ fn below(p: &mut Program, w: &Walks, appended: bool) -> FnId {
 /// reversed, which a consumer would read the other way round, is built
 /// before it is searched.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "four chains built, fused and compared on several lists"
-)]
+#[expect(clippy::too_many_lines, reason = "four chains built, fused and compared on several lists")]
 fn a_filtered_list_walked_once_is_never_built() {
     let (mut p, w) = walks();
     let kept = kept(&mut p, &w);
@@ -1557,21 +1336,12 @@ fn a_filtered_list_walked_once_is_never_built() {
         (reversed, None),
     ] {
         let called = callees(&p, id);
-        let names: Vec<_> = called
-            .iter()
-            .map(|&f| p.name(p.function(f).name).to_owned())
-            .collect();
+        let names: Vec<_> = called.iter().map(|&f| p.name(p.function(f).name).to_owned()).collect();
         match walk {
             Some(walk) => assert_eq!(names, [walk]),
             None => assert!(called.contains(&w.index_over), "{names:?}"),
         }
-        for values in [
-            &[][..],
-            &[0],
-            &[1, 2, 3],
-            &[4, 0, 9, 1],
-            &[2, 7, 1, 8, 2, 8, 6],
-        ] {
+        for values in [&[][..], &[0], &[1, 2, 3], &[4, 0, 9, 1], &[2, 7, 1, 8, 2, 8, 6]] {
             let args = vec![w.list_of(&original, values)];
             let expected = run(&original, id, args.clone(), &mut vec![]);
             assert_eq!(run(&p, id, args, &mut vec![]), expected, "{values:?}");
@@ -1652,11 +1422,7 @@ fn a_descent_of_two_numbers_is_their_differences() {
             } else {
                 let x = fields[0];
                 b.match_(args[1], nat, |b, ctor, fields| {
-                    if ctor == zero {
-                        b.con(false_, &[])
-                    } else {
-                        b.call(at_most, &[x, fields[0]])
-                    }
+                    if ctor == zero { b.con(false_, &[]) } else { b.call(at_most, &[x, fields[0]]) }
                 })
             }
         })
@@ -1670,11 +1436,7 @@ fn a_descent_of_two_numbers_is_their_differences() {
             } else {
                 let x = fields[0];
                 b.match_(args[1], nat, |b, ctor, fields| {
-                    if ctor == zero {
-                        b.con(succ, &[x])
-                    } else {
-                        b.call(gap, &[x, fields[0]])
-                    }
+                    if ctor == zero { b.con(succ, &[x]) } else { b.call(gap, &[x, fields[0]]) }
                 })
             }
         })
@@ -1710,11 +1472,7 @@ fn a_decided_match_is_its_arm() {
         let one = b.con(succ, &[one]);
         // Known to be a step: its arm, with the field that built it.
         let known = b.match_(one, nat, |b, ctor, fields| {
-            if ctor == zero {
-                b.con(zero, &[])
-            } else {
-                b.call(add, &[fields[0], args[0]])
-            }
+            if ctor == zero { b.con(zero, &[]) } else { b.call(add, &[fields[0], args[0]]) }
         });
         // Either way the same.
         b.match_(args[1], bool_, |b, _, _| b.call(add, &[known, known]))
@@ -1727,13 +1485,7 @@ fn a_decided_match_is_its_arm() {
     let body = p.function(decided).body().unwrap();
     let mut exprs: Vec<_> = p.bindings(body.bindings).to_vec();
     exprs.push(body.tail);
-    assert!(
-        exprs
-            .iter()
-            .all(|&expr| !matches!(p.expr(expr), Expr::Match(..))),
-        "{}",
-        p.render()
-    );
+    assert!(exprs.iter().all(|&expr| !matches!(p.expr(expr), Expr::Match(..))), "{}", p.render());
     for n in 0..3 {
         for flag in [0, 1] {
             let flag = Value(p.ctor_at(bool_, flag), vec![]);
@@ -1780,11 +1532,7 @@ fn replacements_are_recognized() {
                 let (head, rest) = (fields[0], fields[1]);
                 b.match_(args[1], w.nat, |b, ctor, fewer| {
                     if ctor == w.zero {
-                        let value = if bumped {
-                            b.con(w.succ, &[args[2]])
-                        } else {
-                            args[2]
-                        };
+                        let value = if bumped { b.con(w.succ, &[args[2]]) } else { args[2] };
                         b.con(w.cons, &[value, rest])
                     } else {
                         let later = b.call(id, &[rest, fewer[0], args[2]]);
@@ -1832,11 +1580,7 @@ fn a_list_reversed_twice_is_prepended() {
     for (left, right) in [(&[][..], &[][..]), (&[0, 0, 3], &[5]), (&[0], &[0, 0, 2])] {
         let args = vec![w.list_of(&original, left), w.list_of(&original, right)];
         let expected = run(&original, joined, args.clone(), &mut vec![]);
-        assert_eq!(
-            run(&p, joined, args, &mut vec![]),
-            expected,
-            "{left:?} {right:?}"
-        );
+        assert_eq!(run(&p, joined, args, &mut vec![]), expected, "{left:?} {right:?}");
     }
 }
 
@@ -1869,13 +1613,13 @@ fn first_leaf(p: &mut Program, w: &Walks, tree: FnId) -> FnId {
     p.define(first, |b, args| {
         let zero = b.con(w.zero, &[]);
         let all = b.call(tree, &[args[0], zero]);
-        b.match_(all, w.list, |b, ctor, fields| {
-            if ctor == w.nil {
-                b.con(w.zero, &[])
-            } else {
-                fields[0]
-            }
-        })
+        b.match_(
+            all,
+            w.list,
+            |b, ctor, fields| {
+                if ctor == w.nil { b.con(w.zero, &[]) } else { fields[0] }
+            },
+        )
     });
     first
 }
@@ -2035,13 +1779,13 @@ fn first_walked(p: &mut Program, w: &Walks, tree: FnId, walk: FnId) -> FnId {
         let all = b.call(tree, &[args[0], zero]);
         let none = b.con(w.nil, &[]);
         let walked = b.call(walk, &[all, args[1], none]);
-        b.match_(walked, w.list, |b, ctor, fields| {
-            if ctor == w.nil {
-                b.con(w.zero, &[])
-            } else {
-                fields[0]
-            }
-        })
+        b.match_(
+            walked,
+            w.list,
+            |b, ctor, fields| {
+                if ctor == w.nil { b.con(w.zero, &[]) } else { fields[0] }
+            },
+        )
     });
     first
 }
@@ -2065,21 +1809,13 @@ fn walked_no_further(walk: fn(&mut Program, &Walks) -> FnId, name: &str, deep: (
     validate(&p).unwrap();
     let called = callees(&p, first);
     assert!(!called.contains(&tree), "{}", p.render());
-    assert!(
-        called.iter().any(|&id| p.name(p.function(id).name) == name),
-        "{}",
-        p.render()
-    );
+    assert!(called.iter().any(|&id| p.name(p.function(id).name) == name), "{}", p.render());
     let nat = |program: &Program, n| super::tests::nat(program, w.nat, n);
     for depth in 0..5 {
         for bound in [0, 3, 40] {
             let args = vec![nat(&original, depth), nat(&original, bound)];
             let expected = run(&original, first, args.clone(), &mut vec![]);
-            assert_eq!(
-                run(&p, first, args, &mut vec![]),
-                expected,
-                "{depth} {bound}"
-            );
+            assert_eq!(run(&p, first, args, &mut vec![]), expected, "{depth} {bound}");
         }
     }
     let args = vec![nat(&p, 30), nat(&p, deep.0)];
@@ -2162,9 +1898,7 @@ fn a_search_over_a_joined_list_stops_at_what_it_accepts() {
     let called = callees(&p, some);
     assert!(!called.contains(&tree), "{}", p.render());
     assert!(
-        called
-            .iter()
-            .any(|&id| p.name(p.function(id).name) == "tree+any_from"),
+        called.iter().any(|&id| p.name(p.function(id).name) == "tree+any_from"),
         "{}",
         p.render()
     );
@@ -2173,11 +1907,7 @@ fn a_search_over_a_joined_list_stops_at_what_it_accepts() {
         for bound in [0, 3, 40] {
             let args = vec![nat(&original, depth), nat(&original, bound)];
             let expected = run(&original, some, args.clone(), &mut vec![]);
-            assert_eq!(
-                run(&p, some, args, &mut vec![]),
-                expected,
-                "{depth} {bound}"
-            );
+            assert_eq!(run(&p, some, args, &mut vec![]), expected, "{depth} {bound}");
         }
     }
     let args = vec![nat(&p, 30), nat(&p, 5)];
@@ -2271,12 +2001,7 @@ fn a_parameter_only_handed_round_is_handed_on_as_it_came() {
     validate(&p).unwrap();
     let handed = handed_itself(&p, count);
     assert_eq!(handed.len(), 1, "{}", p.render());
-    assert_eq!(
-        handed[0][0],
-        super::Atom(super::Local::at(0)),
-        "{}",
-        p.render()
-    );
+    assert_eq!(handed[0][0], super::Atom(super::Local::at(0)), "{}", p.render());
     // Only the total is added to: the count is never worked out.
     assert_eq!(calls_to(&p, count, named(&p, "add")), 1, "{}", p.render());
     let nat = original.params(count)[0];
@@ -2340,12 +2065,7 @@ fn one_less_than_a_step_is_what_the_step_took() {
         validate(&p).unwrap();
         // One less than a step is what it took, and than nought is nought:
         // only two less than a step is still worked out.
-        assert_eq!(
-            calls_to(&p, less, named(&p, "sub")),
-            usize::from(two),
-            "{}",
-            p.render()
-        );
+        assert_eq!(calls_to(&p, less, named(&p, "sub")), usize::from(two), "{}", p.render());
         let nat = original.params(less)[0];
         for n in 0..5 {
             let args = vec![super::tests::nat(&original, nat, n)];

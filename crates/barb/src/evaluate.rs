@@ -89,11 +89,7 @@ impl Evaluator<'_> {
         if let Some(answered) = self.answered(called, &fields, budget) {
             return answered;
         }
-        let body = self
-            .program
-            .function(called)
-            .body()
-            .ok_or(CannotFold::ExternalCall)?;
+        let body = self.program.function(called).body().ok_or(CannotFold::ExternalCall)?;
         self.body(body, fields.into_iter().map(Ok).collect(), budget)
     }
 
@@ -143,12 +139,8 @@ impl Evaluator<'_> {
         budget.spend(1)?;
         let held = env[value.0.index()].as_ref().map_err(|e| *e)?;
         let (ctor, fields) = held.as_constant(self.program.type_info()).parts(budget)?;
-        let arm = self
-            .program
-            .arms(arms)
-            .iter()
-            .find(|a| a.ctor == ctor)
-            .expect("an exhaustive match");
+        let arm =
+            self.program.arms(arms).iter().find(|a| a.ctor == ctor).expect("an exhaustive match");
         env.extend(fields.into_iter().map(Ok));
         Ok(arm.body)
     }
@@ -172,10 +164,7 @@ impl Evaluator<'_> {
         let output = match op {
             Operation::Add => bits.saturating_add(1),
             Operation::Mul => a.bits().saturating_add(b.bits()),
-            Operation::Pow => a
-                .bits()
-                .saturating_mul(u64::try_from(&b).unwrap_or(u64::MAX))
-                .max(1),
+            Operation::Pow => a.bits().saturating_mul(u64::try_from(&b).unwrap_or(u64::MAX)).max(1),
             _ => bits,
         };
         budget.bytes(natural_size(output)?)?;
@@ -236,11 +225,7 @@ impl Evaluator<'_> {
                         return answered;
                     }
                     budget.spend(1)?;
-                    body = self
-                        .program
-                        .function(called)
-                        .body()
-                        .ok_or(CannotFold::ExternalCall)?;
+                    body = self.program.function(called).body().ok_or(CannotFold::ExternalCall)?;
                     let fields = fields.into_iter().map(Ok);
                     if kept > 0 {
                         return self.body(body, fields.collect(), budget);

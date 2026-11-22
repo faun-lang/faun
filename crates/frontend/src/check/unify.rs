@@ -79,9 +79,9 @@ pub(super) fn resolved_entries<T: Clone + Entry>(
     let mut resolved: Option<Vec<T>> = None;
     for (at, entry) in entries.iter().enumerate() {
         match part(entry.part()) {
-            Some(new) => resolved
-                .get_or_insert_with(|| entries[..at].to_vec())
-                .push(entry.with(new)),
+            Some(new) => {
+                resolved.get_or_insert_with(|| entries[..at].to_vec()).push(entry.with(new));
+            }
             None => {
                 if let Some(resolved) = &mut resolved {
                     resolved.push(entry.clone());
@@ -121,10 +121,7 @@ impl Former {
         match self {
             Self::Tags => Ty::Variants(entries.into(), tail),
             Self::Fields => Ty::Record(
-                entries
-                    .into_iter()
-                    .map(|(name, held)| (name, held[0].clone()))
-                    .collect(),
+                entries.into_iter().map(|(name, held)| (name, held[0].clone())).collect(),
                 tail,
             ),
         }
@@ -133,10 +130,7 @@ impl Former {
 
 /// A record's fields as row entries.
 pub(super) fn entries(fields: &[(Symbol, Ty)]) -> Tags {
-    fields
-        .iter()
-        .map(|(name, ty)| (*name, Rc::from([ty.clone()])))
-        .collect()
+    fields.iter().map(|(name, ty)| (*name, Rc::from([ty.clone()]))).collect()
 }
 
 /// Why two types do not unify.
@@ -160,29 +154,18 @@ impl Mismatch {
             Self::Fields(one, other) => {
                 format!("one tag is written with {one} and with {other} fields")
             }
-            Self::NotAmong {
-                tags: fields,
-                row: row @ Ty::Record(..),
-            } => {
+            Self::NotAmong { tags: fields, row: row @ Ty::Record(..) } => {
                 let mut fields = fields.clone();
                 fields.sort_by(|a, b| symbols.order(*a, *b));
-                let fields: Vec<_> = fields
-                    .iter()
-                    .map(|field| format!("`{}`", symbols.text(*field)))
-                    .collect();
-                format!(
-                    "the record `{}` has no field {}",
-                    show(row, symbols),
-                    fields.join(" or ")
-                )
+                let fields: Vec<_> =
+                    fields.iter().map(|field| format!("`{}`", symbols.text(*field))).collect();
+                format!("the record `{}` has no field {}", show(row, symbols), fields.join(" or "))
             }
             Self::NotAmong { tags, row } => {
                 let mut tags = tags.clone();
                 tags.sort_by(|a, b| symbols.order(*a, *b));
-                let tags: Vec<_> = tags
-                    .iter()
-                    .map(|tag| format!("`{}`", symbols.spelling(*tag)))
-                    .collect();
+                let tags: Vec<_> =
+                    tags.iter().map(|tag| format!("`{}`", symbols.spelling(*tag))).collect();
                 let (subject, verb) = if tags.len() == 1 {
                     (tags[0].clone(), "is")
                 } else {
@@ -447,14 +430,7 @@ impl Infer {
                     tags.iter()
                         .map(|(name, fields)| {
                             let shared = other.iter().any(|(found, _)| found == name);
-                            (
-                                *name,
-                                if shared {
-                                    Rc::default()
-                                } else {
-                                    fields.clone()
-                                },
-                            )
+                            (*name, if shared { Rc::default() } else { fields.clone() })
                         })
                         .collect()
                 };
@@ -573,19 +549,13 @@ impl Infer {
                 if !only_left.is_empty() {
                     return Err(not_among(&only_left, right, right_tail));
                 }
-                self.unify(
-                    &Ty::Var(*v),
-                    &former.build(only_right, Some(Rc::new(rigid.clone()))),
-                )
+                self.unify(&Ty::Var(*v), &former.build(only_right, Some(Rc::new(rigid.clone()))))
             }
             (Some(rigid @ Ty::Rigid(_)), Some(Ty::Var(v))) => {
                 if !only_right.is_empty() {
                     return Err(not_among(&only_right, left, left_tail));
                 }
-                self.unify(
-                    &Ty::Var(*v),
-                    &former.build(only_left, Some(Rc::new(rigid.clone()))),
-                )
+                self.unify(&Ty::Var(*v), &former.build(only_left, Some(Rc::new(rigid.clone()))))
             }
             (Some(Ty::Rigid(a)), Some(Ty::Rigid(b)))
                 if a == b && only_left.is_empty() && only_right.is_empty() =>
@@ -604,11 +574,8 @@ impl Infer {
 
     /// A scheme instantiated, with the variable each of its own became.
     pub(super) fn instantiated(&mut self, scheme: &Scheme) -> (Ty, HashMap<u32, Ty>) {
-        let replacements: HashMap<_, _> = scheme
-            .variables
-            .iter()
-            .map(|variable| (*variable, self.fresh()))
-            .collect();
+        let replacements: HashMap<_, _> =
+            scheme.variables.iter().map(|variable| (*variable, self.fresh())).collect();
         (substitute(&scheme.ty, &replacements), replacements)
     }
 
@@ -618,10 +585,8 @@ impl Infer {
             .iter()
             .map(|variable| {
                 let rigid = self.next_rigid;
-                self.next_rigid = self
-                    .next_rigid
-                    .checked_add(1)
-                    .expect("fewer than 2^32 rigid type variables");
+                self.next_rigid =
+                    self.next_rigid.checked_add(1).expect("fewer than 2^32 rigid type variables");
                 (*variable, Ty::Rigid(rigid))
             })
             .collect();
@@ -638,9 +603,7 @@ pub(super) fn contains(ty: &Ty, variable: u32) -> bool {
             parameters.iter().any(|ty| contains(ty, variable)) || contains(result, variable)
         }
         Ty::Variants(tags, tail) => {
-            tags.iter()
-                .flat_map(|(_, fields)| fields.iter())
-                .any(|ty| contains(ty, variable))
+            tags.iter().flat_map(|(_, fields)| fields.iter()).any(|ty| contains(ty, variable))
                 || tail.as_deref().is_some_and(|tail| contains(tail, variable))
         }
         Ty::Record(fields, tail) => {
@@ -663,10 +626,9 @@ pub(super) fn substitute(ty: &Ty, replacements: &HashMap<u32, Ty>) -> Ty {
 pub(super) fn replaced(ty: &Ty, leaf: &impl Fn(&Ty) -> Option<Ty>) -> Ty {
     match ty {
         Ty::Var(_) | Ty::Rigid(_) => leaf(ty).unwrap_or_else(|| ty.clone()),
-        Ty::Named(name, arguments) => Ty::Named(
-            *name,
-            arguments.iter().map(|ty| replaced(ty, leaf)).collect(),
-        ),
+        Ty::Named(name, arguments) => {
+            Ty::Named(*name, arguments.iter().map(|ty| replaced(ty, leaf)).collect())
+        }
         Ty::Function(parameters, result) => Ty::Function(
             parameters.iter().map(|ty| replaced(ty, leaf)).collect(),
             Rc::new(replaced(result, leaf)),
@@ -678,10 +640,7 @@ pub(super) fn replaced(ty: &Ty, leaf: &impl Fn(&Ty) -> Option<Ty>) -> Ty {
             tail.as_deref().map(|tail| Rc::new(replaced(tail, leaf))),
         ),
         Ty::Record(fields, tail) => Ty::Record(
-            fields
-                .iter()
-                .map(|(name, ty)| (*name, replaced(ty, leaf)))
-                .collect(),
+            fields.iter().map(|(name, ty)| (*name, replaced(ty, leaf))).collect(),
             tail.as_deref().map(|tail| Rc::new(replaced(tail, leaf))),
         ),
         Ty::Tuple(members) => Ty::Tuple(members.iter().map(|ty| replaced(ty, leaf)).collect()),
@@ -690,14 +649,12 @@ pub(super) fn replaced(ty: &Ty, leaf: &impl Fn(&Ty) -> Option<Ty>) -> Ty {
 
 pub(super) fn public_type(ty: &Ty) -> InferredType {
     match ty {
-        Ty::Var(variable) => InferredType::Variable(TypeVariable {
-            index: *variable,
-            rigid: false,
-        }),
-        Ty::Rigid(variable) => InferredType::Variable(TypeVariable {
-            index: *variable,
-            rigid: true,
-        }),
+        Ty::Var(variable) => {
+            InferredType::Variable(TypeVariable { index: *variable, rigid: false })
+        }
+        Ty::Rigid(variable) => {
+            InferredType::Variable(TypeVariable { index: *variable, rigid: true })
+        }
         Ty::Named(name, arguments) => {
             InferredType::Named(*name, arguments.iter().map(public_type).collect())
         }
@@ -712,10 +669,7 @@ pub(super) fn public_type(ty: &Ty) -> InferredType {
             tail.as_deref().map(|tail| Box::new(public_type(tail))),
         ),
         Ty::Record(fields, tail) => InferredType::Record(
-            fields
-                .iter()
-                .map(|(name, ty)| (*name, public_type(ty)))
-                .collect(),
+            fields.iter().map(|(name, ty)| (*name, public_type(ty))).collect(),
             tail.as_deref().map(|tail| Box::new(public_type(tail))),
         ),
         Ty::Tuple(members) => InferredType::Tuple(members.iter().map(public_type).collect()),
@@ -733,26 +687,18 @@ impl From<InferredType> for Ty {
         let all = |types: Vec<InferredType>| types.into_iter().map(Self::from).collect();
         let tail = |tail: Option<Box<InferredType>>| tail.map(|tail| Rc::new(Self::from(*tail)));
         match ty {
-            InferredType::Variable(TypeVariable {
-                index,
-                rigid: false,
-            }) => Self::Var(index),
+            InferredType::Variable(TypeVariable { index, rigid: false }) => Self::Var(index),
             InferredType::Variable(TypeVariable { index, rigid: true }) => Self::Rigid(index),
             InferredType::Named(name, arguments) => Self::Named(name, all(arguments)),
             InferredType::Function(parameters, result) => {
                 Self::Function(all(parameters), Rc::new(Self::from(*result)))
             }
             InferredType::Variants(tags, rest) => Self::Variants(
-                tags.into_iter()
-                    .map(|(name, fields)| (name, all(fields)))
-                    .collect(),
+                tags.into_iter().map(|(name, fields)| (name, all(fields))).collect(),
                 tail(rest),
             ),
             InferredType::Record(fields, rest) => Self::Record(
-                fields
-                    .into_iter()
-                    .map(|(name, ty)| (name, Self::from(ty)))
-                    .collect(),
+                fields.into_iter().map(|(name, ty)| (name, Self::from(ty))).collect(),
                 tail(rest),
             ),
             InferredType::Tuple(members) => Self::Tuple(all(members)),
@@ -762,10 +708,7 @@ impl From<InferredType> for Ty {
 
 impl Serialize for Infer {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        debug_assert!(
-            self.trail.is_empty() && !self.probing,
-            "a snapshot is taken between probes"
-        );
+        debug_assert!(self.trail.is_empty() && !self.probing, "a snapshot is taken between probes");
         (self.links.borrow().len(), self.next_rigid).serialize(serializer)
     }
 }
@@ -858,9 +801,7 @@ impl TyEmbedding {
             return found;
         }
         let found = self.couples(small, large)
-            || Self::parts(large)
-                .into_iter()
-                .any(|part| self.embeds(small, part));
+            || Self::parts(large).into_iter().any(|part| self.embeds(small, part));
         self.known.insert(pair, found);
         found
     }
@@ -885,18 +826,12 @@ impl TyEmbedding {
             (Ty::Tuple(xs), Ty::Tuple(ys)) => self.all(xs, ys),
             (Ty::Variants(xs, x), Ty::Variants(ys, y)) => {
                 xs.len() == ys.len()
-                    && xs
-                        .iter()
-                        .zip(ys.iter())
-                        .all(|((a, xs), (b, ys))| a == b && self.all(xs, ys))
+                    && xs.iter().zip(ys.iter()).all(|((a, xs), (b, ys))| a == b && self.all(xs, ys))
                     && self.tails(x.as_ref(), y.as_ref())
             }
             (Ty::Record(xs, x), Ty::Record(ys, y)) => {
                 xs.len() == ys.len()
-                    && xs
-                        .iter()
-                        .zip(ys.iter())
-                        .all(|((a, x), (b, y))| a == b && self.embeds(x, y))
+                    && xs.iter().zip(ys.iter()).all(|((a, x), (b, y))| a == b && self.embeds(x, y))
                     && self.tails(x.as_ref(), y.as_ref())
             }
             _ => false,
@@ -912,16 +847,12 @@ impl TyEmbedding {
             Ty::Function(parameters, result) => {
                 parameters.iter().chain([result.as_ref()]).collect()
             }
-            Ty::Variants(tags, tail) => tags
-                .iter()
-                .flat_map(|(_, fields)| fields.iter())
-                .chain(tail.as_deref())
-                .collect(),
-            Ty::Record(fields, tail) => fields
-                .iter()
-                .map(|(_, field)| field)
-                .chain(tail.as_deref())
-                .collect(),
+            Ty::Variants(tags, tail) => {
+                tags.iter().flat_map(|(_, fields)| fields.iter()).chain(tail.as_deref()).collect()
+            }
+            Ty::Record(fields, tail) => {
+                fields.iter().map(|(_, field)| field).chain(tail.as_deref()).collect()
+            }
         }
     }
 }
@@ -936,11 +867,7 @@ pub(super) fn show(ty: &Ty, symbols: &Symbols) -> String {
         Ty::Named(name, arguments) => format!(
             "{}({})",
             symbols.spelling(*name),
-            arguments
-                .iter()
-                .map(|ty| show(ty, symbols))
-                .collect::<Vec<_>>()
-                .join(", ")
+            arguments.iter().map(|ty| show(ty, symbols)).collect::<Vec<_>>().join(", ")
         ),
         // One parameter needs no parentheses, unless it is a tuple or a
         // function, whose own would be read as the list's.
@@ -950,11 +877,7 @@ pub(super) fn show(ty: &Ty, symbols: &Symbols) -> String {
             }
             _ => format!(
                 "({}) -> {}",
-                parameters
-                    .iter()
-                    .map(|ty| show(ty, symbols))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                parameters.iter().map(|ty| show(ty, symbols)).collect::<Vec<_>>().join(", "),
                 show(result, symbols)
             ),
         },
@@ -996,11 +919,7 @@ pub(super) fn show(ty: &Ty, symbols: &Symbols) -> String {
         }
         Ty::Tuple(members) => format!(
             "({})",
-            members
-                .iter()
-                .map(|ty| show(ty, symbols))
-                .collect::<Vec<_>>()
-                .join(", ")
+            members.iter().map(|ty| show(ty, symbols)).collect::<Vec<_>>().join(", ")
         ),
     }
 }

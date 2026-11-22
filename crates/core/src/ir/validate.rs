@@ -44,11 +44,8 @@ pub fn validate(program: &Program) -> Result<(), String> {
 
 fn slice<T>(pool: &[T], range: Range) -> Result<&[T], String> {
     let start = usize::try_from(range.start()).map_err(|_| "pool offset overflow")?;
-    let end = start
-        .checked_add(range.len())
-        .ok_or("pool range overflow")?;
-    pool.get(start..end)
-        .ok_or_else(|| "invalid pool range".into())
+    let end = start.checked_add(range.len()).ok_or("pool range overflow")?;
+    pool.get(start..end).ok_or_else(|| "invalid pool range".into())
 }
 
 /// Do this before using the convenient (indexing) public accessors. IDs are
@@ -86,9 +83,7 @@ fn pools(p: &Program) -> Result<(), String> {
 }
 
 fn reference<I: Id, T>(pool: &Pool<I, T>, id: I, what: &str) -> Result<(), String> {
-    pool.get(id)
-        .map(|_| ())
-        .ok_or_else(|| format!("invalid {what} reference"))
+    pool.get(id).map(|_| ()).ok_or_else(|| format!("invalid {what} reference"))
 }
 
 struct References<'a>(&'a Program);
@@ -124,9 +119,7 @@ impl References<'_> {
             let params = slice(&p.signature, function.params)?;
             let names = slice(&p.parameters, function.parameters)?;
             if params.len() != names.len() {
-                return Err(format!(
-                    "function `{name}` has the wrong number of parameter names"
-                ));
+                return Err(format!("function `{name}` has the wrong number of parameter names"));
             }
             for parameter in names {
                 self.symbol(parameter.name)?;
@@ -140,10 +133,7 @@ impl References<'_> {
     }
 
     fn datum(&self, id: super::model::DataId) -> Result<&super::model::Span, String> {
-        self.0
-            .spans
-            .get(id)
-            .ok_or_else(|| "invalid datum reference".into())
+        self.0.spans.get(id).ok_or_else(|| "invalid datum reference".into())
     }
 
     fn natural_datum(&self, id: super::model::DataId) -> Result<(), String> {
@@ -162,11 +152,7 @@ impl References<'_> {
         match op {
             Op::Constant { .. } => {}
             Op::BufferEmpty { shape } => reference(&p.shapes, shape, "shape")?,
-            Op::BufferKnown {
-                elements,
-                shape,
-                bytes,
-            } => {
+            Op::BufferKnown { elements, shape, bytes } => {
                 reference(&p.shapes, shape, "shape")?;
                 self.datum(elements)?;
                 let len = p.datum_bytes(elements).len();
@@ -205,21 +191,9 @@ impl References<'_> {
             }
             Op::Binary { left, right, .. }
             | Op::Compare { left, right, .. }
-            | Op::BufferField {
-                buffer: left,
-                start: right,
-                ..
-            }
-            | Op::BufferAt {
-                buffer: left,
-                start: right,
-                ..
-            }
-            | Op::Store {
-                address: left,
-                value: right,
-                ..
-            } => {
+            | Op::BufferField { buffer: left, start: right, .. }
+            | Op::BufferAt { buffer: left, start: right, .. }
+            | Op::Store { address: left, value: right, .. } => {
                 self.value(left)?;
                 self.value(right)?;
             }
@@ -240,11 +214,7 @@ impl References<'_> {
                 self.values(operands)?;
             }
             Op::Float { operands, .. } => self.values(operands)?,
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => {
+            Op::If { condition, then_region, else_region } => {
                 self.value(condition)?;
                 self.region(then_region)?;
                 self.region(else_region)?;
@@ -287,13 +257,7 @@ struct Flow {
 }
 
 impl Flow {
-    const NEXT: Self = Self {
-        next: true,
-        transfers: Transfers {
-            yields: false,
-            breaks: false,
-        },
-    };
+    const NEXT: Self = Self { next: true, transfers: Transfers { yields: false, breaks: false } };
 }
 
 struct Checker<'a> {
@@ -343,9 +307,7 @@ impl Checker<'_> {
 
     fn read(&self, value: ValueId) -> Result<Class, String> {
         if !self.visible[value.index()] {
-            return Err(format!(
-                "reads {value:?} before it is available in this scope"
-            ));
+            return Err(format!("reads {value:?} before it is available in this scope"));
         }
         Ok(self.program.class(value))
     }
@@ -371,8 +333,7 @@ impl Checker<'_> {
             ));
         }
         for (&value, &class) in values.iter().zip(wanted) {
-            self.require(value, class)
-                .map_err(|error| format!("{what}: {error}"))?;
+            self.require(value, class).map_err(|error| format!("{what}: {error}"))?;
         }
         Ok(())
     }
@@ -391,9 +352,7 @@ impl Checker<'_> {
     fn results(&self, results: &[ValueId], expected: &[Class]) -> Result<(), String> {
         let found = self.classes(results);
         if found != expected {
-            return Err(format!(
-                "operation results {found:?}, expected {expected:?}"
-            ));
+            return Err(format!("operation results {found:?}, expected {expected:?}"));
         }
         Ok(())
     }
@@ -490,9 +449,7 @@ impl Checker<'_> {
                 self.require(cell, Class::Cell)?;
                 self.results(results, &[Class::Word])?;
             }
-            Op::CellField {
-                cell, index, shape, ..
-            } => {
+            Op::CellField { cell, index, shape, .. } => {
                 self.require(cell, Class::Cell)?;
                 self.leaf(results, index, shape)?;
             }
@@ -530,24 +487,14 @@ impl Checker<'_> {
                 self.sequence([both[3], both[4], both[5]])?;
                 self.results(results, &[Class::Buffer, Class::Word])?;
             }
-            Op::BufferField {
-                buffer,
-                start,
-                index,
-                shape,
-            } => {
+            Op::BufferField { buffer, start, index, shape } => {
                 self.require(buffer, Class::Buffer)?;
                 self.length(start)?;
                 self.leaf(results, index, shape)?;
             }
             Op::BufferRoom { count, shape } => {
                 self.length(count)?;
-                if self
-                    .program
-                    .shaped(shape)
-                    .iter()
-                    .any(|&leaf| super::ownership::managed(leaf))
-                {
+                if self.program.shaped(shape).iter().any(|&leaf| super::ownership::managed(leaf)) {
                     return Err("a buffer to be written from outside holds only scalars".into());
                 }
                 self.results(results, &[Class::Buffer])?;
@@ -567,28 +514,16 @@ impl Checker<'_> {
             }
             Op::NaturalConstant(_) => self.results(results, &[Class::Natural])?,
             Op::AddressOf(_) => self.results(results, &[Class::Address])?,
-            Op::Binary {
-                op: Binary::Monus,
-                left,
-                right,
-            } => self.monus(left, right, results)?,
-            Op::Binary {
-                op: Binary::ShiftUp | Binary::ShiftDown,
-                ..
-            } if results
-                .iter()
-                .any(|&result| self.program.class(result) == Class::Natural) =>
+            Op::Binary { op: Binary::Monus, left, right } => self.monus(left, right, results)?,
+            Op::Binary { op: Binary::ShiftUp | Binary::ShiftDown, .. }
+                if results.iter().any(|&result| self.program.class(result) == Class::Natural) =>
             {
                 return Err("a shift is of a machine value, not a natural".into());
             }
             Op::Binary { left, right, .. } => self.binary(left, right, results)?,
             Op::Shift { value, by, .. } => self.shift(value, by, results)?,
             Op::Float { float, operands } => self.float(float, operands, results)?,
-            Op::Compare {
-                relation: super::Relation::FloatNotAbove(format),
-                left,
-                right,
-            } => {
+            Op::Compare { relation: super::Relation::FloatNotAbove(format), left, right } => {
                 self.require(left, Class::fixed(format.bits()))?;
                 self.require(right, Class::fixed(format.bits()))?;
                 self.results(results, &[Class::Word])?;
@@ -603,12 +538,7 @@ impl Checker<'_> {
                 // Even a byte load zero-extends into a Word in this IR.
                 self.results(results, &[Class::Word])?;
             }
-            Op::Store {
-                width,
-                address,
-                value,
-                ..
-            } => {
+            Op::Store { width, address, value, .. } => {
                 self.width(width)?;
                 self.store(width, address, value)?;
                 self.results(results, &[])?;
@@ -625,10 +555,6 @@ impl Checker<'_> {
         Ok(Flow::NEXT)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "two structured receivers, with class and continuation checks"
-    )]
     fn control(
         &mut self,
         op: Op,
@@ -637,17 +563,10 @@ impl Checker<'_> {
     ) -> Result<Flow, String> {
         let p = self.program;
         match op {
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => {
+            Op::If { condition, then_region, else_region } => {
                 self.require(condition, Class::Word)?;
                 let yields = self.classes(results);
-                let inner = Context {
-                    yields: Some(&yields),
-                    ..*context
-                };
+                let inner = Context { yields: Some(&yields), ..*context };
                 let mut transfers = Transfers::default();
                 for branch in [then_region, else_region] {
                     if !p.values(p.region(branch).params).is_empty() {
@@ -658,10 +577,7 @@ impl Checker<'_> {
                 // Yield reaches this If's continuation; Break escapes it.
                 Ok(Flow {
                     next: transfers.yields,
-                    transfers: Transfers {
-                        breaks: transfers.breaks,
-                        yields: false,
-                    },
+                    transfers: Transfers { breaks: transfers.breaks, yields: false },
                 })
             }
             Op::Loop { initial, body } => {
@@ -676,10 +592,7 @@ impl Checker<'_> {
                 let transfers = self.region(body, &inner)?;
                 // Only a break from this loop reaches its continuation.
                 // Breaks from nested loops were consumed at those loops.
-                Ok(Flow {
-                    next: transfers.breaks,
-                    ..Flow::NEXT
-                })
+                Ok(Flow { next: transfers.breaks, ..Flow::NEXT })
             }
             _ => unreachable!("only structured control"),
         }
@@ -687,9 +600,7 @@ impl Checker<'_> {
 
     fn call(&self, op: Op, results: &[ValueId]) -> Result<(), String> {
         let p = self.program;
-        let Op::Call { function, args } = op else {
-            unreachable!("only calls")
-        };
+        let Op::Call { function, args } = op else { unreachable!("only calls") };
         if function == p.entry() {
             return Err("calls the logical entry, which only the target may enter".into());
         }
@@ -783,21 +694,13 @@ impl Checker<'_> {
         let pattern = Class::fixed(float.format.bits());
         if !self.program.class(*result).fits(pattern) || !pattern.fits(self.program.class(*result))
         {
-            return Err(format!(
-                "{float} must answer a pattern of {} bits",
-                float.format.bits()
-            ));
+            return Err(format!("{float} must answer a pattern of {} bits", float.format.bits()));
         }
         let operands = self.program.values(operands);
         if operands.len() != float.operation.arity() {
-            return Err(format!(
-                "{float} takes {} operands",
-                float.operation.arity()
-            ));
+            return Err(format!("{float} takes {} operands", float.operation.arity()));
         }
-        operands
-            .iter()
-            .try_for_each(|&operand| self.require(operand, pattern))
+        operands.iter().try_for_each(|&operand| self.require(operand, pattern))
     }
 
     fn shift(&self, value: ValueId, by: u16, results: &[ValueId]) -> Result<(), String> {
@@ -867,10 +770,7 @@ impl Checker<'_> {
         self.one(results)?;
         let leaves = self.program.shaped(shape);
         if usize::try_from(index).map_or(true, |index| index >= leaves.len()) {
-            return Err(format!(
-                "leaf {index} of a shape of {} leaves",
-                leaves.len()
-            ));
+            return Err(format!("leaf {index} of a shape of {} leaves", leaves.len()));
         }
         Ok(())
     }
@@ -879,10 +779,9 @@ impl Checker<'_> {
     /// is.
     fn width(&self, width: Width) -> Result<(), String> {
         match self.program.layout {
-            Some(layout) if width.bytes(layout.word_bits) > layout.word_bits / 8 => Err(format!(
-                "{width:?} is wider than a {} bit word",
-                layout.word_bits
-            )),
+            Some(layout) if width.bytes(layout.word_bits) > layout.word_bits / 8 => {
+                Err(format!("{width:?} is wider than a {} bit word", layout.word_bits))
+            }
             _ => Ok(()),
         }
     }

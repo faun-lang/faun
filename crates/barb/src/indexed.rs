@@ -58,10 +58,7 @@ pub(crate) fn positions(program: &mut Program) {
         program,
     };
     let count = indexed.program.functions().len();
-    let mut made: Vec<FnId> = (0..count)
-        .map(FnId::at)
-        .filter(|&id| indexed.rewrite(id))
-        .collect();
+    let mut made: Vec<FnId> = (0..count).map(FnId::at).filter(|&id| indexed.rewrite(id)).collect();
     // Each element is worked out where it is read.
     let copies: Vec<FnId> = indexed.copies.values().copied().collect();
     super::normalize::reinline(indexed.program, &copies);
@@ -135,10 +132,7 @@ impl Read {
         match expr {
             Expr::Call(callee, args) if callee == reader => {
                 let args = program.atoms(args).to_vec();
-                let at = args
-                    .iter()
-                    .position(|&atom| atom == UNREAD)
-                    .expect("the list");
+                let at = args.iter().position(|&atom| atom == UNREAD).expect("the list");
                 let handed = handed_for(&args, at, &self.made);
                 Expr::Call(self.copy, program.terms.hold_atoms(handed.into_iter()))
             }
@@ -168,28 +162,14 @@ impl Read {
     /// the position is below the count: where it is, the element worked out
     /// at it where the match bound it, the rest it leaves unread after it,
     /// then the arm as it was.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the arms rebuilt in one place, each constructor's in turn"
-    )]
     fn found(&self, program: &mut Program, on: Atom, arms: super::Range, position: Atom) -> Expr {
-        let TypeShape::Sequence {
-            empty,
-            push,
-            recursive,
-            ..
-        } = type_shape(program, self.item)
+        let TypeShape::Sequence { empty, push, recursive, .. } = type_shape(program, self.item)
         else {
             unreachable!("a reader reads a sequence");
         };
         let (_, yes, no) = self.less;
         let arms = program.arms(arms).to_vec();
-        let body = |ctor| {
-            arms.iter()
-                .find(|arm| arm.ctor == ctor)
-                .expect("an arm for each")
-                .body
-        };
+        let body = |ctor| arms.iter().find(|arm| arm.ctor == ctor).expect("an arm for each").body;
         let (nil, cons) = (body(empty), body(push));
         let mut at_position = self.kept.clone();
         at_position.push(position);
@@ -197,23 +177,10 @@ impl Read {
         let head = program.terms.push(Expr::Call(self.element.id, worked));
         let none = program.terms.hold_atoms(std::iter::empty());
         let rest = program.terms.push(Expr::Con(empty, none));
-        let mut bindings = if recursive == 1 {
-            vec![head, rest]
-        } else {
-            vec![rest, head]
-        };
+        let mut bindings = if recursive == 1 { vec![head, rest] } else { vec![rest, head] };
         bindings.extend_from_slice(program.bindings(cons.bindings));
         let found = program.terms.hold_body(&bindings, cons.tail);
-        let mut arms = [
-            Arm {
-                ctor: yes,
-                body: found,
-            },
-            Arm {
-                ctor: no,
-                body: nil,
-            },
-        ];
+        let mut arms = [Arm { ctor: yes, body: found }, Arm { ctor: no, body: nil }];
         arms.sort_by_key(|arm| program.tag(arm.ctor));
         Expr::Match(on, program.terms.hold_arms(&arms))
     }
@@ -312,10 +279,6 @@ impl Indexed<'_> {
 
     /// The site where `expr`, binding `level` of `body`, builds a list a
     /// reader reads and nothing else does.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "each condition of the site is one early return, read in order"
-    )]
     fn site(&mut self, body: Body, base: usize, level: usize, expr: ExprId) -> Option<Site> {
         let Expr::Call(producer, made) = self.program.expr(expr) else {
             return None;
@@ -334,21 +297,15 @@ impl Indexed<'_> {
             return None;
         }
         let (call, reader, args) =
-            exprs
-                .iter()
-                .find_map(|&expr| match self.program.expr(expr) {
-                    Expr::Call(callee, args)
-                        if self.program.atoms(args).contains(&Atom(Local::at(level))) =>
-                    {
-                        Some((expr, callee, args))
-                    }
-                    _ => None,
-                })?;
-        let list = self
-            .program
-            .atoms(args)
-            .iter()
-            .position(|atom| atom.0.index() == level)?;
+            exprs.iter().find_map(|&expr| match self.program.expr(expr) {
+                Expr::Call(callee, args)
+                    if self.program.atoms(args).contains(&Atom(Local::at(level))) =>
+                {
+                    Some((expr, callee, args))
+                }
+                _ => None,
+            })?;
+        let list = self.program.atoms(args).iter().position(|atom| atom.0.index() == level)?;
         self.reader(reader, list)?;
         let made = made
             .iter()
@@ -356,14 +313,7 @@ impl Indexed<'_> {
             .filter(|&(at, _)| at != shape.acc)
             .map(|(_, &atom)| atom)
             .collect();
-        Some(Site {
-            call,
-            reader,
-            list,
-            args,
-            producer,
-            made,
-        })
+        Some(Site { call, reader, list, args, producer, made })
     }
 
     /// Whether `atom`, in `body` whose first binding takes `base`, is the
@@ -514,10 +464,6 @@ impl Indexed<'_> {
         found
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "each condition of the reader is one early return, read in order"
-    )]
     fn find_reader(&self, id: FnId, list: usize) -> Option<Reader> {
         if self.recognised.answered(id) {
             return None;
@@ -525,12 +471,8 @@ impl Indexed<'_> {
         let program = &*self.program;
         let body = program.function(id).body()?;
         let arity = program.params(id).len();
-        let TypeShape::Sequence {
-            empty,
-            push,
-            recursive,
-            ..
-        } = type_shape(program, program.params(id)[list])
+        let TypeShape::Sequence { empty, push, recursive, .. } =
+            type_shape(program, program.params(id)[list])
         else {
             return None;
         };
@@ -569,19 +511,10 @@ impl Indexed<'_> {
     /// length, dropping a position of it and handing it on to itself does:
     /// which length and drop it calls, each position dropped with the
     /// level its answer takes, and whether it goes round.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one walk over the body, a case for each way of reading the list"
-    )]
     fn list_reads(&self, id: FnId, body: Body, list: usize) -> Option<ListReads> {
         let program = &*self.program;
-        let operation = |callee: FnId| {
-            self.recognised
-                .sequences
-                .get(callee.index())
-                .copied()
-                .flatten()
-        };
+        let operation =
+            |callee: FnId| self.recognised.sequences.get(callee.index()).copied().flatten();
         let (mut length, mut drop) = (None, None);
         let mut drops = Vec::new();
         let mut goes_on = false;
@@ -631,9 +564,8 @@ impl Indexed<'_> {
         let program = &*self.program;
         let (mut matches, mut others, mut rest_read) = (0, 0, false);
         scoped(program, body, &mut vec![None; arity], &mut |expr, bound| {
-            let reads = walk::operands(program, expr)
-                .filter(|atom| atom.0.index() == level)
-                .count();
+            let reads =
+                walk::operands(program, expr).filter(|atom| atom.0.index() == level).count();
             if reads == 0 {
                 return;
             }
@@ -672,9 +604,8 @@ impl Indexed<'_> {
         let program = &mut *self.program;
         let params = program.params(producer).to_vec();
         let nat = params[shape.count];
-        let kept: Vec<usize> = (0..params.len())
-            .filter(|&at| at != shape.count && at != shape.acc)
-            .collect();
+        let kept: Vec<usize> =
+            (0..params.len()).filter(|&at| at != shape.count && at != shape.acc).collect();
         let mut types: Vec<_> = kept.iter().map(|&at| params[at]).collect();
         types.push(nat);
         let TypeShape::Sequence { element, .. } =
@@ -802,15 +733,13 @@ impl Indexed<'_> {
     /// The definition recognized as less-than over two numbers of `ty`, and
     /// its two answers.
     fn less_than(&self, ty: super::TypeId) -> Option<(FnId, CtorId, CtorId)> {
-        (0..self.program.functions().len())
-            .map(FnId::at)
-            .find_map(|id| {
-                let Some(Some(Operation::LessThan { yes, no })) =
-                    self.recognised.operations.get(id.index())
-                else {
-                    return None;
-                };
-                (self.program.params(id) == [ty, ty]).then_some((id, *yes, *no))
-            })
+        (0..self.program.functions().len()).map(FnId::at).find_map(|id| {
+            let Some(Some(Operation::LessThan { yes, no })) =
+                self.recognised.operations.get(id.index())
+            else {
+                return None;
+            };
+            (self.program.params(id) == [ty, ty]).then_some((id, *yes, *no))
+        })
     }
 }

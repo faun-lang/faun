@@ -9,10 +9,7 @@ use super::machine::{
 use super::{Code, Reloc};
 use barb::index::Range;
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive encoding arm per x86 target instruction"
-)]
+#[expect(clippy::too_many_lines, reason = "one exhaustive encoding arm per x86 target instruction")]
 pub(crate) fn encode(program: &Allocated) -> Code {
     let mut asm = RawEncoder::default();
     let mut positions = Vec::with_capacity(program.instructions().len() + 1);
@@ -34,51 +31,27 @@ pub(crate) fn encode(program: &Allocated) -> Code {
                 asm.mov_sext_imm32(dst, value);
             }
             Inst::MoveImmediate64 { dst, value } => asm.mov_imm64(dst, value),
-            Inst::Load {
-                width,
-                dst,
-                base,
-                displacement,
-            } => match width {
+            Inst::Load { width, dst, base, displacement } => match width {
                 MemoryWidth::Byte => asm.load_byte(dst, base, displacement),
                 MemoryWidth::Bits16 => asm.load_bits16(dst, base, displacement),
                 MemoryWidth::Bits32 => asm.load_bits32(dst, base, displacement),
                 MemoryWidth::Word => asm.load_word(dst, base, displacement),
             },
-            Inst::Store {
-                width,
-                src,
-                base,
-                displacement,
-            } => match width {
+            Inst::Store { width, src, base, displacement } => match width {
                 MemoryWidth::Byte => asm.store_byte(src, base, displacement),
                 MemoryWidth::Bits16 => asm.store_bits16(src, base, displacement),
                 MemoryWidth::Bits32 => asm.store_bits32(src, base, displacement),
                 MemoryWidth::Word => asm.store_word(src, base, displacement),
             },
             Inst::Narrow { dst, bits } => asm.narrow(dst, bits),
-            Inst::Shift {
-                direction,
-                dst,
-                by,
-                bits,
-            } => asm.shift(direction, dst, by, bits),
+            Inst::Shift { direction, dst, by, bits } => asm.shift(direction, dst, by, bits),
             Inst::ShiftByCount { direction, dst } => asm.shift_by_count(direction, dst),
             Inst::RotateLeft { dst, bits, by } => asm.rotate_left(dst, bits, by),
             Inst::Multiply { dst, src } => asm.multiply(dst, src),
-            Inst::MultiplyImmediate {
-                dst,
-                src,
-                immediate,
-                bits,
-            } => asm.multiply_immediate(dst, src, immediate, bits),
-            Inst::Scale {
-                dst,
-                src,
-                times,
-                plus,
-                bits,
-            } => asm.scale(dst, src, times, plus, bits),
+            Inst::MultiplyImmediate { dst, src, immediate, bits } => {
+                asm.multiply_immediate(dst, src, immediate, bits);
+            }
+            Inst::Scale { dst, src, times, plus, bits } => asm.scale(dst, src, times, plus, bits),
             Inst::FloatCompare { left, right, bits } => {
                 asm.step();
                 if bits == 64 {
@@ -87,21 +60,14 @@ pub(crate) fn encode(program: &Allocated) -> Code {
                 asm.rex(false, Some(left), right);
                 asm.emit(&[0x0f, 0x2e, modrm(left, right)]);
             }
-            Inst::Float {
-                float,
-                dst,
-                left,
-                right,
-            } => asm.float(float, dst, left, right),
+            Inst::Float { float, dst, left, right } => asm.float(float, dst, left, right),
             Inst::Divide(width) => asm.divide(width),
             Inst::Syscall => asm.syscall(),
             Inst::Halt => asm.halt(),
             Inst::LoadStack { dst, displacement } => asm.load_slot(dst, displacement),
-            Inst::LoadStackNarrow {
-                dst,
-                displacement,
-                bits,
-            } => asm.load_stack_narrow(dst, displacement, bits),
+            Inst::LoadStackNarrow { dst, displacement, bits } => {
+                asm.load_stack_narrow(dst, displacement, bits);
+            }
             Inst::LoadFrame { dst, slot } => asm.load_slot(dst, slot.offset()),
             Inst::StoreFrame { src, slot } => asm.store_slot(src, slot.offset()),
             Inst::OpenFrame { slots } => asm.open_frame(frame_bytes(slots)),
@@ -109,12 +75,9 @@ pub(crate) fn encode(program: &Allocated) -> Code {
             Inst::Alu { op, dst, src, bits } => {
                 asm.alu_sized(alu_opcode(op), dst, src, bits);
             }
-            Inst::AluImmediate {
-                op,
-                dst,
-                immediate,
-                bits,
-            } => asm.alu_immediate(op, dst, immediate, bits),
+            Inst::AluImmediate { op, dst, immediate, bits } => {
+                asm.alu_immediate(op, dst, immediate, bits);
+            }
             Inst::SetIf { condition, dst } => asm.set_if(condition_code(condition), dst),
             Inst::LoadDataAddress { dst, data } => {
                 let step = asm.lea_rip(dst);
@@ -153,11 +116,7 @@ pub(crate) fn encode(program: &Allocated) -> Code {
             data,
         })
         .collect();
-    Code {
-        bytes,
-        relocs,
-        functions,
-    }
+    Code { bytes, relocs, functions }
 }
 
 const fn frame_bytes(slots: u32) -> u32 {
@@ -240,8 +199,7 @@ impl RawEncoder {
         if let Some(start) = self.open.take()
             && self.pool.len() > start
         {
-            self.insts
-                .push(RawInst::Fixed(Range::of(start, self.pool.len() - start)));
+            self.insts.push(RawInst::Fixed(Range::of(start, self.pool.len() - start)));
         }
     }
 
@@ -752,12 +710,7 @@ impl RawEncoder {
             _ => 0x80,
         };
         self.rex(false, Some(dst), Reg::Rax);
-        self.emit(&[
-            0x0F,
-            if bits == 8 { 0xB6 } else { 0xB7 },
-            mode | (dst.low() << 3) | 4,
-            0x24,
-        ]);
+        self.emit(&[0x0F, if bits == 8 { 0xB6 } else { 0xB7 }, mode | (dst.low() << 3) | 4, 0x24]);
         match mode {
             0x00 => {}
             0x40 => self.emit(&[disp.to_le_bytes()[0]]),
@@ -976,10 +929,7 @@ mod tests {
         assert_eq!(load(Reg::Rdi, -128), [0x48, 0x8b, 0x47, 0x80]);
         assert_eq!(load(Reg::Rdi, 127), [0x48, 0x8b, 0x47, 0x7f]);
         assert_eq!(load(Reg::Rdi, 128), [0x48, 0x8b, 0x87, 0x80, 0, 0, 0]);
-        assert_eq!(
-            load(Reg::Rdi, -129),
-            [0x48, 0x8b, 0x87, 0x7f, 0xff, 0xff, 0xff]
-        );
+        assert_eq!(load(Reg::Rdi, -129), [0x48, 0x8b, 0x87, 0x7f, 0xff, 0xff, 0xff]);
     }
 
     #[test]
@@ -987,32 +937,17 @@ mod tests {
         assert_eq!(encoded(|a| a.xor_self(Reg::Rdi)), [0x31, 0xFF]);
         assert_eq!(encoded(|a| a.pop(Reg::Rdx)), [0x5A]);
         assert_eq!(encoded(|a| a.push_imm8(-5)), [0x6A, 0xFB]);
-        assert_eq!(
-            encoded(|a| a.multiply(Reg::Rax, Reg::Rcx)),
-            [0x48, 0x0F, 0xAF, 0xC1]
-        );
-        assert_eq!(
-            encoded(|a| a.multiply(Reg::R12, Reg::R9)),
-            [0x4D, 0x0F, 0xAF, 0xE1]
-        );
-        assert_eq!(
-            encoded(|a| a.divide(RegisterWidth::Word)),
-            [0x48, 0xF7, 0xF1]
-        );
+        assert_eq!(encoded(|a| a.multiply(Reg::Rax, Reg::Rcx)), [0x48, 0x0F, 0xAF, 0xC1]);
+        assert_eq!(encoded(|a| a.multiply(Reg::R12, Reg::R9)), [0x4D, 0x0F, 0xAF, 0xE1]);
+        assert_eq!(encoded(|a| a.divide(RegisterWidth::Word)), [0x48, 0xF7, 0xF1]);
         assert_eq!(encoded(|a| a.divide(RegisterWidth::Low32)), [0xF7, 0xF1]);
         assert_eq!(encoded(|a| a.narrow(Reg::Rax, 0)), [0x31, 0xC0]);
         assert_eq!(encoded(|a| a.narrow(Reg::Rdi, 7)), [0x83, 0xE7, 0x7F]);
         assert_eq!(encoded(|a| a.narrow(Reg::Rdi, 8)), [0x40, 0x0F, 0xB6, 0xFF]);
         assert_eq!(encoded(|a| a.narrow(Reg::R8, 16)), [0x45, 0x0F, 0xB7, 0xC0]);
-        assert_eq!(
-            encoded(|a| a.narrow(Reg::Rax, 9)),
-            [0x25, 0xFF, 0x01, 0x00, 0x00]
-        );
+        assert_eq!(encoded(|a| a.narrow(Reg::Rax, 9)), [0x25, 0xFF, 0x01, 0x00, 0x00]);
         assert_eq!(encoded(|a| a.narrow(Reg::Rdi, 32)), [0x89, 0xFF]);
-        assert_eq!(
-            encoded(|a| a.mov_reg(Reg::Rdi, Reg::Rax, RegisterWidth::Low32)),
-            [0x89, 0xC7]
-        );
+        assert_eq!(encoded(|a| a.mov_reg(Reg::Rdi, Reg::Rax, RegisterWidth::Low32)), [0x89, 0xC7]);
         assert_eq!(
             encoded(|a| a.mov_reg(Reg::Rdx, Reg::Rax, RegisterWidth::Word)),
             [0x48, 0x89, 0xC2]
@@ -1028,18 +963,12 @@ mod tests {
     #[test]
     fn scalar_sse_operands_encode_at_both_widths() {
         use barb::float::{Float, Format, Operation};
-        let add = Float {
-            format: Format::Binary64,
-            operation: Operation::Add,
-        };
+        let add = Float { format: Format::Binary64, operation: Operation::Add };
         assert_eq!(
             encoded(|a| a.float(add, Reg::Xmm12, Reg::Xmm12, Some(Reg::Xmm9))),
             [0xF2, 0x45, 0x0F, 0x58, 0xE1]
         );
-        let sqrt = Float {
-            format: Format::Binary32,
-            operation: Operation::Sqrt,
-        };
+        let sqrt = Float { format: Format::Binary32, operation: Operation::Sqrt };
         assert_eq!(
             encoded(|a| a.float(sqrt, Reg::Xmm8, Reg::Xmm9, None)),
             [

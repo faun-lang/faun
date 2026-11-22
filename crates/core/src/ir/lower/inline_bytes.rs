@@ -19,10 +19,7 @@ impl Rows {
     fn from_bounds(bounds: barb::Bounds) -> Option<Self> {
         let high = bounds.high?;
         let width = usize::try_from(high).ok()?;
-        (bounds.low <= high && width <= ROW).then_some(Self {
-            width,
-            fixed: bounds.low == high,
-        })
+        (bounds.low <= high && width <= ROW).then_some(Self { width, fixed: bounds.low == high })
     }
 
     fn write(self, bytes: &mut Vec<u8>, value: &[u8]) {
@@ -50,9 +47,7 @@ impl Lowering<'_> {
         let Some(list) = peeled(self.barb, ty) else {
             return false;
         };
-        let barb::TypeShape::Sequence {
-            push, recursive, ..
-        } = barb::type_shape(self.barb, list)
+        let barb::TypeShape::Sequence { push, recursive, .. } = barb::type_shape(self.barb, list)
         else {
             return false;
         };
@@ -124,37 +119,23 @@ fn table_views(
     count: usize,
     rows: Rows,
 ) -> [ValueId; 3] {
-    let count = b.constant(
-        Class::Word,
-        u64::try_from(count).expect("a table count fits in a word"),
-    );
+    let count =
+        b.constant(Class::Word, u64::try_from(count).expect("a table count fits in a word"));
     let zero = b.constant(Class::Word, 0);
     let empty = b.buffer_empty(outer);
-    let result = b.loop_(
-        &[count, empty, zero],
-        &[Class::Buffer, Class::Word],
-        |b, state| {
-            let [left, table, start] = state else {
-                unreachable!()
-            };
-            let done = b.compare(Relation::Equal, *left, zero);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[*table, *start]),
-                |b| b.yield_(&[]),
-            );
-            let one = b.constant(Class::Word, 1);
-            let index = b.binary(Binary::Sub, *left, one);
-            let stride = b.constant(Class::Word, u64::try_from(rows.stride()).unwrap());
-            let first = b.binary(Binary::Mul, index, stride);
-            let len = row_length(b, (buffer, first, shape), rows);
-            let filled = b.binary(Binary::Sub, count, *left);
-            let [table, start] =
-                b.buffer_push((*table, *start, filled), outer, &[buffer, first, len]);
-            b.continue_(&[index, table, start]);
-        },
-    );
+    let result = b.loop_(&[count, empty, zero], &[Class::Buffer, Class::Word], |b, state| {
+        let [left, table, start] = state else { unreachable!() };
+        let done = b.compare(Relation::Equal, *left, zero);
+        b.if_(done, &[], |b| b.break_(&[*table, *start]), |b| b.yield_(&[]));
+        let one = b.constant(Class::Word, 1);
+        let index = b.binary(Binary::Sub, *left, one);
+        let stride = b.constant(Class::Word, u64::try_from(rows.stride()).unwrap());
+        let first = b.binary(Binary::Mul, index, stride);
+        let len = row_length(b, (buffer, first, shape), rows);
+        let filled = b.binary(Binary::Sub, count, *left);
+        let [table, start] = b.buffer_push((*table, *start, filled), outer, &[buffer, first, len]);
+        b.continue_(&[index, table, start]);
+    });
     [result[0], result[1], count]
 }
 

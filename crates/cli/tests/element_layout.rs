@@ -51,16 +51,8 @@ fn a_list_of_small_tags_reads_back_what_was_written_on_every_target() {
             .arg(package.entry())
             .output()
             .unwrap();
-        assert!(
-            result.status.success(),
-            "{target}: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&result.stdout),
-            expected,
-            "{target}"
-        );
+        assert!(result.status.success(), "{target}: {}", String::from_utf8_lossy(&result.stderr));
+        assert_eq!(String::from_utf8_lossy(&result.stdout), expected, "{target}");
     }
 }
 
@@ -95,20 +87,11 @@ fn peak(entry: &std::path::Path) -> (u64, String) {
         .arg(entry)
         .output()
         .unwrap();
-    assert!(
-        built.status.success(),
-        "{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let mut child = Command::new(&image)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let mut child =
+        Command::new(&image).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let mut line = String::new();
-    BufReader::new(child.stdout.take().unwrap())
-        .read_line(&mut line)
-        .unwrap();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
     let status = std::fs::read_to_string(format!("/proc/{}/status", child.id())).unwrap();
     let held = status
         .lines()
@@ -142,10 +125,7 @@ fn a_list_of_small_tags_holds_as_little_as_the_numbers_packed_by_hand() {
         "element-layout-words",
         &gathering(
             "U32",
-            (
-                "U32.of_nat((x % 256 + 3) * 65536 + x % 32768 + 1)",
-                "U32.of_nat(x % 256)",
-            ),
+            ("U32.of_nat((x % 256 + 3) * 65536 + x % 32768 + 1)", "U32.of_nat(x % 256)"),
             "if symbol < 65536 then total + symbol.to_nat() else total + symbol.shift_right(16).to_nat() + (symbol & 0xffff).to_nat()",
         ),
     );
@@ -154,8 +134,5 @@ fn a_list_of_small_tags_holds_as_little_as_the_numbers_packed_by_hand() {
     assert_eq!(said, answer);
     // Six bytes a symbol, each number in bytes of its own, would hold half
     // as much again.
-    assert!(
-        tags * 10 < words * 11,
-        "the symbols held {tags} kB, the words {words} kB"
-    );
+    assert!(tags * 10 < words * 11, "the symbols held {tags} kB, the words {words} kB");
 }

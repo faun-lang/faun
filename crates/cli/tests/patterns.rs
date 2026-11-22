@@ -198,9 +198,7 @@ impl Binding<'_> {
     fn alternatives(&mut self, ty: Ty, depth: usize) -> Pat {
         let bound = std::mem::take(&mut self.bound);
         let count = 2 + self.draw.below(2);
-        let each = (0..count)
-            .map(|_| unbound(self.pattern(ty, depth)))
-            .collect();
+        let each = (0..count).map(|_| unbound(self.pattern(ty, depth))).collect();
         self.bound = bound;
         Pat::Or(each)
     }
@@ -208,12 +206,8 @@ impl Binding<'_> {
     /// A guard on something the clause bound, where it bound something a
     /// guard can ask of.
     fn guard(&mut self) -> Option<Guard> {
-        let askable: Vec<(String, Ty)> = self
-            .bound
-            .iter()
-            .filter(|(_, ty)| *ty != Ty::List)
-            .cloned()
-            .collect();
+        let askable: Vec<(String, Ty)> =
+            self.bound.iter().filter(|(_, ty)| *ty != Ty::List).cloned().collect();
         if askable.is_empty() {
             return None;
         }
@@ -249,16 +243,11 @@ fn function(draw: &mut Draw, name: String) -> Function {
     let parameters: Vec<Ty> = (0..=draw.below(2))
         .map(|_| [Ty::Bool, Ty::Nat, Ty::List, Ty::Opt][draw.below(4)])
         .collect();
-    let mut clauses: Vec<Clause> = (0..=draw.below(6))
-        .map(|_| clause(draw, &parameters))
-        .collect();
+    let mut clauses: Vec<Clause> = (0..=draw.below(6)).map(|_| clause(draw, &parameters)).collect();
     // Half end taking anything, so that half are likely to cover every case.
     let ends_taking_anything = draw.below(2) == 0;
     if ends_taking_anything {
-        clauses.push(Clause {
-            patterns: vec![Pat::Wild; parameters.len()],
-            guard: None,
-        });
+        clauses.push(Clause { patterns: vec![Pat::Wild; parameters.len()], guard: None });
     }
     let ending = clauses
         .iter()
@@ -270,28 +259,13 @@ fn function(draw: &mut Draw, name: String) -> Function {
         2 if ends_taking_anything => Form::Chain,
         _ => Form::Clauses,
     };
-    Function {
-        name,
-        parameters,
-        clauses,
-        form,
-    }
+    Function { name, parameters, clauses, form }
 }
 
 fn clause(draw: &mut Draw, parameters: &[Ty]) -> Clause {
-    let mut binding = Binding {
-        draw,
-        bound: Vec::new(),
-    };
-    let patterns = parameters
-        .iter()
-        .map(|&ty| binding.pattern(ty, 2))
-        .collect();
-    let guard = if binding.draw.below(3) == 0 {
-        binding.guard()
-    } else {
-        None
-    };
+    let mut binding = Binding { draw, bound: Vec::new() };
+    let patterns = parameters.iter().map(|&ty| binding.pattern(ty, 2)).collect();
+    let guard = if binding.draw.below(3) == 0 { binding.guard() } else { None };
     Clause { patterns, guard }
 }
 
@@ -357,10 +331,7 @@ fn guarded(clause: &Clause, lead: &str) -> String {
 }
 
 fn spelled_function(function: &Function) -> String {
-    let types = function
-        .parameters
-        .iter()
-        .map(|&ty| spelled_type(ty).to_owned());
+    let types = function.parameters.iter().map(|&ty| spelled_type(ty).to_owned());
     let mut written = format!("{} : {} -> Nat\n", function.name, tupled(types));
     let names = || (0..function.parameters.len()).map(|at| format!("a{at}"));
     let head = format!("{}({})", function.name, joined(names(), ", "));
@@ -401,12 +372,8 @@ fn chain(function: &Function, head: &str, subject: &str) -> String {
     for (at, clause) in tests.iter().enumerate() {
         let lead = if at == 0 { "if" } else { "else if" };
         let guard = guarded(clause, "&");
-        write!(
-            written,
-            " {lead} {subject} is {}{guard} then {at}",
-            tested(clause)
-        )
-        .expect("writing to a string");
+        write!(written, " {lead} {subject} is {}{guard} then {at}", tested(clause))
+            .expect("writing to a string");
     }
     let otherwise = if tests.is_empty() { "" } else { " else" };
     writeln!(written, "{otherwise} {}", tests.len()).expect("writing to a string");
@@ -548,10 +515,7 @@ fn answer(function: &Function, values: &[Value]) -> (Option<usize>, bool) {
             continue;
         }
         covered |= clause.guard.is_none() && clause.patterns.iter().all(counted);
-        let holding = clause
-            .guard
-            .as_ref()
-            .is_none_or(|guard| holds(guard, &bound));
+        let holding = clause.guard.as_ref().is_none_or(|guard| holds(guard, &bound));
         if answered.is_none() && holding {
             answered = Some(at);
         }
@@ -644,14 +608,9 @@ fn holds_one(pattern: &Pat, wanted: &dyn Fn(&Pat) -> bool) -> bool {
 /// anything else: a run planning searches rather than asks in turn, which
 /// drawn functions, holding few clauses, seldom hold.
 fn searched(name: String, form: Form) -> Function {
-    let numbered = [2, 0, 3, 1, 2, 70].map(|number| Clause {
-        patterns: vec![Pat::Num(number)],
-        guard: None,
-    });
-    let anything = Clause {
-        patterns: vec![Pat::Wild],
-        guard: None,
-    };
+    let numbered =
+        [2, 0, 3, 1, 2, 70].map(|number| Clause { patterns: vec![Pat::Num(number)], guard: None });
+    let anything = Clause { patterns: vec![Pat::Wild], guard: None };
     Function {
         name,
         parameters: vec![Ty::Nat],
@@ -666,9 +625,7 @@ fn searched(name: String, form: Form) -> Function {
 fn drawn_whole(functions: &[Function]) {
     let clauses = || functions.iter().flat_map(|function| &function.clauses);
     let drawn = |wanted: &dyn Fn(&Pat) -> bool| {
-        clauses()
-            .flat_map(|clause| &clause.patterns)
-            .any(|pattern| holds_one(pattern, wanted))
+        clauses().flat_map(|clause| &clause.patterns).any(|pattern| holds_one(pattern, wanted))
     };
     for form in [Form::Clauses, Form::Arms, Form::Chain] {
         let found = functions.iter().any(|function| function.form == form);
@@ -708,10 +665,7 @@ fn refused_as_uncovering(function: &Function, values: &[Value]) -> Option<String
         Err(error) => format!("refused as `{}`", error.message()),
         Ok(()) => "accepted".to_owned(),
     };
-    Some(format!(
-        "{}{said}, where it does not cover {values:?}",
-        spelled_function(function)
-    ))
+    Some(format!("{}{said}, where it does not cover {values:?}", spelled_function(function)))
 }
 
 /// What is wrong of functions the model says each cover every case: each
@@ -750,15 +704,11 @@ fn answered_as_modelled(batch: usize, functions: &[&Function]) -> Vec<String> {
 fn compared(function: &Function, line: &str) -> Option<String> {
     let values = arguments(&function.parameters);
     let found = answers(line);
-    let meant = values.iter().map(|values| {
-        answer(function, values)
-            .0
-            .expect("a covered value is answered")
-    });
-    let mismatch = values
+    let meant = values
         .iter()
-        .zip(found.iter().zip(meant))
-        .find(|(_, (said, meant))| **said != *meant);
+        .map(|values| answer(function, values).0.expect("a covered value is answered"));
+    let mismatch =
+        values.iter().zip(found.iter().zip(meant)).find(|(_, (said, meant))| **said != *meant);
     if let Some((values, (said, meant))) = mismatch {
         return Some(format!(
             "{}answers {values:?} by clause {said}, where clause {meant} matches first",
@@ -766,12 +716,7 @@ fn compared(function: &Function, line: &str) -> Option<String> {
         ));
     }
     (found.len() != values.len()).then(|| {
-        format!(
-            "{}answered {} values of {}",
-            spelled_function(function),
-            found.len(),
-            values.len()
-        )
+        format!("{}answered {} values of {}", spelled_function(function), found.len(), values.len())
     })
 }
 
@@ -782,9 +727,8 @@ fn clauses_cover_and_answer_as_their_patterns_say() {
         .and_then(|cases| cases.parse().ok())
         .unwrap_or(CASES);
     let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
-    let mut functions: Vec<Function> = (0..cases)
-        .map(|at| function(&mut draw, format!("f{at}")))
-        .collect();
+    let mut functions: Vec<Function> =
+        (0..cases).map(|at| function(&mut draw, format!("f{at}"))).collect();
     functions.extend(
         [Form::Clauses, Form::Arms, Form::Chain]
             .into_iter()
@@ -795,9 +739,8 @@ fn clauses_cover_and_answer_as_their_patterns_say() {
     let mut wrong = Vec::new();
     let mut covering = Vec::new();
     for function in &functions {
-        let uncovered = arguments(&function.parameters)
-            .into_iter()
-            .find(|values| !answer(function, values).1);
+        let uncovered =
+            arguments(&function.parameters).into_iter().find(|values| !answer(function, values).1);
         match uncovered {
             None => covering.push(function),
             Some(values) => wrong.extend(refused_as_uncovering(function, &values)),

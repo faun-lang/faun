@@ -62,13 +62,7 @@ fn covered(
             continue;
         };
         let first = &clauses[0];
-        let columns: Vec<_> = first
-            .signature
-            .parameters
-            .iter()
-            .cloned()
-            .map(Some)
-            .collect();
+        let columns: Vec<_> = first.signature.parameters.iter().cloned().map(Some).collect();
         let rows: Vec<Vec<t::Pattern>> = clauses
             .iter()
             .filter(|clause| clause.guard.is_none())
@@ -109,9 +103,7 @@ fn covered(
                     "this `is` does not cover every case",
                 )
                 .label(format!("no arm matches {missing}"))
-                .help(format!(
-                    "add an arm matching {missing}, or `_ then …` for the rest"
-                )));
+                .help(format!("add an arm matching {missing}, or `_ then …` for the rest")));
             }
         }
     }
@@ -251,13 +243,7 @@ impl<'a> Coverage<'a> {
             }
             declared.insert(data.name, (data.parameters.as_slice(), fields));
         }
-        Self {
-            prelude,
-            symbols,
-            owners,
-            constructors,
-            declarations: declared,
-        }
+        Self { prelude, symbols, owners, constructors, declarations: declared }
     }
 
     /// The types of `constructor`'s fields in a column of type `owner`.
@@ -283,16 +269,13 @@ impl<'a> Coverage<'a> {
                 *name,
                 fields.iter().map(|field| self.pattern(field)).collect(),
             ),
-            t::Pattern::Tag(label, fields) => Pattern::Tag(
-                *label,
-                fields.iter().map(|field| self.pattern(field)).collect(),
-            ),
+            t::Pattern::Tag(label, fields) => {
+                Pattern::Tag(*label, fields.iter().map(|field| self.pattern(field)).collect())
+            }
             t::Pattern::Dual(..) => unreachable!("typed patterns cannot be ambiguous"),
-            t::Pattern::Number {
-                magnitude,
-                negative,
-                ..
-            } => Pattern::Number(magnitude.clone(), *negative),
+            t::Pattern::Number { magnitude, negative, .. } => {
+                Pattern::Number(magnitude.clone(), *negative)
+            }
             // A range, or a string, which is a test, covers nothing.
             t::Pattern::Range(_, _) | t::Pattern::String(_) => Pattern::Range,
             t::Pattern::List(elements, rest) => {
@@ -321,10 +304,8 @@ impl<'a> Coverage<'a> {
                 tail
             }
             t::Pattern::Record(fields, _) => {
-                let mut fields: Vec<_> = fields
-                    .iter()
-                    .map(|(name, field)| (*name, self.pattern(field)))
-                    .collect();
+                let mut fields: Vec<_> =
+                    fields.iter().map(|(name, field)| (*name, self.pattern(field))).collect();
                 fields.sort_by_key(|(name, _)| *name);
                 Pattern::Record(fields)
             }
@@ -386,10 +367,7 @@ impl<'a> Coverage<'a> {
         };
         // Tried in the order of their names, so the first left unmatched
         // is the same whatever order checking holds them in.
-        let mut tags: Vec<_> = tags
-            .iter()
-            .map(|(label, fields)| (*label, fields))
-            .collect();
+        let mut tags: Vec<_> = tags.iter().map(|(label, fields)| (*label, fields)).collect();
         self.symbols.sort_named(&mut tags);
         for (label, field_types) in &tags {
             let arity = field_types.len();
@@ -425,10 +403,8 @@ impl<'a> Coverage<'a> {
     fn missing_record(&self, rows: Vec<Vec<Pattern>>, columns: &[Column]) -> Option<Vec<Pattern>> {
         let (names, field_types): (Vec<Symbol>, Vec<Column>) =
             if let Some(InferredType::Record(fields, _)) = &columns[0] {
-                let mut fields: Vec<_> = fields
-                    .iter()
-                    .map(|(name, ty)| (*name, Some(ty.clone())))
-                    .collect();
+                let mut fields: Vec<_> =
+                    fields.iter().map(|(name, ty)| (*name, Some(ty.clone()))).collect();
                 self.symbols.sort_named(&mut fields);
                 fields.into_iter().unzip()
             } else {
@@ -578,13 +554,11 @@ impl<'a> Coverage<'a> {
     fn row(&self, row: &[t::Pattern], ends: &[bool]) -> Vec<Pattern> {
         row.iter()
             .zip(ends)
-            .map(|(pattern, &end)| {
-                if end {
-                    self.turned(unwrapped(pattern))
-                } else {
-                    self.pattern(pattern)
-                }
-            })
+            .map(
+                |(pattern, &end)| {
+                    if end { self.turned(unwrapped(pattern)) } else { self.pattern(pattern) }
+                },
+            )
             .collect()
     }
 
@@ -595,21 +569,18 @@ impl<'a> Coverage<'a> {
         if let Some((first, _, last)) = ending(pattern) {
             // At least as many elements as stand before the rest, after the
             // last ones turned round.
-            let longer = first
-                .iter()
-                .fold(Pattern::Wild, |tail, _| cons(Pattern::Wild, tail));
-            return last
-                .iter()
-                .fold(longer, |tail, element| cons(self.pattern(element), tail));
+            let longer = first.iter().fold(Pattern::Wild, |tail, _| cons(Pattern::Wild, tail));
+            return last.iter().fold(longer, |tail, element| cons(self.pattern(element), tail));
         }
         match pattern {
-            t::Pattern::List(elements, None) => elements.iter().fold(
-                Pattern::Constructor(self.prelude.list_nil, Vec::new()),
-                |tail, element| cons(self.pattern(element), tail),
-            ),
-            t::Pattern::List(elements, Some(_)) => elements
+            t::Pattern::List(elements, None) => elements
                 .iter()
-                .fold(Pattern::Wild, |tail, _| cons(Pattern::Wild, tail)),
+                .fold(Pattern::Constructor(self.prelude.list_nil, Vec::new()), |tail, element| {
+                    cons(self.pattern(element), tail)
+                }),
+            t::Pattern::List(elements, Some(_)) => {
+                elements.iter().fold(Pattern::Wild, |tail, _| cons(Pattern::Wild, tail))
+            }
             _ => Pattern::Wild,
         }
     }
@@ -657,11 +628,7 @@ impl<'a> Coverage<'a> {
 
     /// Example patterns side by side, as arguments are written.
     fn render_all(&self, patterns: &[Pattern], symbols: &Symbols) -> String {
-        patterns
-            .iter()
-            .map(|pattern| self.render(pattern, symbols))
-            .collect::<Vec<_>>()
-            .join(", ")
+        patterns.iter().map(|pattern| self.render(pattern, symbols)).collect::<Vec<_>>().join(", ")
     }
 
     /// A list's elements as a list pattern writes them: `[a, b]` where it
@@ -703,11 +670,9 @@ impl<'a> Coverage<'a> {
             {
                 symbols.spelling(*name).to_owned()
             }
-            Pattern::Constructor(name, fields) | Pattern::Tag(name, fields) => format!(
-                "{}({})",
-                symbols.spelling(*name),
-                self.render_all(fields, symbols)
-            ),
+            Pattern::Constructor(name, fields) | Pattern::Tag(name, fields) => {
+                format!("{}({})", symbols.spelling(*name), self.render_all(fields, symbols))
+            }
             Pattern::Tuple(members) => format!("({})", self.render_all(members, symbols)),
             Pattern::Record(fields) => format!(
                 "{{{}}}",
@@ -730,18 +695,12 @@ fn written(ty: &h::Type, bound: &HashMap<Symbol, &InferredType>) -> Column {
     Some(match ty {
         h::Type::Named(name, arguments) => InferredType::Named(
             *name,
-            arguments
-                .iter()
-                .map(|argument| written(argument, bound))
-                .collect::<Option<_>>()?,
+            arguments.iter().map(|argument| written(argument, bound)).collect::<Option<_>>()?,
         ),
         h::Type::Variable(variable) => (*bound.get(variable)?).clone(),
         h::Type::Hole => return None,
         h::Type::Function(parameters, result) => InferredType::Function(
-            parameters
-                .iter()
-                .map(|parameter| written(parameter, bound))
-                .collect::<Option<_>>()?,
+            parameters.iter().map(|parameter| written(parameter, bound)).collect::<Option<_>>()?,
             Box::new(written(result, bound)?),
         ),
         h::Type::Variants(tags) => InferredType::Variants(
@@ -765,10 +724,7 @@ fn written(ty: &h::Type, bound: &HashMap<Symbol, &InferredType>) -> Column {
             None,
         ),
         h::Type::Tuple(members) => InferredType::Tuple(
-            members
-                .iter()
-                .map(|member| written(member, bound))
-                .collect::<Option<_>>()?,
+            members.iter().map(|member| written(member, bound)).collect::<Option<_>>()?,
         ),
     })
 }

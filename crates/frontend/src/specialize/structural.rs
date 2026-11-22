@@ -41,15 +41,9 @@ impl Shape {
         match ty {
             Type::Variants(tags) => tags
                 .iter()
-                .map(|(label, fields)| Self {
-                    kind: Kind::Tag(*label),
-                    components: fields.clone(),
-                })
+                .map(|(label, fields)| Self { kind: Kind::Tag(*label), components: fields.clone() })
                 .collect(),
-            Type::Tuple(members) => vec![Self {
-                kind: Kind::Tuple,
-                components: members.clone(),
-            }],
+            Type::Tuple(members) => vec![Self { kind: Kind::Tuple, components: members.clone() }],
             Type::Record(fields) => vec![Self {
                 kind: Kind::Record(fields.iter().map(|(name, _)| *name).collect()),
                 components: fields.iter().map(|(_, ty)| ty.clone()).collect(),
@@ -62,9 +56,7 @@ impl Shape {
     /// from `first` on.
     fn pattern(&self, first: u32) -> Pattern {
         let count = u32::try_from(self.components.len()).expect("fewer than 2^32 components");
-        let binds = (first..first + count)
-            .map(|index| Pattern::Bind(h::LocalId(index)))
-            .collect();
+        let binds = (first..first + count).map(|index| Pattern::Bind(h::LocalId(index))).collect();
         match &self.kind {
             Kind::Tag(label) => Pattern::Constructor(*label, binds),
             Kind::Tuple => Pattern::Product(binds),
@@ -80,13 +72,10 @@ impl Specializer<'_> {
     pub(super) fn is_structural(&self, name: Symbol, parameters: &[Type]) -> bool {
         let name = Some(name);
         match parameters.first() {
-            Some(Type::Record(_) | Type::Tuple(_)) => [
-                self.prelude.equals,
-                self.prelude.cmp,
-                self.prelude.to_str,
-                self.prelude.hash_into,
-            ]
-            .contains(&name),
+            Some(Type::Record(_) | Type::Tuple(_)) => {
+                [self.prelude.equals, self.prelude.cmp, self.prelude.to_str, self.prelude.hash_into]
+                    .contains(&name)
+            }
             Some(Type::Variants(_)) => [self.prelude.equals, self.prelude.to_str].contains(&name),
             _ => false,
         }
@@ -117,18 +106,12 @@ impl Specializer<'_> {
             }
             // Two different tags, where there are two to differ.
             if matches!(receiver, Type::Variants(tags) if tags.len() != 1) {
-                let unequal = expr(
-                    at,
-                    answer,
-                    ExprKind::Construct(self.prelude.bool_false, Vec::new()),
-                );
+                let unequal =
+                    expr(at, answer, ExprKind::Construct(self.prelude.bool_false, Vec::new()));
                 clauses.push(clause(vec![Pattern::Wild, Pattern::Wild], unequal));
             }
         }
-        Ok(Function {
-            key: key.clone(),
-            definition: Definition::Body(clauses),
-        })
+        Ok(Function { key: key.clone(), definition: Definition::Body(clauses) })
     }
 
     /// `to_str` of one shape, as Ori writes it: a tag's name, its fields'
@@ -164,23 +147,13 @@ impl Specializer<'_> {
         }
         let closing = if count == 0 { empty } else { close.to_owned() };
         pieces.push(self.text(at, &closing)?);
-        let concat = self.method_key(
-            self.prelude.str_concat,
-            &str_,
-            std::slice::from_ref(&str_),
-            &str_,
-        )?;
+        let concat =
+            self.method_key(self.prelude.str_concat, &str_, std::slice::from_ref(&str_), &str_)?;
         let mut pieces = pieces.into_iter();
-        let mut result = pieces
-            .next()
-            .ok_or_else(|| error("a shape is shown as something"))?;
+        let mut result = pieces.next().ok_or_else(|| error("a shape is shown as something"))?;
         for next in pieces {
             self.request(concat.clone());
-            result = expr(
-                at,
-                &str_,
-                ExprKind::DirectCall(concat.clone(), vec![result, next]),
-            );
+            result = expr(at, &str_, ExprKind::DirectCall(concat.clone(), vec![result, next]));
         }
         Ok(clause(vec![shape.pattern(0)], result))
     }
@@ -199,10 +172,7 @@ impl Specializer<'_> {
         let count = components(shape)?;
         let mut compared = Vec::with_capacity(shape.components.len());
         for (index, component) in (0..count).zip(&shape.components) {
-            let sides = vec![
-                local(at, index, component),
-                local(at, count + index, component),
-            ];
+            let sides = vec![local(at, index, component), local(at, count + index, component)];
             let others = std::slice::from_ref(component);
             compared.push(self.component(member, at, component, others, answer, sides)?);
         }
@@ -287,22 +257,10 @@ fn local(at: At, index: u32, ty: &Type) -> Expr {
 }
 
 fn expr((module, span): At, ty: &Type, kind: ExprKind) -> Expr {
-    Expr {
-        module,
-        span,
-        ty: ty.clone(),
-        kind,
-    }
+    Expr { module, span, ty: ty.clone(), kind }
 }
 
 /// A clause taking `patterns` apart and answering `result`.
 const fn clause(patterns: Vec<Pattern>, result: Expr) -> Clause {
-    Clause {
-        patterns,
-        guard: None,
-        body: Body {
-            bindings: Vec::new(),
-            result,
-        },
-    }
+    Clause { patterns, guard: None, body: Body { bindings: Vec::new(), result } }
 }

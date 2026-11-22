@@ -44,9 +44,7 @@ fn returns_cell(p: &Program, id: FunctionId) -> bool {
 /// come from outside, or be published before the constructor returns.
 fn constructor(p: &Program, id: FunctionId, packed: &[Packed]) -> bool {
     let f = p.function(id);
-    if f.tree_role
-        .is_some_and(|role| role != barb::TreeRole::Builder)
-    {
+    if f.tree_role.is_some_and(|role| role != barb::TreeRole::Builder) {
         return false;
     }
     let Some(body) = f.body() else { return false };
@@ -89,10 +87,7 @@ fn constructor(p: &Program, id: FunctionId, packed: &[Packed]) -> bool {
 /// same region. This rules out accumulating discarded intermediate trees,
 /// including paths that return early while another subtree is live.
 fn connected(p: &Program, region: RegionId, exit: super::Exit) -> bool {
-    if p.region(region)
-        .terminator
-        .is_none_or(|term| term.exit != exit)
-    {
+    if p.region(region).terminator.is_none_or(|term| term.exit != exit) {
         return false;
     }
     let mut live = HashSet::default();
@@ -108,22 +103,13 @@ fn connected(p: &Program, region: RegionId, exit: super::Exit) -> bool {
             }
             live.insert(v);
         }
-        if let Op::If {
-            then_region,
-            else_region,
-            ..
-        } = *op
-            && ![then_region, else_region]
-                .iter()
-                .all(|&r| connected(p, r, super::Exit::Yield))
+        if let Op::If { then_region, else_region, .. } = *op
+            && ![then_region, else_region].iter().all(|&r| connected(p, r, super::Exit::Yield))
         {
             return false;
         }
     }
-    p.outgoing(region)
-        .iter()
-        .filter(|&&v| p.class(v) == Class::Cell)
-        .all(|v| live.remove(v))
+    p.outgoing(region).iter().filter(|&&v| p.class(v) == Class::Cell).all(|v| live.remove(v))
         && live.is_empty()
 }
 
@@ -131,9 +117,7 @@ fn connected(p: &Program, region: RegionId, exit: super::Exit) -> bool {
 /// a join, loop, result, call to another routine or stored value.
 fn reader(p: &Program, id: FunctionId) -> bool {
     let f = p.function(id);
-    if f.tree_role
-        .is_some_and(|role| role != barb::TreeRole::Reader)
-    {
+    if f.tree_role.is_some_and(|role| role != barb::TreeRole::Reader) {
         return false;
     }
     let Some(body) = f.body() else { return false };
@@ -154,11 +138,9 @@ fn reader(p: &Program, id: FunctionId) -> bool {
             }
 
             match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => regions.extend([then_region, else_region]),
+                Op::If { then_region, else_region, .. } => {
+                    regions.extend([then_region, else_region]);
+                }
                 Op::Loop { body, .. } => regions.push(body),
                 _ => {}
             }
@@ -226,9 +208,7 @@ impl Plan {
         let fixed: Vec<_> = packed[shapes.next()?.index()].managed().collect();
         if fixed.len() <= 1
             && shapes.all(|s| packed[s.index()].managed().eq(fixed.iter().copied()))
-            && self
-                .shapes(p, true)
-                .any(|s| !packed[s.index()].managed().eq(fixed.iter().copied()))
+            && self.shapes(p, true).any(|s| !packed[s.index()].managed().eq(fixed.iter().copied()))
         {
             Some(fixed)
         } else {
@@ -237,11 +217,8 @@ impl Plan {
     }
 
     pub(super) fn of(p: &Program, packed: &[Packed]) -> Self {
-        let mut constructors: HashSet<_> = p
-            .functions
-            .ids()
-            .filter(|&id| constructor(p, id, packed))
-            .collect();
+        let mut constructors: HashSet<_> =
+            p.functions.ids().filter(|&id| constructor(p, id, packed)).collect();
         if constructors.is_empty() {
             return Self::default();
         }
@@ -251,10 +228,7 @@ impl Plan {
             let uses = p.ops(r).iter().filter(
                 |op| !matches!(op, Op::Call { function, .. } if readers.contains(function)),
             );
-            for value in uses
-                .flat_map(|op| p.operands(op))
-                .chain(p.outgoing(r).iter().copied())
-            {
+            for value in uses.flat_map(|op| p.operands(op)).chain(p.outgoing(r).iter().copied()) {
                 if let Some(producer) = roots.get(&value) {
                     constructors.remove(producer);
                 }
@@ -263,11 +237,7 @@ impl Plan {
         constructors.retain(|id| roots.values().any(|f| f == id));
         roots.retain(|_, f| constructors.contains(f));
         let nullable = nullable::Layout::of(p, &roots);
-        Self {
-            constructors,
-            roots: roots.into_keys().collect(),
-            nullable,
-        }
+        Self { constructors, roots: roots.into_keys().collect(), nullable }
     }
 }
 
@@ -289,11 +259,8 @@ impl Chunks {
         let head = p.global(&[0; 8]);
         let allocate = p.declare("region.bump", &[W], &[A]);
         let release = p.declare("region.release", &[W], &[]);
-        let payload_offset = if plan.nullable.builders.len() == plan.constructors.len() {
-            0
-        } else {
-            PREFIX
-        };
+        let payload_offset =
+            if plan.nullable.builders.len() == plan.constructors.len() { 0 } else { PREFIX };
         define_allocate(p, allocate, head, library, payload_offset);
         p.define(release, |b, args| {
             b.loop_(args, &[], |b, state| {
@@ -306,12 +273,7 @@ impl Chunks {
                 b.continue_(&[next]);
             });
         });
-        Self {
-            head,
-            allocate,
-            release,
-            payload_offset,
-        }
+        Self { head, allocate, release, payload_offset }
     }
 
     pub(super) fn detach(self, b: &mut Builder) -> ValueId {

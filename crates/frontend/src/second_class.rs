@@ -27,10 +27,7 @@ fn first_held(program: &Program, package: &[ModuleId]) -> Result<(), Refusal> {
             continue;
         };
         for clause in clauses {
-            if let Err(error) = clause
-                .exprs()
-                .try_for_each(|expression| value(expression, false))
-            {
+            if let Err(error) = clause.exprs().try_for_each(|expression| value(expression, false)) {
                 return Err(blamed(program, package, &function.key, error));
             }
         }
@@ -84,10 +81,7 @@ fn callers(program: &Program) -> HashMap<&FunctionKey, Vec<(&FunctionKey, &Expr)
         for expression in clauses.iter().flat_map(Clause::exprs) {
             expression.for_each_within(&mut |call| {
                 if let ExprKind::DirectCall(callee, _) = &call.kind {
-                    callers
-                        .entry(callee)
-                        .or_default()
-                        .push((&function.key, call));
+                    callers.entry(callee).or_default().push((&function.key, call));
                 }
             });
         }
@@ -121,11 +115,8 @@ fn placed(expression: &Expr, passed: bool) -> Result<(), Refusal> {
         ));
     }
     if !passed {
-        return Err(located(
-            expression,
-            "a function may only be passed straight into a call",
-        )
-        .note("a function cannot be bound, answered, or stored"));
+        return Err(located(expression, "a function may only be passed straight into a call")
+            .note("a function cannot be bound, answered, or stored"));
     }
     Ok(())
 }

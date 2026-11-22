@@ -54,8 +54,7 @@ impl Builder<'_> {
     /// a call to it hands over.
     #[must_use]
     pub fn takes(&self, function: FunctionId) -> &[Class] {
-        self.program
-            .signature(self.program.functions[function].params)
+        self.program.signature(self.program.functions[function].params)
     }
 
     pub fn constant(&mut self, class: Class, value: u64) -> ValueId {
@@ -120,14 +119,7 @@ impl Builder<'_> {
     /// A buffer holding one element per byte of `elements`, each the value
     /// of `shape`'s one scalar leaf, laid out before the program runs.
     pub fn buffer_known(&mut self, elements: DataId, shape: ShapeId, bytes: u8) -> ValueId {
-        self.push_one(
-            Op::BufferKnown {
-                elements,
-                shape,
-                bytes,
-            },
-            Class::Buffer,
-        )
+        self.push_one(Op::BufferKnown { elements, shape, bytes }, Class::Buffer)
     }
 
     /// The number a constant of this region wrote `value` as, where one did.
@@ -197,9 +189,7 @@ impl Builder<'_> {
         (from, from_start, from_len): (ValueId, ValueId, ValueId),
         shape: ShapeId,
     ) -> [ValueId; 2] {
-        let operands = self
-            .program
-            .hold(&[buffer, start, len, from, from_start, from_len]);
+        let operands = self.program.hold(&[buffer, start, len, from, from_start, from_len]);
         self.two(Op::BufferPrepend { operands, shape })
     }
 
@@ -212,9 +202,7 @@ impl Builder<'_> {
         then: (ValueId, ValueId, ValueId),
         shape: ShapeId,
     ) -> [ValueId; 2] {
-        let operands = self
-            .program
-            .hold(&[first.0, first.1, first.2, then.0, then.1, then.2]);
+        let operands = self.program.hold(&[first.0, first.1, first.2, then.0, then.1, then.2]);
         self.two(Op::BufferExtend { operands, shape })
     }
 
@@ -227,14 +215,7 @@ impl Builder<'_> {
     /// Where element `start` of `buffer`, whose elements are of `shape`,
     /// lies.
     pub fn buffer_at(&mut self, (buffer, start): (ValueId, ValueId), shape: ShapeId) -> ValueId {
-        self.push_one(
-            Op::BufferAt {
-                buffer,
-                start,
-                shape,
-            },
-            Class::Address,
-        )
+        self.push_one(Op::BufferAt { buffer, start, shape }, Class::Address)
     }
 
     /// Hold `value` until here.
@@ -258,15 +239,7 @@ impl Builder<'_> {
         (buffer, start): (ValueId, ValueId),
         index: u32,
     ) -> ValueId {
-        self.push_one(
-            Op::BufferField {
-                buffer,
-                start,
-                index,
-                shape,
-            },
-            class,
-        )
+        self.push_one(Op::BufferField { buffer, start, index, shape }, class)
     }
 
     pub fn data_len(&mut self, data: DataId) -> ValueId {
@@ -306,14 +279,7 @@ impl Builder<'_> {
         value: ValueId,
         by: u16,
     ) -> ValueId {
-        self.push_one(
-            Op::Shift {
-                direction,
-                value,
-                by,
-            },
-            class,
-        )
+        self.push_one(Op::Shift { direction, value, by }, class)
     }
 
     /// Unordered-or-less-or-equal, as one comparison: for a machine that
@@ -386,40 +352,24 @@ impl Builder<'_> {
     }
 
     pub fn compare(&mut self, relation: Relation, left: ValueId, right: ValueId) -> ValueId {
-        let op = Op::Compare {
-            relation,
-            left,
-            right,
-        };
+        let op = Op::Compare { relation, left, right };
         self.push_one(op, Class::Word)
     }
 
     pub fn load(&mut self, width: Width, address: ValueId, offset: Offset) -> ValueId {
-        let op = Op::Load {
-            width,
-            address,
-            offset,
-        };
+        let op = Op::Load { width, address, offset };
         self.push_one(op, Class::Word)
     }
 
     pub fn store(&mut self, width: Width, address: ValueId, offset: Offset, value: ValueId) {
-        let op = Op::Store {
-            width,
-            address,
-            offset,
-            value,
-        };
+        let op = Op::Store { width, address, offset, value };
         self.push(op, &[]);
     }
 
     /// `float` of the patterns `operands` hold, a pattern of its format.
     pub fn float(&mut self, float: barb::float::Float, operands: &[ValueId]) -> ValueId {
         let operands = self.program.hold(operands);
-        self.push_one(
-            Op::Float { float, operands },
-            Class::fixed(float.format.bits()),
-        )
+        self.push_one(Op::Float { float, operands }, Class::fixed(float.format.bits()))
     }
 
     pub fn convert(&mut self, class: Class, value: ValueId) -> ValueId {
@@ -459,11 +409,7 @@ impl Builder<'_> {
     ) -> Vec<ValueId> {
         let then_region = self.region(&[], |builder, _| then(builder));
         let else_region = self.region(&[], |builder, _| otherwise(builder));
-        let op = Op::If {
-            condition,
-            then_region,
-            else_region,
-        };
+        let op = Op::If { condition, then_region, else_region };
         self.push(op, results)
     }
 
@@ -475,10 +421,7 @@ impl Builder<'_> {
         results: &[Class],
         build: impl FnOnce(&mut Builder, &[ValueId]),
     ) -> Vec<ValueId> {
-        let classes: Vec<_> = initial
-            .iter()
-            .map(|&value| self.program.class(value))
-            .collect();
+        let classes: Vec<_> = initial.iter().map(|&value| self.program.class(value)).collect();
         let body = self.region(&classes, build);
         let initial = self.program.hold(initial);
         self.push(Op::Loop { initial, body }, results)
@@ -504,17 +447,11 @@ impl Builder<'_> {
 
     fn exit(&mut self, exit: Exit, values: &[ValueId]) {
         self.open();
-        self.terminator = Some(Terminator {
-            exit,
-            values: self.program.hold(values),
-        });
+        self.terminator = Some(Terminator { exit, values: self.program.hold(values) });
     }
 
     fn open(&self) {
-        assert!(
-            self.terminator.is_none(),
-            "a terminated region cannot be extended"
-        );
+        assert!(self.terminator.is_none(), "a terminated region cannot be extended");
     }
 
     fn region(
@@ -577,10 +514,6 @@ impl Builder<'_> {
         self.program.ops.extend_from_slice(&self.ops);
         self.program.results.extend_from_slice(&self.results);
 
-        Region {
-            params: self.params,
-            ops: Range::of(start, len),
-            terminator: self.terminator,
-        }
+        Region { params: self.params, ops: Range::of(start, len), terminator: self.terminator }
     }
 }

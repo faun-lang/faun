@@ -60,12 +60,8 @@ impl Drop for Examples {
 
 /// What `command` writes with `input` on its standard input.
 fn pipe(command: &mut Command, input: &[u8]) -> std::process::Output {
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut child =
+        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     let input = input.to_vec();
     let writer = std::thread::spawn(move || {
@@ -167,16 +163,9 @@ fn every_image_encoded_reads_back_through_both_readers() {
             expected.extend_from_slice(pixels(&pam));
         }
     }
-    let output = Command::new("python3")
-        .args(["-I", "-c", PYTHON_READ])
-        .args(&files)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let output =
+        Command::new("python3").args(["-I", "-c", PYTHON_READ]).args(&files).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert!(output.stdout == expected, "Python reads the same pixels");
 }
 

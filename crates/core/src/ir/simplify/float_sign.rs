@@ -12,28 +12,14 @@ impl Wrote {
     }
 
     fn choice(&self, p: &Program, value: ValueId) -> Option<(ValueId, ValueId, ValueId)> {
-        let Op::If {
-            condition,
-            then_region,
-            else_region,
-        } = self.0[value.index()]?.0
-        else {
+        let Op::If { condition, then_region, else_region } = self.0[value.index()]?.0 else {
             return None;
         };
-        Some((
-            condition,
-            Self::yielded(p, then_region)?,
-            Self::yielded(p, else_region)?,
-        ))
+        Some((condition, Self::yielded(p, then_region)?, Self::yielded(p, else_region)?))
     }
 
     fn comparison(&self, value: ValueId, expected: Relation) -> Option<(ValueId, ValueId)> {
-        let Op::Compare {
-            relation,
-            left,
-            right,
-        } = self.0[value.index()]?.0
-        else {
+        let Op::Compare { relation, left, right } = self.0[value.index()]?.0 else {
             return None;
         };
         (relation == expected).then_some((left, right))

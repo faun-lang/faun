@@ -24,13 +24,7 @@ impl Hosted {
         let nat = library.nat;
         let p = &mut library.program;
         let (host, never, input, exit) = host_routines(p, nat);
-        Self {
-            library,
-            host,
-            never,
-            input,
-            exit,
-        }
+        Self { library, host, never, input, exit }
     }
 
     /// Declare the entry, `main!(host)`, which leaves through `exit!`.
@@ -140,13 +134,13 @@ fn program(word_bits: u16, optimized: bool) -> Program {
     // zero_or_one(True, n) -> Succ(n)
     let zero_or_one = p.declare("zero_or_one", &[bool_, nat], nat);
     p.define(zero_or_one, |b, args| {
-        b.match_(args[0], bool_, |b, ctor, _| {
-            if ctor == yes {
-                b.con(succ, &[args[1]])
-            } else {
-                args[1]
-            }
-        })
+        b.match_(
+            args[0],
+            bool_,
+            |b, ctor, _| {
+                if ctor == yes { b.con(succ, &[args[1]]) } else { args[1] }
+            },
+        )
     });
     hosted.main(|b, host| {
         let count = b.call(input, &[host]);
@@ -168,15 +162,9 @@ fn zero_parameters_results_and_joins_are_not_erased() {
             ("select_zero!", vec![BIT], ZERO),
             ("zero_or_one", vec![BIT, ZERO], BIT),
         ] {
-            let function = p
-                .functions()
-                .iter()
-                .find(|f| p.name(f.name) == name)
-                .unwrap();
+            let function = p.functions().iter().find(|f| p.name(f.name) == name).unwrap();
             assert_eq!(p.signature(function.params), params, "{name}");
-            let Returns::Values(results) = function.returns else {
-                panic!("a scalar result")
-            };
+            let Returns::Values(results) = function.returns else { panic!("a scalar result") };
             assert_eq!(p.signature(results), [result], "{name}");
         }
         let has_join = |class| {
@@ -189,10 +177,7 @@ fn zero_parameters_results_and_joins_are_not_erased() {
             })
         };
         assert!(has_join(ZERO), "two zero-valued arms join as fixed0");
-        assert!(
-            has_join(BIT),
-            "zero and one join at a width that holds both"
-        );
+        assert!(has_join(BIT), "zero and one join at a width that holds both");
     }
 }
 
@@ -215,21 +200,12 @@ fn range_proven_zero_arithmetic_selects_fixed0() {
         let body = p.function(p.entry()).body().unwrap();
         // A remainder by one is every bit below the first, which is none of
         // them: read at no width at all rather than divided by anything.
-        assert!(!p.every(body).any(|op| matches!(
-            op,
-            Op::Binary {
-                op: super::Binary::Mod,
-                ..
-            }
-        )));
+        assert!(!p.every(body).any(|op| matches!(op, Op::Binary { op: super::Binary::Mod, .. })));
         assert!(p.walk_within(body).any(|(op, results)| {
             matches!(op, Op::Convert { .. }) && p.class(results[0]) == ZERO
         }));
         for input in [0, 1, 255, 511] {
-            let mut host = Host {
-                input,
-                ..Host::default()
-            };
+            let mut host = Host { input, ..Host::default() };
             let result = evaluate_entry(&p, word_bits, &mut host);
             assert_eq!(result.halted().unwrap(), [BigUint::from(0u8)]);
             assert_eq!(host.calls, ["read_byte!", "exit!"]);
@@ -285,13 +261,11 @@ fn comparisons(
         p.define(id, |b, args| {
             b.match_(args[0], nat, |b, ctor, left| {
                 let left_zero = ctor == zero;
-                b.match_(args[1], nat, |b, ctor, right| {
-                    match (left_zero, ctor == zero) {
-                        (true, true) => b.con(both, &[]),
-                        (true, false) => b.con(below, &[]),
-                        (false, true) => b.con(above, &[]),
-                        (false, false) => b.call(id, &[left[0], right[0]]),
-                    }
+                b.match_(args[1], nat, |b, ctor, right| match (left_zero, ctor == zero) {
+                    (true, true) => b.con(both, &[]),
+                    (true, false) => b.con(below, &[]),
+                    (false, true) => b.con(above, &[]),
+                    (false, false) => b.call(id, &[left[0], right[0]]),
                 })
             })
         });
@@ -304,11 +278,7 @@ fn comparisons(
     let mod_step = p.declare("mod_step", &[bool_, nat], nat);
     p.define(mod_step, |b, args| {
         b.match_(args[0], bool_, |b, ctor, _| {
-            if ctor == yes {
-                b.con(zero, &[])
-            } else {
-                b.con(succ, &[args[1]])
-            }
+            if ctor == yes { b.con(zero, &[]) } else { b.con(succ, &[args[1]]) }
         })
     });
     // mod(a, Zero) -> a
@@ -331,13 +301,7 @@ fn comparisons(
             })
         })
     });
-    Comparisons {
-        bool_,
-        no,
-        equals,
-        less_than,
-        modulo,
-    }
+    Comparisons { bool_, no, equals, less_than, modulo }
 }
 
 /// `probe(n)`, answering what `probe` asks of `n`.
@@ -421,29 +385,17 @@ fn comparison_arms(p: &Program, yes_tag: u64) {
     let (yes, no, result) = p
         .walk(body)
         .find_map(|(op, results)| match *op {
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } => Some((then_region, else_region, results[0])),
+            Op::If { then_region, else_region, .. } => Some((then_region, else_region, results[0])),
             _ => None,
         })
         .expect("a comparison materialized as a tagged result");
-    assert_eq!(
-        p.class(result),
-        BIT,
-        "the join must hold either emitted tag"
-    );
+    assert_eq!(p.class(result), BIT, "the join must hold either emitted tag");
     for (arm, tag) in [(yes, yes_tag), (no, 1 - yes_tag)] {
         let (op, results) = p.walk(arm).next().unwrap();
         let class = if tag == 0 { ZERO } else { BIT };
         assert_eq!(*op, Op::Constant { value: tag });
         assert_eq!(p.class(results[0]).width(), class.width());
-        assert_eq!(
-            p.outgoing(arm),
-            results,
-            "yield the narrow constant directly"
-        );
+        assert_eq!(p.outgoing(arm), results, "yield the narrow constant directly");
     }
 }
 
@@ -470,10 +422,7 @@ fn comparison_arms_use_minimal_constants_and_a_wide_enough_join() {
                 }
                 for (input, answer) in [0, 1, 2, 33].into_iter().zip(answers) {
                     for p in [&lowered, &optimized] {
-                        let mut host = Host {
-                            input,
-                            ..Host::default()
-                        };
+                        let mut host = Host { input, ..Host::default() };
                         let result = evaluate_entry(p, word_bits, &mut host);
                         assert_eq!(
                             result.halted().unwrap(),
@@ -493,10 +442,7 @@ fn evaluate_entry(p: &Program, word_bits: u16, host: &mut Host) -> evaluate::Eva
         p,
         p.entry(),
         &[],
-        evaluate::Config {
-            word_bits,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { word_bits, ..evaluate::Config::default() },
         host,
     )
     .unwrap()
@@ -521,9 +467,7 @@ impl evaluate::Host for Host {
             "read_byte!" if self.halt_on_read == Some(self.calls.len()) => {
                 Ok(evaluate::HostResult::Halt(vec![BigUint::from(7u8)]))
             }
-            "read_byte!" => Ok(evaluate::HostResult::Return(vec![BigUint::from(
-                self.input,
-            )])),
+            "read_byte!" => Ok(evaluate::HostResult::Return(vec![BigUint::from(self.input)])),
             "exit!" => Ok(evaluate::HostResult::Halt(args.to_vec())),
             _ => Err(evaluate::Error::Host(name.to_owned())),
         }
@@ -537,11 +481,7 @@ fn zero_results_preserve_eager_calls_and_nonreturning_execution() {
             let p = program(word_bits, optimized);
             for input in [1, 2, 33] {
                 for halt_on_read in [None, Some(2)] {
-                    let mut host = Host {
-                        input,
-                        halt_on_read,
-                        ..Host::default()
-                    };
+                    let mut host = Host { input, halt_on_read, ..Host::default() };
                     let result = evaluate_entry(&p, word_bits, &mut host);
                     let (answer, calls): (u8, &[&str]) = if halt_on_read.is_some() {
                         (7, &["read_byte!", "read_byte!"])

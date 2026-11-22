@@ -82,11 +82,7 @@ pub trait Target: fmt::Debug {
             .only(self.provides())
             .with_word(self.word())
             .with_address(self.address());
-        if self.floats() {
-            routines.with_floats()
-        } else {
-            routines
-        }
+        if self.floats() { routines.with_floats() } else { routines }
     }
 
     /// The image an already validated, accepted scalar program becomes.
@@ -188,11 +184,7 @@ pub trait Target: fmt::Debug {
             Favour::Size,
             symbols,
         );
-        Ok(if faster.len() < image.len() {
-            faster
-        } else {
-            image
-        })
+        Ok(if faster.len() < image.len() { faster } else { image })
     }
 
     /// Fit boundaries to [`Self::budget`], then legalize representations
@@ -311,19 +303,13 @@ fn accepts_op<T: Target + ?Sized>(
     let (name, word) = (target.name(), target.word());
     // A shift by a register is one instruction or nothing: see
     // `ir::expand_shifts`, which preparation runs.
-    if let Op::Binary {
-        op: crate::ir::Binary::ShiftUp | crate::ir::Binary::ShiftDown,
-        ..
-    } = *op
+    if let Op::Binary { op: crate::ir::Binary::ShiftUp | crate::ir::Binary::ShiftDown, .. } = *op
         && !target.shifts_by_register()
     {
         return Err(format!("{name} shifts by a known distance only"));
     }
     // Only a machine computing IEEE values compares them itself.
-    if let Op::Compare {
-        relation: crate::ir::Relation::FloatNotAbove(_),
-        ..
-    } = *op
+    if let Op::Compare { relation: crate::ir::Relation::FloatNotAbove(_), .. } = *op
         && !target.floats()
     {
         return Err(format!("{name} compares no float itself"));
@@ -332,9 +318,7 @@ fn accepts_op<T: Target + ?Sized>(
     if let Op::Constant { value } = *op {
         let bits = program.class(results[0]).bits(word);
         if bits < 64 && value >> bits != 0 {
-            return Err(format!(
-                "{name} holds {bits} bits, and {value} does not fit in them"
-            ));
+            return Err(format!("{name} holds {bits} bits, and {value} does not fit in them"));
         }
     }
     Ok(())
@@ -364,9 +348,7 @@ fn accepts_externals<T: Target + ?Sized>(target: &T, program: &Program) -> Resul
             .filter(|_| target.provides().contains(&held))
             .ok_or_else(|| format!("{name} answers for nothing called `{held}`"))?;
         let classes_agree = |left: &[Class], right: &[Class]| {
-            left.iter()
-                .map(|&c| abi_class(c, word))
-                .eq(right.iter().map(|&c| abi_class(c, word)))
+            left.iter().map(|&c| abi_class(c, word)).eq(right.iter().map(|&c| abi_class(c, word)))
         };
         if !classes_agree(program.signature(function.params), &routine.reads())
             || !classes_agree(
@@ -375,26 +357,19 @@ fn accepts_externals<T: Target + ?Sized>(target: &T, program: &Program) -> Resul
             )
             || matches!(function.returns, Returns::Never) == routine.comes_back()
         {
-            return Err(format!(
-                "{name}: external `{held}` disagrees with its provider contract"
-            ));
+            return Err(format!("{name}: external `{held}` disagrees with its provider contract"));
         }
     }
     Ok(())
 }
 
 fn accepts_layout(name: &str, layout: Layout, program: &Program) -> Result<(), String> {
-    program
-        .check_layout(layout)
-        .map_err(|error| format!("{name}: {error}"))
+    program.check_layout(layout).map_err(|error| format!("{name}: {error}"))
 }
 
 fn signature_classes(program: &Program) -> impl Iterator<Item = &Class> {
     program.functions().iter().flat_map(|f| {
-        program
-            .signature(f.params)
-            .iter()
-            .chain(program.signature(f.returns.classes()))
+        program.signature(f.params).iter().chain(program.signature(f.returns.classes()))
     })
 }
 
@@ -409,9 +384,7 @@ fn abi_class(class: Class, word: u16) -> Class {
 
 fn accepts_class(name: &str, word: u16, class: Class) -> Result<(), String> {
     if matches!(class, Class::Cell | Class::Buffer) {
-        return Err(format!(
-            "{name} raw emission requires legalization of algebraic cells"
-        ));
+        return Err(format!("{name} raw emission requires legalization of algebraic cells"));
     }
     if class == Class::Natural {
         return Err(format!(
@@ -421,9 +394,7 @@ fn accepts_class(name: &str, word: u16, class: Class) -> Result<(), String> {
     if let Some(bits) = class.width()
         && bits > word
     {
-        return Err(format!(
-            "{name} holds {word} bits, and a value here needs {bits}"
-        ));
+        return Err(format!("{name} holds {word} bits, and a value here needs {bits}"));
     }
     Ok(())
 }
@@ -476,10 +447,7 @@ mod reading {
     fn a_program_reads_against_the_routines_of_one_target() {
         let spartan = tests::Spartan.routines();
         assert!(spartan.get("exit!").is_some());
-        assert!(
-            spartan.get("write!").is_none(),
-            "one it does not answer for"
-        );
+        assert!(spartan.get("write!").is_none(), "one it does not answer for");
         assert!(
             crate::platform::Routines::builtin().get("write!").is_some(),
             "which something else does"
@@ -531,12 +499,7 @@ mod tests {
             let status = b.constant(Class::Word, 0);
             b.ret(&[status]);
         });
-        assert!(
-            Spartan
-                .accepts(&program)
-                .unwrap_err()
-                .contains("legalization of algebraic cells")
-        );
+        assert!(Spartan.accepts(&program).unwrap_err().contains("legalization of algebraic cells"));
     }
 
     #[test]
@@ -547,12 +510,7 @@ mod tests {
             let status = b.constant(Class::Word, 0);
             b.ret(&[status]);
         });
-        assert!(
-            Spartan
-                .accepts(&program)
-                .unwrap_err()
-                .contains("arbitrary-precision")
-        );
+        assert!(Spartan.accepts(&program).unwrap_err().contains("arbitrary-precision"));
     }
 
     /// What a program may reach is what its target answers for, whether it
@@ -575,9 +533,6 @@ mod tests {
         held("exit!").expect("a routine it answers for");
 
         let refused = held("write!").unwrap_err();
-        assert!(
-            refused.contains("spartan answers for nothing called `write!`"),
-            "{refused}"
-        );
+        assert!(refused.contains("spartan answers for nothing called `write!`"), "{refused}");
     }
 }

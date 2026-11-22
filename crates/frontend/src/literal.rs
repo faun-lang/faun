@@ -126,19 +126,15 @@ pub fn scalar(numeral: Numeral, source: &str) -> Result<char, LiteralError> {
 
 /// The scalar value a character literal, `text`, holds.
 fn character(span: Span, text: &str) -> Result<char, LiteralError> {
-    let refused = |message: &str| LiteralError {
-        span,
-        message: message.to_owned(),
-    };
+    let refused = |message: &str| LiteralError { span, message: message.to_owned() };
     let inner = text
         .strip_prefix('\'')
         .and_then(|text| text.strip_suffix('\''))
         .ok_or_else(|| refused("invalid character literal"))?;
     let decoded = decode_text(inner).map_err(|message| LiteralError { span, message })?;
     let mut characters = decoded.chars();
-    let character = characters
-        .next()
-        .ok_or_else(|| refused("an empty character literal has no value"))?;
+    let character =
+        characters.next().ok_or_else(|| refused("an empty character literal has no value"))?;
     if characters.next().is_some() {
         return Err(refused("a character literal contains more than one scalar"));
     }
@@ -156,13 +152,7 @@ pub(crate) fn validate(tokens: &[Token], source: &str) -> Result<(), LiteralErro
                 character(span, token.text(source))?;
             }
             Kind::Decimal => {
-                decimal(
-                    Numeral {
-                        span,
-                        kind: NumeralKind::Decimal,
-                    },
-                    source,
-                )?;
+                decimal(Numeral { span, kind: NumeralKind::Decimal }, source)?;
             }
             Kind::StrText => {
                 decode_text(token.text(source))
@@ -187,23 +177,17 @@ const EXPONENT_LIMIT: u32 = 10_000;
 /// Refuses an exponent beyond ten thousand either way.
 pub fn decimal(numeral: Numeral, source: &str) -> Result<(BigUint, u32), LiteralError> {
     let text = numeral.text(source);
-    let refused = |message: String| LiteralError {
-        span: numeral.span,
-        message,
-    };
+    let refused = |message: String| LiteralError { span: numeral.span, message };
     let (significand, exponent) = text
         .split_once(['e', 'E'])
-        .map_or((text, "0"), |(significand, exponent)| {
-            (significand, exponent)
-        });
+        .map_or((text, "0"), |(significand, exponent)| (significand, exponent));
     let (whole, fraction) = significand.split_once('.').unwrap_or((significand, ""));
     let digits: String = whole.chars().chain(fraction.chars()).collect();
     let digits = BigUint::parse_bytes(digits.as_bytes(), 10)
         .ok_or_else(|| refused(format!("invalid decimal numeral `{text}`")))?;
-    let (negative, magnitude) = exponent.strip_prefix('-').map_or_else(
-        || (false, exponent.trim_start_matches('+')),
-        |rest| (true, rest),
-    );
+    let (negative, magnitude) = exponent
+        .strip_prefix('-')
+        .map_or_else(|| (false, exponent.trim_start_matches('+')), |rest| (true, rest));
     let magnitude: u32 = magnitude
         .parse()
         .ok()
@@ -230,10 +214,7 @@ mod tests {
 
     #[test]
     fn decoding_borrows_plain_text_and_allocates_escapes() {
-        assert!(matches!(
-            decode_text("plain").unwrap(),
-            Cow::Borrowed("plain")
-        ));
+        assert!(matches!(decode_text("plain").unwrap(), Cow::Borrowed("plain")));
         assert_eq!(decode_text("a\\nb").unwrap(), "a\nb");
         assert!(decode_text("\\q").unwrap_err().contains("unknown escape"));
     }
@@ -244,30 +225,16 @@ mod tests {
         assert_eq!(decode_text("a\\0b").unwrap(), "a\0b");
         assert_eq!(decode_text("\\u{e9}\\u{1F600}").unwrap(), "\u{e9}\u{1F600}");
         for malformed in ["\\u", "\\u{}", "\\u{1234567}", "\\u{zz}", "\\ue9", "\\u{e9"] {
-            assert!(
-                decode_text(malformed).unwrap_err().contains("hexadecimal"),
-                "{malformed}"
-            );
+            assert!(decode_text(malformed).unwrap_err().contains("hexadecimal"), "{malformed}");
         }
-        assert!(
-            decode_text("\\u{D800}")
-                .unwrap_err()
-                .contains("not a Unicode scalar")
-        );
-        assert!(
-            decode_text("\\u{110000}")
-                .unwrap_err()
-                .contains("not a Unicode scalar")
-        );
+        assert!(decode_text("\\u{D800}").unwrap_err().contains("not a Unicode scalar"));
+        assert!(decode_text("\\u{110000}").unwrap_err().contains("not a Unicode scalar"));
     }
 
     #[test]
     fn numerals_are_not_narrowed_to_a_host_word() {
         let source = "340282366920938463463374607431768211456";
-        let numeral = Numeral {
-            span: Span::new(0, source.len()),
-            kind: NumeralKind::Number,
-        };
+        let numeral = Numeral { span: Span::new(0, source.len()), kind: NumeralKind::Number };
         assert_eq!(magnitude(numeral, source).unwrap().bits(), 129);
     }
 }

@@ -243,13 +243,8 @@ impl Tests {
     /// A record that does not number an expectation, or does not say
     /// whether it held.
     pub fn answered(&self, printed: &[u8]) -> Result<Answered<'_>, String> {
-        let mut answered = Answered {
-            asked: 0,
-            failed: Vec::new(),
-        };
-        let mut records: Vec<&[u8]> = printed
-            .split(|&byte| byte == expectations::RECORD)
-            .collect();
+        let mut answered = Answered { asked: 0, failed: Vec::new() };
+        let mut records: Vec<&[u8]> = printed.split(|&byte| byte == expectations::RECORD).collect();
         // What follows the last separator was cut short.
         records.pop();
         for record in records {
@@ -322,10 +317,7 @@ pub fn lower_tests_to_barb_using(
     let Package::Application(barb) = lower(program, cx, earlier, Some(&main), platform)? else {
         unreachable!("the expectations' runner is an application")
     };
-    Ok(Tests {
-        barb: *barb,
-        expectations,
-    })
+    Ok(Tests { barb: *barb, expectations })
 }
 
 /// Read the package at `source`, beside the standard package and `platform`'s
@@ -522,10 +514,8 @@ fn test_host() -> PathBuf {
 /// target answers for each.
 #[cfg(test)]
 fn test_platform() -> Platform {
-    let routine = |name: &str| platform::Routine {
-        name: name.to_owned(),
-        consumes: name == "fd_close!",
-    };
+    let routine =
+        |name: &str| platform::Routine { name: name.to_owned(), consumes: name == "fd_close!" };
     let names = [
         "fd_put!",
         "fd_read!",

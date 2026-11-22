@@ -42,11 +42,7 @@ impl Budget {
             params > 0 && results > 0 && transfers > 0,
             "a boundary carries at least one value"
         );
-        Self {
-            params,
-            results,
-            transfers,
-        }
+        Self { params, results, transfers }
     }
 
     /// Whether a call taking `params` values and answering `results` fits.
@@ -67,11 +63,7 @@ pub fn fit(source: &Program, budget: Budget) -> Program {
         return source.clone();
     }
     let declared = declarations(source, budget);
-    let mut pass = Fit {
-        budget,
-        entry: source.entry(),
-        returns: budget.results,
-    };
+    let mut pass = Fit { budget, entry: source.entry(), returns: budget.results };
     rewrite::rebuild_declared(source, declared, &mut pass)
 }
 
@@ -83,19 +75,15 @@ fn within(source: &Program, budget: Budget) -> bool {
             || id == entry
             || (function.params.len() <= budget.params
                 && function.returns.classes().len() <= budget.results)
-    }) && source
-        .functions()
-        .iter()
-        .filter_map(super::Function::body)
-        .all(|body| {
-            source.walk_within(body).all(|(op, results)| match *op {
-                Op::If { .. } => results.len() <= budget.transfers,
-                Op::Loop { initial, .. } => {
-                    initial.len() <= budget.transfers && results.len() <= budget.transfers
-                }
-                _ => true,
-            })
+    }) && source.functions().iter().filter_map(super::Function::body).all(|body| {
+        source.walk_within(body).all(|(op, results)| match *op {
+            Op::If { .. } => results.len() <= budget.transfers,
+            Op::Loop { initial, .. } => {
+                initial.len() <= budget.transfers && results.len() <= budget.transfers
+            }
+            _ => true,
         })
+    })
 }
 
 /// Every declaration, with defined functions other than the entry packed
@@ -122,11 +110,7 @@ fn declarations(source: &Program, budget: Budget) -> Declarations {
         function.parameters = append_range(&mut declared.parameters, &names);
         if let super::Returns::Values(returns) = function.returns {
             let returns = source.signature(returns);
-            let returns = if packs {
-                classes(returns, budget.results)
-            } else {
-                returns.to_vec()
-            };
+            let returns = if packs { classes(returns, budget.results) } else { returns.to_vec() };
             function.returns =
                 super::Returns::Values(append_range(&mut declared.signature, &returns));
         }
@@ -154,11 +138,8 @@ impl Fit {
     ) -> Vec<ValueId> {
         let limit = self.budget.transfers;
         let source = rebuild.source();
-        let state: Vec<_> = source
-            .values(initial)
-            .iter()
-            .map(|&value| source.class(value))
-            .collect();
+        let state: Vec<_> =
+            source.values(initial).iter().map(|&value| source.class(value)).collect();
         let old = rebuild.classes(results);
         let initial = pack(b, &rebuild.args(initial), limit);
         let carried = b.loop_(&initial, &classes(&old, limit), |b, params| {
@@ -180,11 +161,7 @@ impl rewrite::Pass for Fit {
                 let answered = b.call(function, &args);
                 unpack(b, &answered, &rebuild.classes(results), self.budget.results)
             }
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } if results.len() > limit => {
+            Op::If { condition, then_region, else_region } if results.len() > limit => {
                 let old = rebuild.classes(results);
                 let pass = std::cell::RefCell::new(self);
                 let carried = b.if_(
@@ -220,12 +197,7 @@ impl rewrite::Pass for Fit {
             return params.to_vec();
         }
         self.returns = self.budget.results;
-        unpack(
-            b,
-            params,
-            source.signature(declared.params),
-            self.budget.params,
-        )
+        unpack(b, params, source.signature(declared.params), self.budget.params)
     }
 
     fn exit(&mut self, rebuild: &Rebuild<'_>, b: &mut Builder, terminator: Terminator) -> bool {

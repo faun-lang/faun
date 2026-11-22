@@ -103,11 +103,7 @@ pub(super) fn cost(program: &Program, body: Body) -> usize {
         cost = cost.saturating_add(program.bindings(body.bindings).len());
         // One possible alias tail is manufactured for each copied body.
         cost = cost.saturating_add(1);
-        for &id in program
-            .bindings(body.bindings)
-            .iter()
-            .chain(std::iter::once(&body.tail))
-        {
+        for &id in program.bindings(body.bindings).iter().chain(std::iter::once(&body.tail)) {
             cost = cost.saturating_add(1);
             match program.expr(id) {
                 Expr::Con(_, args) | Expr::Call(_, args) => cost = cost.saturating_add(args.len()),

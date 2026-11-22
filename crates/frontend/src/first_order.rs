@@ -116,9 +116,7 @@ impl Expr {
             }
             ExprKind::Is(value, rows) => {
                 visit(value);
-                rows.iter()
-                    .filter_map(|(_, guard)| guard.as_ref())
-                    .for_each(visit);
+                rows.iter().filter_map(|(_, guard)| guard.as_ref()).for_each(visit);
             }
             ExprKind::Match(value, arms) => {
                 visit(value);
@@ -142,9 +140,11 @@ impl Expr {
     pub(crate) fn for_each_bound(&self, mut visit: impl FnMut(LocalId)) {
         let visit = &mut visit;
         match &self.kind {
-            ExprKind::Is(_, rows) => rows
-                .iter()
-                .for_each(|(pattern, _)| pattern.for_each_bound(visit)),
+            ExprKind::Is(_, rows) => {
+                for (pattern, _) in rows {
+                    pattern.for_each_bound(visit);
+                }
+            }
             ExprKind::Match(_, arms) => {
                 let rows = arms.iter().flat_map(|arm| &arm.rows);
                 for (pattern, _) in rows {

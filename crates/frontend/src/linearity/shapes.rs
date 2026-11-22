@@ -40,10 +40,7 @@ impl Facts<'_> {
         rows: impl IntoIterator<Item = &'p Pattern>,
         ty: &Type,
     ) -> bool {
-        let rows = rows
-            .into_iter()
-            .map(|pattern| vec![self.shape(pattern)])
-            .collect();
+        let rows = rows.into_iter().map(|pattern| vec![self.shape(pattern)]).collect();
         self.escapes(rows, std::slice::from_ref(ty), Some(0))
     }
 
@@ -51,20 +48,16 @@ impl Facts<'_> {
         match pattern {
             Pattern::Wild | Pattern::Bind(_) => Shape::Any,
             Pattern::As(_, pattern) => self.shape(pattern),
-            Pattern::Constructor(name, fields) => Shape::Constructor(
-                *name,
-                fields.iter().map(|field| self.shape(field)).collect(),
-            ),
+            Pattern::Constructor(name, fields) => {
+                Shape::Constructor(*name, fields.iter().map(|field| self.shape(field)).collect())
+            }
             Pattern::Number { .. } | Pattern::Range | Pattern::String | Pattern::Ending => {
                 Shape::Tested
             }
             Pattern::List(elements, rest) => self.listed(elements, rest.as_deref()),
             Pattern::Split(split) => self.ending(split),
             Pattern::Record(fields) => Shape::Record(
-                fields
-                    .iter()
-                    .map(|(name, field)| (*name, self.shape(field)))
-                    .collect(),
+                fields.iter().map(|(name, field)| (*name, self.shape(field))).collect(),
             ),
             Pattern::Product(members) => {
                 Shape::Tuple(members.iter().map(|member| self.shape(member)).collect())
@@ -74,10 +67,8 @@ impl Facts<'_> {
 
     /// A list's elements and the rest of it, as the constructors it is.
     fn listed(&self, elements: &[Pattern], rest: Option<&Pattern>) -> Shape {
-        let tail = rest.map_or_else(
-            || Shape::Constructor(self.list_nil, Vec::new()),
-            |rest| self.shape(rest),
-        );
+        let tail = rest
+            .map_or_else(|| Shape::Constructor(self.list_nil, Vec::new()), |rest| self.shape(rest));
         elements.iter().rev().fold(tail, |tail, element| {
             Shape::Constructor(self.list_cons, vec![self.shape(element), tail])
         })
@@ -91,9 +82,8 @@ impl Facts<'_> {
         if !matches!(front, Shape::Any) || !last.iter().all(|each| matches!(each, Shape::Any)) {
             return Shape::Tested;
         }
-        last.iter().fold(Shape::Any, |tail, _| {
-            Shape::Constructor(self.list_cons, vec![Shape::Any, tail])
-        })
+        last.iter()
+            .fold(Shape::Any, |tail, _| Shape::Constructor(self.list_cons, vec![Shape::Any, tail]))
     }
 
     /// Whether some value of `ty` that `shape` matches holds a resource.
@@ -110,10 +100,9 @@ impl Facts<'_> {
                     },
                 )
             }
-            (Shape::Tuple(shapes), Type::Tuple(members)) => shapes
-                .iter()
-                .zip(members)
-                .any(|(shape, member)| self.shape_carries(shape, member)),
+            (Shape::Tuple(shapes), Type::Tuple(members)) => {
+                shapes.iter().zip(members).any(|(shape, member)| self.shape_carries(shape, member))
+            }
             (Shape::Record(named), Type::Record(fields)) => fields.iter().any(|(name, field)| {
                 named.iter().find(|(each, _)| each == name).map_or_else(
                     || self.carries(field),
@@ -143,11 +132,8 @@ impl Facts<'_> {
                 .iter()
                 .filter_map(|row| {
                     Some(
-                        [
-                            opened(&row[0], constructor, ty, fields.len())?,
-                            row[1..].to_vec(),
-                        ]
-                        .concat(),
+                        [opened(&row[0], constructor, ty, fields.len())?, row[1..].to_vec()]
+                            .concat(),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -167,14 +153,10 @@ impl Facts<'_> {
     fn forms(&self, ty: &Type, rows: &[Vec<Shape>]) -> Option<Vec<(Option<Symbol>, Vec<Type>)>> {
         match ty {
             Type::Tuple(members) => Some(vec![(None, members.clone())]),
-            Type::Record(fields) => Some(vec![(
-                None,
-                fields.iter().map(|(_, field)| field.clone()).collect(),
-            )]),
-            _ if rows
-                .iter()
-                .any(|row| matches!(row[0], Shape::Constructor(..))) =>
-            {
+            Type::Record(fields) => {
+                Some(vec![(None, fields.iter().map(|(_, field)| field.clone()).collect())])
+            }
+            _ if rows.iter().any(|row| matches!(row[0], Shape::Constructor(..))) => {
                 self.constructors_of(ty).and_then(|constructors| {
                     constructors
                         .into_iter()

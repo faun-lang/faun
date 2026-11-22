@@ -42,11 +42,7 @@ impl Gzip {
 
     fn run(&self, args: &[&str], input: &[u8]) -> Vec<u8> {
         let output = pipe(Command::new(self.0.join("gzip")).args(args), input);
-        assert!(
-            output.status.success(),
-            "gzip {args:?}: {:?}",
-            output.status
-        );
+        assert!(output.status.success(), "gzip {args:?}: {:?}", output.status);
         output.stdout
     }
 }
@@ -90,14 +86,7 @@ c = zlib.compressobj(int(sys.argv[2]), zlib.DEFLATED, bits)
 print(len(c.compress(sys.stdin.buffer.read()) + c.flush()))";
 
 fn python(script: &str, args: &[&str], input: &[u8]) -> Vec<u8> {
-    let output = pipe(
-        Command::new("python3")
-            .arg("-I")
-            .arg("-c")
-            .arg(script)
-            .args(args),
-        input,
-    );
+    let output = pipe(Command::new("python3").arg("-I").arg("-c").arg(script).args(args), input);
     assert!(output.status.success(), "python {args:?}");
     output.stdout
 }
@@ -107,15 +96,11 @@ fn python(script: &str, args: &[&str], input: &[u8]) -> Vec<u8> {
 /// repeated exactly a window apart and just past one.
 fn inputs() -> Vec<(String, Vec<u8>)> {
     let dir = library().join("fixtures/input");
-    let mut found: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .collect();
+    let mut found: Vec<_> =
+        std::fs::read_dir(&dir).unwrap().map(|entry| entry.unwrap().path()).collect();
     found.sort();
-    let mut all: Vec<_> = found
-        .iter()
-        .map(|path| (name(path).to_owned(), std::fs::read(path).unwrap()))
-        .collect();
+    let mut all: Vec<_> =
+        found.iter().map(|path| (name(path).to_owned(), std::fs::read(path).unwrap())).collect();
     let mut seed: u64 = 1951;
     let mut random = |size: usize| -> Vec<u8> {
         (0..size)
@@ -156,10 +141,7 @@ fn every_level_reads_back_through_every_reader() {
                 back.extend(&args[1..]);
                 let what = format!("{name} at {flag} as {format}");
                 assert!(gzip.run(&back, &stream) == input, "{what}: our inflate");
-                assert!(
-                    python(PYTHON_READ, &[format], &stream) == input,
-                    "{what}: Python's zlib"
-                );
+                assert!(python(PYTHON_READ, &[format], &stream) == input, "{what}: Python's zlib");
                 if format == "gzip" {
                     let output = pipe(Command::new("gzip").arg("-dc"), &stream);
                     assert!(output.status.success(), "{what}: gzip -d");

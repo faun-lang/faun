@@ -82,8 +82,7 @@ impl Checker<'_> {
             .subsume(field, wanted)
             .map_err(|reason| self.mismatch(pending.module, span, field, wanted, &reason))?;
         if widened {
-            self.widenings
-                .push((pending.module, span, site, wanted.clone()));
+            self.widenings.push((pending.module, span, site, wanted.clone()));
         }
         Ok(())
     }
@@ -91,10 +90,7 @@ impl Checker<'_> {
     /// A value of any row holding `label` with these fields: open, so it
     /// flows to whatever handles more.
     pub(super) fn tag(&mut self, label: Symbol, fields: Rc<[Ty]>) -> Ty {
-        Ty::Variants(
-            Rc::from([(label, fields)]),
-            Some(Rc::new(self.infer.fresh())),
-        )
+        Ty::Variants(Rc::from([(label, fields)]), Some(Rc::new(self.infer.fresh())))
     }
 
     /// A call of `name` on `receiver`, a method's where the member is
@@ -145,10 +141,7 @@ impl Checker<'_> {
             owing: None,
             numeral: None,
             places,
-            shown: self
-                .sites
-                .is_shown(site)
-                .then_some(self.pending_methods.len()),
+            shown: self.sites.is_shown(site).then_some(self.pending_methods.len()),
         });
         result
     }
@@ -200,9 +193,7 @@ impl Checker<'_> {
                 owing: self.obliging,
                 numeral: bound.numeral,
                 places: None,
-                shown: self
-                    .obliging
-                    .and_then(|index| self.pending_methods[index].shown),
+                shown: self.obliging.and_then(|index| self.pending_methods[index].shown),
             });
         }
         Ok(())
@@ -286,10 +277,8 @@ impl Checker<'_> {
             if matches!(resolved, Ty::Function(..)) || !holds_function(&resolved) {
                 continue;
             }
-            let handed_function = handing
-                .handed
-                .iter()
-                .any(|ty| matches!(self.infer.resolve(ty), Ty::Function(..)));
+            let handed_function =
+                handing.handed.iter().any(|ty| matches!(self.infer.resolve(ty), Ty::Function(..)));
             if !handed_function {
                 continue;
             }
@@ -333,9 +322,8 @@ impl Checker<'_> {
             self.pending_tags[index].resolved = true;
             self.settle_by(marks, pass, &open)?;
         }
-        if let Some(pending) = self.pending_tags[marks.tags..]
-            .iter()
-            .find(|pending| !pending.resolved)
+        if let Some(pending) =
+            self.pending_tags[marks.tags..].iter().find(|pending| !pending.resolved)
         {
             return Err(self.ambiguous(pending));
         }
@@ -515,12 +503,7 @@ impl Checker<'_> {
                 if arguments.is_empty()
                     && self.prelude.words.iter().any(|word| word.ty == name) =>
             {
-                let word = self
-                    .prelude
-                    .words
-                    .iter()
-                    .find(|word| word.ty == name)
-                    .expect("guarded");
+                let word = self.prelude.words.iter().find(|word| word.ty == name).expect("guarded");
                 NumeralType::Word(word)
             }
             // Only the prelude's integers are numerals, and no conversion
@@ -576,10 +559,8 @@ impl Checker<'_> {
     /// The variables of a component's types that generalizing it will
     /// quantify: those nothing outside it holds.
     fn generic_variables(&self, types: &[Ty], names: &HashSet<Symbol>) -> HashSet<u32> {
-        let mut generic: HashSet<u32> = types
-            .iter()
-            .flat_map(|ty| free_variables(&self.infer.resolve(ty)))
-            .collect();
+        let mut generic: HashSet<u32> =
+            types.iter().flat_map(|ty| free_variables(&self.infer.resolve(ty))).collect();
         let fixed = self.fixed(names);
         generic.retain(|variable| !fixed.contains(variable));
         generic
@@ -609,29 +590,28 @@ impl Checker<'_> {
                 .iter()
                 .filter(|implementation| visible.contains(&implementation.target))
                 .filter_map(|implementation| {
-                    self.infer
-                        .probe(|trial| match trial.instantiate(&implementation.scheme) {
-                            Ty::Function(parameters, result)
-                                if parameters.len() == pending.arguments.len() + 1 =>
-                            {
-                                let receiver = trial.resolve(&parameters[0]);
-                                let shape = |ty: &Ty| {
-                                    let ty = trial.resolve(ty);
-                                    if ty == receiver {
-                                        Some(None)
-                                    } else if free_variables(&ty).is_empty() {
-                                        Some(Some(ty))
-                                    } else {
-                                        None
-                                    }
-                                };
-                                Some((
-                                    parameters[1..].iter().map(shape).collect::<Vec<_>>(),
-                                    shape(&result),
-                                ))
-                            }
-                            _ => None,
-                        })
+                    self.infer.probe(|trial| match trial.instantiate(&implementation.scheme) {
+                        Ty::Function(parameters, result)
+                            if parameters.len() == pending.arguments.len() + 1 =>
+                        {
+                            let receiver = trial.resolve(&parameters[0]);
+                            let shape = |ty: &Ty| {
+                                let ty = trial.resolve(ty);
+                                if ty == receiver {
+                                    Some(None)
+                                } else if free_variables(&ty).is_empty() {
+                                    Some(Some(ty))
+                                } else {
+                                    None
+                                }
+                            };
+                            Some((
+                                parameters[1..].iter().map(shape).collect::<Vec<_>>(),
+                                shape(&result),
+                            ))
+                        }
+                        _ => None,
+                    })
                 })
                 .collect();
             let Some((first_arguments, first_result)) = shapes.first().cloned() else {
@@ -641,18 +621,12 @@ impl Checker<'_> {
                 position.is_some() && all.iter().all(|other| *other == position)
             };
             for (at, position) in first_arguments.iter().enumerate() {
-                if shared(
-                    position,
-                    shapes.iter().map(|(arguments, _)| &arguments[at]).collect(),
-                ) {
+                if shared(position, shapes.iter().map(|(arguments, _)| &arguments[at]).collect()) {
                     let linked = position.clone().flatten().unwrap_or(Ty::Var(receiver));
                     let _ = self.infer.unify(&pending.arguments[at], &linked);
                 }
             }
-            if shared(
-                &first_result,
-                shapes.iter().map(|(_, result)| result).collect(),
-            ) {
+            if shared(&first_result, shapes.iter().map(|(_, result)| result).collect()) {
                 let linked = first_result.flatten().unwrap_or(Ty::Var(receiver));
                 let _ = self.infer.unify(&pending.result, &linked);
             }
@@ -670,11 +644,7 @@ impl Checker<'_> {
         };
         let builder = self.method_symbol(numeral.module, numeral.span, builder)?;
         let nat = Ty::Named(self.prelude.nat, Rc::default());
-        let arguments = if numeral.scale.is_some() {
-            vec![nat.clone(), nat]
-        } else {
-            vec![nat]
-        };
+        let arguments = if numeral.scale.is_some() { vec![nat.clone(), nat] } else { vec![nat] };
         self.pending_methods.push(PendingMethod {
             site: None,
             module: numeral.module,
@@ -763,8 +733,7 @@ impl Checker<'_> {
                 }),
             }
             if let Some(site) = pending.site {
-                self.bound_sites
-                    .push((pending.module, pending.span, site, owner, pending.name));
+                self.bound_sites.push((pending.module, pending.span, site, owner, pending.name));
             }
             self.pending_methods[index].resolved = true;
         }
@@ -812,20 +781,18 @@ impl Checker<'_> {
                     let fields = pending.fields.clone().unwrap_or_default();
                     // Where the row already holds the tag, each field flows
                     // into what the row says it holds.
-                    let fields = match tags
-                        .iter()
-                        .find(|(label, _)| *label == pending.dual.spelling)
-                    {
-                        Some((_, wanted)) if wanted.len() == fields.len() => {
-                            for (at, (field, wanted)) in
-                                fields.iter().zip(wanted.iter()).enumerate()
-                            {
-                                self.field_flows(&pending, at, field, wanted)?;
+                    let fields =
+                        match tags.iter().find(|(label, _)| *label == pending.dual.spelling) {
+                            Some((_, wanted)) if wanted.len() == fields.len() => {
+                                for (at, (field, wanted)) in
+                                    fields.iter().zip(wanted.iter()).enumerate()
+                                {
+                                    self.field_flows(&pending, at, field, wanted)?;
+                                }
+                                wanted.clone()
                             }
-                            wanted.clone()
-                        }
-                        _ => fields.into(),
-                    };
+                            _ => fields.into(),
+                        };
                     let row = self.tag(pending.dual.spelling, fields);
                     self.unify_at(pending.module, pending.span, &row, &pending.result)?;
                     self.checked
@@ -903,26 +870,18 @@ impl Checker<'_> {
         if let Some(home) = pending.dual.home
             && home != chosen
         {
-            let owner = self
-                .constructor_owner(home)
-                .map_or("", |owner| self.symbols.spelling(owner));
-            let other = self
-                .constructor_owner(chosen)
-                .map_or("", |owner| self.symbols.spelling(owner));
+            let owner =
+                self.constructor_owner(home).map_or("", |owner| self.symbols.spelling(owner));
+            let other =
+                self.constructor_owner(chosen).map_or("", |owner| self.symbols.spelling(owner));
             let word = self.symbols.text(pending.dual.spelling);
             let message = format!("the bare `{word}` reads as `{owner}.{word}` here");
             return Err(failure(pending.module, pending.span, message)
-                .note(format!(
-                    "inside `{owner}`'s block, a bare constructor is `{owner}`'s own"
-                ))
+                .note(format!("inside `{owner}`'s block, a bare constructor is `{owner}`'s own"))
                 .help(format!("write `{other}.{word}` for `{other}`'s")));
         }
         let scheme = self.constructors.get(&chosen).cloned().ok_or_else(|| {
-            failure(
-                pending.module,
-                pending.span,
-                "constructor has no declared type",
-            )
+            failure(pending.module, pending.span, "constructor has no declared type")
         })?;
         let ty = self.infer.instantiate(&scheme);
         // Where the position already has a type, that the constructor
@@ -965,9 +924,7 @@ impl Checker<'_> {
                 }
             }
         }
-        self.checked
-            .readings
-            .insert(pending.dual.site, Reading::Constructor(chosen));
+        self.checked.readings.insert(pending.dual.site, Reading::Constructor(chosen));
         Ok(())
     }
 
@@ -997,10 +954,7 @@ impl Checker<'_> {
             .collect();
         let message = format!("constructor `{word}` is ambiguous here");
         failure(pending.module, pending.span, message)
-            .note(format!(
-                "nothing decides between {}",
-                readings.join(" and ")
-            ))
+            .note(format!("nothing decides between {}", readings.join(" and ")))
             .help("qualify it, or let a signature decide")
     }
 
@@ -1202,9 +1156,7 @@ impl Checker<'_> {
     /// `pending`, which it is or owes, cannot be met: the receiver's type
     /// is named in its place.
     fn unshow(&mut self, root: usize, pending: &PendingMethod) {
-        let site = self.pending_methods[root]
-            .site
-            .expect("a shown side is a written call");
+        let site = self.pending_methods[root].site.expect("a shown side is a written call");
         let receiver = show(&self.infer.resolve(&pending.receiver), self.symbols);
         self.checked.unshown.entry(site).or_insert(receiver);
     }
@@ -1219,11 +1171,8 @@ impl Checker<'_> {
         };
         let data = self.data.get(owner).or_else(|| self.earlier.get(owner))?;
         let name = self.symbols.spelling(*owner);
-        let variables: Vec<_> = data
-            .parameters
-            .iter()
-            .map(|parameter| self.symbols.text(*parameter))
-            .collect();
+        let variables: Vec<_> =
+            data.parameters.iter().map(|parameter| self.symbols.text(*parameter)).collect();
         let ty = if variables.is_empty() {
             name.to_owned()
         } else {
@@ -1239,19 +1188,13 @@ impl Checker<'_> {
             ));
         }
         let (shape, bound): (String, fn(&str) -> String) = if is(self.prelude.equals) {
-            (format!("({ty}, {ty}) -> Bool"), |a| {
-                format!("Equatable({a})")
-            })
+            (format!("({ty}, {ty}) -> Bool"), |a| format!("Equatable({a})"))
         } else if is(self.prelude.cmp) {
-            (format!("({ty}, {ty}) -> Order"), |a| {
-                format!("Ordered({a})")
-            })
+            (format!("({ty}, {ty}) -> Order"), |a| format!("Ordered({a})"))
         } else if is(self.prelude.to_str) {
             (format!("{ty} -> Str"), |a| format!("Printable({a})"))
         } else if is(self.prelude.hash_into) {
-            (format!("({ty}, h) -> h"), |a| {
-                format!("{a}.hash_into : ({a}, h) -> h")
-            })
+            (format!("({ty}, h) -> h"), |a| format!("{a}.hash_into : ({a}, h) -> h"))
         } else {
             return None;
         };
@@ -1259,11 +1202,8 @@ impl Checker<'_> {
         if is(self.prelude.hash_into) {
             bounds.insert(0, "Hasher(h)".to_owned());
         }
-        let bounds = if bounds.is_empty() {
-            String::new()
-        } else {
-            format!(" where {}", bounds.join(", "))
-        };
+        let bounds =
+            if bounds.is_empty() { String::new() } else { format!(" where {}", bounds.join(", ")) };
         let member = self.symbols.text(member);
         Some(format!(
             "declare `{member} : {shape}{bounds}` with no body in `{name}`'s block to derive it"
@@ -1334,30 +1274,20 @@ impl Checker<'_> {
 
     /// A record `data` holds as one of a constructor's fields.
     fn held_record(&self, data: &n::Data) -> Option<Held> {
-        let wrapper = data
-            .wrapper
-            .iter()
-            .map(|wrapper| (wrapper.constructor, true));
-        let constructors = data
-            .constructors
-            .iter()
-            .map(|constructor| (constructor.name, false));
-        wrapper
-            .chain(constructors)
-            .find_map(|(constructor, wraps)| {
-                let scheme = self.constructors.get(&constructor)?;
-                let Ty::Function(fields, _) = &scheme.ty else {
-                    return None;
-                };
-                fields.iter().find_map(|field| match field {
-                    Ty::Record(fields, None) => Some(Held {
-                        constructor,
-                        wraps,
-                        first: self.named(fields).first().copied(),
-                    }),
-                    _ => None,
-                })
+        let wrapper = data.wrapper.iter().map(|wrapper| (wrapper.constructor, true));
+        let constructors = data.constructors.iter().map(|constructor| (constructor.name, false));
+        wrapper.chain(constructors).find_map(|(constructor, wraps)| {
+            let scheme = self.constructors.get(&constructor)?;
+            let Ty::Function(fields, _) = &scheme.ty else {
+                return None;
+            };
+            fields.iter().find_map(|field| match field {
+                Ty::Record(fields, None) => {
+                    Some(Held { constructor, wraps, first: self.named(fields).first().copied() })
+                }
+                _ => None,
             })
+        })
     }
 
     /// How a type holding a record has a `cmp`: it writes one, ordering
@@ -1373,10 +1303,7 @@ impl Checker<'_> {
                 )
             })
         });
-        format!(
-            "write `cmp`'s clauses in `{name}`'s block{}",
-            example.unwrap_or_default()
-        )
+        format!("write `cmp`'s clauses in `{name}`'s block{}", example.unwrap_or_default())
     }
 
     /// A member asked of a value whose type nothing decides, where more
@@ -1398,9 +1325,7 @@ impl Checker<'_> {
                 "`{receiver}`'s `{owner}` asks the `{member}` of its `_`, and nothing here says what that is"
             )
         };
-        failure(pending.module, pending.span, message)
-            .note(note)
-            .help("let a signature decide it")
+        failure(pending.module, pending.span, message).note(note).help("let a signature decide it")
     }
 
     /// Why a signed body's own variable has no `pending`: its signature
@@ -1458,9 +1383,7 @@ impl Checker<'_> {
             .collect();
         let ty = Ty::Function(parameters, Rc::new(self.infer.resolve(&pending.result)));
         let known = replaced(&ty, &|leaf| match leaf {
-            Ty::Rigid(variable) => names
-                .get(variable)
-                .map(|name| Ty::Named(*name, Rc::default())),
+            Ty::Rigid(variable) => names.get(variable).map(|name| Ty::Named(*name, Rc::default())),
             _ => None,
         });
         let shown = show(&known, self.symbols);
@@ -1477,11 +1400,7 @@ impl Checker<'_> {
         // having no such member.
         if let Ty::Record(fields, tail) = &receiver {
             let has = tail.is_some() || fields.iter().any(|(name, _)| *name == pending.name);
-            return if has {
-                vec![Self::projection(pending.name)]
-            } else {
-                Vec::new()
-            };
+            return if has { vec![Self::projection(pending.name)] } else { Vec::new() };
         }
         let Some(fields) = self.fields.get(&pending.name) else {
             return Vec::new();
@@ -1598,10 +1517,9 @@ impl Checker<'_> {
         let components = match &receiver {
             Ty::Tuple(members) => members.clone(),
             Ty::Record(fields, _) => fields.iter().map(|(_, ty)| ty.clone()).collect(),
-            Ty::Variants(tags, _) => tags
-                .iter()
-                .flat_map(|(_, fields)| fields.iter().cloned())
-                .collect(),
+            Ty::Variants(tags, _) => {
+                tags.iter().flat_map(|(_, fields)| fields.iter().cloned()).collect()
+            }
             _ => return Ok(Some(false)),
         };
         // Which of the members a structural type has is asked, by the
@@ -1695,10 +1613,7 @@ impl Checker<'_> {
 
     /// The visible methods named at `pending` that its receiver could have.
     fn owned_methods(&self, pending: &PendingMethod) -> Vec<MethodImpl> {
-        let implementations = self
-            .methods
-            .get(&pending.name)
-            .map_or(&[][..], Vec::as_slice);
+        let implementations = self.methods.get(&pending.name).map_or(&[][..], Vec::as_slice);
         let receiver = self.infer.resolve(&pending.receiver);
         // A rigid receiver is a signed body's own variable: what it has is
         // what its bounds say. One not yet known may be such a variable too,
@@ -1718,10 +1633,7 @@ impl Checker<'_> {
             .map(|bound| MethodImpl {
                 owner: pending.name,
                 target: pending.name,
-                scheme: Scheme {
-                    variables: Vec::new(),
-                    ty: bound.ty.clone(),
-                },
+                scheme: Scheme { variables: Vec::new(), ty: bound.ty.clone() },
                 bound: true,
             });
         if let Ty::Rigid(_) = receiver {
@@ -1775,11 +1687,7 @@ impl Checker<'_> {
             Some((places, argument))
         });
         let Some((places, argument)) = written else {
-            let which = if at == 0 {
-                "the receiver".to_owned()
-            } else {
-                format!("argument {at}")
-            };
+            let which = if at == 0 { "the receiver".to_owned() } else { format!("argument {at}") };
             let name = self.symbols.text(pending.name);
             return failure(
                 module,
@@ -1813,13 +1721,9 @@ impl Checker<'_> {
         pending: &PendingMethod,
         implementation: &MethodImpl,
     ) -> Result<(), Refusal> {
-        let replacements = apply_signature(
-            &mut self.infer,
-            pending,
-            &implementation.scheme,
-            self.symbols,
-        )
-        .map_err(|misfit| self.misfit(pending, misfit, Some(implementation.target)))?;
+        let replacements =
+            apply_signature(&mut self.infer, pending, &implementation.scheme, self.symbols)
+                .map_err(|misfit| self.misfit(pending, misfit, Some(implementation.target)))?;
         // An obligation names nothing where it stands; a call through a
         // bound names its implementation only once it is specialized; a call
         // of an implementation owes that implementation's own bounds.
@@ -1837,12 +1741,7 @@ impl Checker<'_> {
             if let Some(site) = pending.site {
                 self.checked.methods.insert(site, implementation.target);
             }
-            self.oblige(
-                pending.module,
-                pending.span,
-                implementation.target,
-                &replacements,
-            )?;
+            self.oblige(pending.module, pending.span, implementation.target, &replacements)?;
         }
         Ok(())
     }
@@ -1859,10 +1758,8 @@ fn holds_function(ty: &Ty) -> bool {
             .flat_map(|(_, fields)| fields.iter())
             .chain(tail.as_deref())
             .any(holds_function),
-        Ty::Record(fields, tail) => fields
-            .iter()
-            .map(|(_, field)| field)
-            .chain(tail.as_deref())
-            .any(holds_function),
+        Ty::Record(fields, tail) => {
+            fields.iter().map(|(_, field)| field).chain(tail.as_deref()).any(holds_function)
+        }
     }
 }

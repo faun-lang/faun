@@ -37,10 +37,7 @@ impl Symbols {
     pub fn intern(&mut self, text: &str) -> Symbol {
         let hash = hash(text.as_bytes());
         if let Some(found) = self.buckets.get(&hash).and_then(|bucket| {
-            bucket
-                .iter()
-                .copied()
-                .find(|symbol| self.names[symbol.index()].as_ref() == text)
+            bucket.iter().copied().find(|symbol| self.names[symbol.index()].as_ref() == text)
         }) {
             return found;
         }
@@ -70,9 +67,7 @@ impl Symbols {
     /// else the compilation interned first.
     #[must_use]
     pub fn order(&self, a: Symbol, b: Symbol) -> std::cmp::Ordering {
-        self.spelling(a)
-            .cmp(self.spelling(b))
-            .then_with(|| self.text(a).cmp(self.text(b)))
+        self.spelling(a).cmp(self.spelling(b)).then_with(|| self.text(a).cmp(self.text(b)))
     }
 
     /// `entries` in [`Self::order`] of their names.
@@ -83,10 +78,7 @@ impl Symbols {
     #[must_use]
     pub fn find(&self, text: &str) -> Option<Symbol> {
         self.buckets.get(&hash(text.as_bytes())).and_then(|bucket| {
-            bucket
-                .iter()
-                .copied()
-                .find(|symbol| self.names[symbol.index()].as_ref() == text)
+            bucket.iter().copied().find(|symbol| self.names[symbol.index()].as_ref() == text)
         })
     }
 
@@ -110,10 +102,8 @@ impl Serialize for Symbols {
 impl<'de> Deserialize<'de> for Symbols {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let names = Vec::<Box<str>>::deserialize(deserializer)?;
-        let mut symbols = Self {
-            names: Vec::with_capacity(names.len()),
-            buckets: HashMap::default(),
-        };
+        let mut symbols =
+            Self { names: Vec::with_capacity(names.len()), buckets: HashMap::default() };
         for name in &names {
             symbols.intern(name);
         }

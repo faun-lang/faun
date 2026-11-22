@@ -118,22 +118,13 @@ struct Register {
 
 impl Register {
     /// Nothing known, which is where a label leaves it.
-    const NOTHING: Self = Self {
-        number: None,
-        place: None,
-    };
+    const NOTHING: Self = Self { number: None, place: None };
 
     /// What is known after this byte was loaded.
     const fn holding(held: Held) -> Self {
         match held {
-            Held::Imm(number) => Self {
-                number: Some(number),
-                place: None,
-            },
-            Held::Zero(place) => Self {
-                number: None,
-                place: Some(place),
-            },
+            Held::Imm(number) => Self { number: Some(number), place: None },
+            Held::Zero(place) => Self { number: None, place: Some(place) },
         }
     }
 
@@ -147,10 +138,7 @@ impl Register {
     }
 
     fn join(self, other: Self) -> Self {
-        Self {
-            number: same(self.number, other.number),
-            place: same(self.place, other.place),
-        }
+        Self { number: same(self.number, other.number), place: same(self.place, other.place) }
     }
 }
 
@@ -207,30 +195,20 @@ fn same<T: Copy + PartialEq>(left: Option<T>, right: Option<T>) -> Option<T> {
 /// Retain a register's value while updating whether it still equals memory.
 const fn stored(register: Register, operand: Operand) -> Register {
     match operand {
-        Operand::Zero(at) => Register {
-            place: Some(at),
-            ..register
-        },
-        Operand::Implied | Operand::Imm(_) | Operand::Indirect(_) | Operand::Abs(_) => Register {
-            place: None,
-            ..register
-        },
+        Operand::Zero(at) => Register { place: Some(at), ..register },
+        Operand::Implied | Operand::Imm(_) | Operand::Indirect(_) | Operand::Abs(_) => {
+            Register { place: None, ..register }
+        }
     }
 }
 
 /// A write to a register's remembered place breaks that equality.
 fn overwritten(register: Register, operand: Operand) -> Register {
     match operand {
-        Operand::Zero(at) if register.place == Some(at) => Register {
-            place: None,
-            ..register
-        },
+        Operand::Zero(at) if register.place == Some(at) => Register { place: None, ..register },
         // Indirect stores do not reach zero page in this target, but the
         // assembler does not carry that address-space proof.
-        Operand::Indirect(_) => Register {
-            place: None,
-            ..register
-        },
+        Operand::Indirect(_) => Register { place: None, ..register },
         Operand::Implied | Operand::Imm(_) | Operand::Zero(_) | Operand::Abs(_) => register,
     }
 }
@@ -247,13 +225,7 @@ impl MachineState {
     const UNKNOWN: Self = Self {
         acc: Register::NOTHING,
         x: Register::NOTHING,
-        flags: Flags {
-            carry: None,
-            zero: None,
-            negative: None,
-            overflow: None,
-            from: None,
-        },
+        flags: Flags { carry: None, zero: None, negative: None, overflow: None, from: None },
     };
 
     pub(crate) fn join(self, other: Self) -> Self {
@@ -317,10 +289,7 @@ impl Operand {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Inst {
     /// An instruction, as the machine reads it.
-    Op {
-        mnemonic: Mnemonic,
-        operand: Operand,
-    },
+    Op { mnemonic: Mnemonic, operand: Operand },
     /// A conditional, which is two bytes where it reaches and five where it
     /// does not.
     Branch { cc: Cc, to: Label },
@@ -342,13 +311,8 @@ impl Inst {
     const fn is_jump(self) -> bool {
         matches!(
             self,
-            Self::Op {
-                mnemonic: Mnemonic::Jmp,
-                ..
-            } | Self::Absolute {
-                mnemonic: Mnemonic::Jmp,
-                ..
-            }
+            Self::Op { mnemonic: Mnemonic::Jmp, .. }
+                | Self::Absolute { mnemonic: Mnemonic::Jmp, .. }
         )
     }
 
@@ -479,10 +443,7 @@ impl Assembler {
     }
 
     pub(crate) fn new(origin: u16) -> Self {
-        Self {
-            origin,
-            ..Self::default()
-        }
+        Self { origin, ..Self::default() }
     }
 
     pub(crate) fn label(&mut self) -> Label {
@@ -591,13 +552,9 @@ impl Assembler {
     fn number(&self, operand: Operand) -> Option<u8> {
         match operand {
             Operand::Imm(value) => Some(value),
-            Operand::Zero(at) => [self.state.acc, self.state.x]
-                .into_iter()
-                .find_map(|register| {
-                    (register.place == Some(at))
-                        .then_some(register.number)
-                        .flatten()
-                }),
+            Operand::Zero(at) => [self.state.acc, self.state.x].into_iter().find_map(|register| {
+                (register.place == Some(at)).then_some(register.number).flatten()
+            }),
             Operand::Implied | Operand::Indirect(_) | Operand::Abs(_) => None,
         }
     }
@@ -627,10 +584,7 @@ impl Assembler {
 
     /// What an instruction does to the registers and to what is known of
     /// the flags' values.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one exhaustive arm per machine instruction family"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one exhaustive arm per machine instruction family")]
     fn effect(&self, mnemonic: Mnemonic, operand: Operand) -> MachineState {
         use Mnemonic as M;
         let before = self.state;
@@ -647,42 +601,24 @@ impl Assembler {
                 let x = stored(before.x, operand);
                 MachineState { acc, x, ..before }
             }
-            M::Ldy => MachineState {
-                flags: before.flags.with_nz(self.number(operand)),
-                ..before
-            },
-            M::Iny => MachineState {
-                flags: before.flags.with_nz(None),
-                ..before
-            },
+            M::Ldy => MachineState { flags: before.flags.with_nz(self.number(operand)), ..before },
+            M::Iny => MachineState { flags: before.flags.with_nz(None), ..before },
             // What the stack pointer is, nothing here follows.
-            M::Tsx => MachineState {
-                x: Register::NOTHING,
-                flags: before.flags.with_nz(None),
-                ..before
-            },
+            M::Tsx => {
+                MachineState { x: Register::NOTHING, flags: before.flags.with_nz(None), ..before }
+            }
             M::Dex | M::Inx => {
                 let number = before.x.number.map(|value| {
-                    if mnemonic == M::Dex {
-                        value.wrapping_sub(1)
-                    } else {
-                        value.wrapping_add(1)
-                    }
+                    if mnemonic == M::Dex { value.wrapping_sub(1) } else { value.wrapping_add(1) }
                 });
                 MachineState {
-                    x: Register {
-                        number,
-                        place: None,
-                    },
+                    x: Register { number, place: None },
                     flags: before.flags.with_nz(number),
                     ..before
                 }
             }
             M::Clc | M::Sec => MachineState {
-                flags: Flags {
-                    carry: Some(mnemonic == M::Sec),
-                    ..before.flags
-                },
+                flags: Flags { carry: Some(mnemonic == M::Sec), ..before.flags },
                 ..before
             },
             M::Cmp => self.after_compare(before.acc, operand),
@@ -707,33 +643,21 @@ impl Assembler {
         let number = self.number(operand);
         match operand {
             Operand::Imm(value) => Register::holding(Held::Imm(value)),
-            Operand::Zero(at) => Register {
-                number,
-                place: Some(at),
-            },
-            Operand::Implied | Operand::Indirect(_) | Operand::Abs(_) => Register {
-                number,
-                place: None,
-            },
+            Operand::Zero(at) => Register { number, place: Some(at) },
+            Operand::Implied | Operand::Indirect(_) | Operand::Abs(_) => {
+                Register { number, place: None }
+            }
         }
     }
 
     fn after_load(&self, operand: Operand) -> MachineState {
         let acc = self.loaded(operand);
-        MachineState {
-            acc,
-            flags: self.state.flags.with_nz(acc.number),
-            ..self.state
-        }
+        MachineState { acc, flags: self.state.flags.with_nz(acc.number), ..self.state }
     }
 
     fn after_load_x(&self, operand: Operand) -> MachineState {
         let x = self.loaded(operand);
-        MachineState {
-            x,
-            flags: self.state.flags.with_nz(x.number),
-            ..self.state
-        }
+        MachineState { x, flags: self.state.flags.with_nz(x.number), ..self.state }
     }
 
     fn after_compare(&self, register: Register, operand: Operand) -> MachineState {
@@ -747,47 +671,28 @@ impl Assembler {
             (_, Some(0)) => Some(true),
             _ => None,
         };
-        MachineState {
-            flags: Flags { carry, ..flags },
-            ..self.state
-        }
+        MachineState { flags: Flags { carry, ..flags }, ..self.state }
     }
 
     fn after_logic(&self, mnemonic: Mnemonic, operand: Operand) -> MachineState {
-        let number = self
-            .state
-            .acc
-            .number
-            .zip(self.number(operand))
-            .map(|(left, right)| match mnemonic {
+        let number =
+            self.state.acc.number.zip(self.number(operand)).map(|(left, right)| match mnemonic {
                 Mnemonic::And => left & right,
                 Mnemonic::Ora => left | right,
                 Mnemonic::Eor => left ^ right,
                 _ => unreachable!("a logical instruction"),
             });
         MachineState {
-            acc: Register {
-                number,
-                place: None,
-            },
+            acc: Register { number, place: None },
             flags: self.state.flags.with_nz(number),
             ..self.state
         }
     }
 
     fn after_arithmetic(&self, mnemonic: Mnemonic, operand: Operand) -> MachineState {
-        let known = self
-            .state
-            .acc
-            .number
-            .zip(self.number(operand))
-            .zip(self.state.flags.carry);
+        let known = self.state.acc.number.zip(self.number(operand)).zip(self.state.flags.carry);
         let Some(((left, right), carry)) = known else {
-            return MachineState {
-                acc: Register::NOTHING,
-                flags: Flags::default(),
-                ..self.state
-            };
+            return MachineState { acc: Register::NOTHING, flags: Flags::default(), ..self.state };
         };
         let (number, carry, overflow) = match mnemonic {
             Mnemonic::Adc => {
@@ -805,10 +710,7 @@ impl Assembler {
             _ => unreachable!("an arithmetic instruction"),
         };
         MachineState {
-            acc: Register {
-                number: Some(number),
-                place: None,
-            },
+            acc: Register { number: Some(number), place: None },
             flags: Flags {
                 carry: Some(carry),
                 overflow: Some(overflow),
@@ -838,19 +740,13 @@ impl Assembler {
         });
         let number = result.map(|(number, _)| number);
         let acc = match operand {
-            Operand::Implied => Register {
-                number,
-                place: None,
-            },
+            Operand::Implied => Register { number, place: None },
             _ => overwritten(before.acc, operand),
         };
         MachineState {
             acc,
             x: overwritten(before.x, operand),
-            flags: Flags {
-                carry: result.map(|(_, carry)| carry),
-                ..before.flags.with_nz(number)
-            },
+            flags: Flags { carry: result.map(|(_, carry)| carry), ..before.flags.with_nz(number) },
         }
     }
 
@@ -965,18 +861,11 @@ impl Assembler {
             // Each step moves to a different jump, so a ring of them is the
             // only way to go on longer than there are instructions.
             for _ in 0..self.code.insts().len() {
-                let Inst::Absolute {
-                    mnemonic: Mnemonic::Jmp,
-                    to,
-                } = self.code.insts()[at]
-                else {
+                let Inst::Absolute { mnemonic: Mnemonic::Jmp, to } = self.code.insts()[at] else {
                     break;
                 };
-                let landing = self
-                    .code
-                    .position(to)
-                    .and_then(|id| self.code.insts().get(id))
-                    .copied();
+                let landing =
+                    self.code.position(to).and_then(|id| self.code.insts().get(id)).copied();
                 match landing {
                     Some(next) if next.is_jump() && next != self.code.insts()[at] => {
                         self.code.insts_mut()[at] = next;
@@ -1103,10 +992,7 @@ impl Assembler {
         self.arrive(label, MachineState::UNKNOWN);
         self.state = MachineState {
             acc: Register::NOTHING,
-            flags: Flags {
-                from: Some(Reg::A),
-                ..self.state.flags.with_nz(None)
-            },
+            flags: Flags { from: Some(Reg::A), ..self.state.flags.with_nz(None) },
             ..self.state
         };
         self.code.push(Inst::Half { to: label, half });
@@ -1304,10 +1190,7 @@ impl Assembler {
 
     /// A bitwise and, or, or exclusive or of the accumulator with a byte.
     pub(crate) fn logic(&mut self, mnemonic: Mnemonic, byte: Held) {
-        debug_assert!(matches!(
-            mnemonic,
-            Mnemonic::And | Mnemonic::Ora | Mnemonic::Eor
-        ));
+        debug_assert!(matches!(mnemonic, Mnemonic::And | Mnemonic::Ora | Mnemonic::Eor));
         let operand = match byte {
             Held::Imm(value) => Operand::Imm(value),
             Held::Zero(at) => Operand::Zero(at),
@@ -1443,10 +1326,7 @@ mod tests {
         asm.bind(tail);
         asm.jmp_abs(0xFFF9);
 
-        assert_eq!(
-            asm.finish(),
-            [0x4C, 0xF9, 0xFF, 0xA9, 0x00, 0x4C, 0xF9, 0xFF]
-        );
+        assert_eq!(asm.finish(), [0x4C, 0xF9, 0xFF, 0xA9, 0x00, 0x4C, 0xF9, 0xFF]);
     }
 
     #[test]

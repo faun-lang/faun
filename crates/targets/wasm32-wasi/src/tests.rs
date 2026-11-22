@@ -74,10 +74,7 @@ fn it_holds_what_a_program_holds() {
     assert!(TARGET.accepts(&wide(4)).is_ok());
     assert!(TARGET.accepts(&narrow(32)).is_ok());
     let refused = TARGET.accepts(&narrow(33)).unwrap_err();
-    assert!(
-        refused.contains("holds 32 bits, and a value here needs 33"),
-        "{refused}"
-    );
+    assert!(refused.contains("holds 32 bits, and a value here needs 33"), "{refused}");
 }
 
 /// `proc_exit(0)` at the end of the entry needs no import, memory or data.

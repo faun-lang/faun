@@ -160,13 +160,7 @@ fn rewritten(program: &mut Program, id: FnId, found: &Descent, monus: FnId) -> B
                 inner.push(Atom(Local::at(scope.level)));
                 copy::body(program, found.second_empty, inner, scope.level + 1, None)
             } else {
-                copy::body(
-                    program,
-                    found.first_empty,
-                    locals.clone(),
-                    scope.level,
-                    None,
-                )
+                copy::body(program, found.first_empty, locals.clone(), scope.level, None)
             };
             super::Arm { ctor, body }
         })

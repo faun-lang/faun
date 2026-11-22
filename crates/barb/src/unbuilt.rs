@@ -48,18 +48,12 @@ const LARGEST: usize = 256;
 pub(crate) fn constructions(program: &mut Program) {
     let count = program.functions().len();
     let recognised = program.recognised();
-    let answered = (0..count)
-        .map(|at| recognised.answered(FnId::at(at)))
-        .collect();
+    let answered = (0..count).map(|at| recognised.answered(FnId::at(at))).collect();
     let entry = program.entry();
     let reached = super::sweep::reached(program, entry).0;
     let once = super::once::made_once(program, entry, &reached);
-    let mut unbuilt = Unbuilt {
-        answered,
-        copies: HashMap::default(),
-        made: HashMap::default(),
-        program,
-    };
+    let mut unbuilt =
+        Unbuilt { answered, copies: HashMap::default(), made: HashMap::default(), program };
     let count = unbuilt.program.functions().len();
     for (at, &reached) in reached.iter().enumerate().take(count) {
         let id = FnId::at(at);
@@ -192,11 +186,9 @@ impl Unbuilt<'_> {
         let reads = self.live_reads(body, depth);
         for (at, &expr) in bindings.iter().chain([&body.tail]).enumerate() {
             let held = match self.program.expr(expr) {
-                Expr::Con(ctor, fields) if reads.get(at) == Some(&1) => Some(Made {
-                    ctor,
-                    fields: self.program.atoms(fields).to_vec(),
-                    built: true,
-                }),
+                Expr::Con(ctor, fields) if reads.get(at) == Some(&1) => {
+                    Some(Made { ctor, fields: self.program.atoms(fields).to_vec(), built: true })
+                }
                 Expr::Static(value) => self.fieldless(value, copied),
                 Expr::Call(callee, args) => {
                     let args = self.program.atoms(args).to_vec();
@@ -225,10 +217,8 @@ impl Unbuilt<'_> {
     fn fieldless(&self, value: super::ConstId, copied: bool) -> Option<Made> {
         let ctor = self.program.constant(value).constructor();
         let owner = self.program.ctor(ctor).owner;
-        let natural = matches!(
-            super::type_shape(self.program, owner),
-            super::TypeShape::Natural { .. }
-        );
+        let natural =
+            matches!(super::type_shape(self.program, owner), super::TypeShape::Natural { .. });
         (self.program.fields(ctor).is_empty() && !natural).then(|| Made {
             ctor,
             fields: Vec::new(),
@@ -308,11 +298,7 @@ impl Unbuilt<'_> {
         if let Some(&known) = self.copies.get(&(id, key.clone())) {
             return known;
         }
-        let made = self
-            .copies
-            .keys()
-            .filter(|(origin, _)| *origin == id)
-            .count();
+        let made = self.copies.keys().filter(|(origin, _)| *origin == id).count();
         let copy = (made < COPIES).then(|| self.copied(id, key)).flatten();
         self.copies.insert((id, key.clone()), copy);
         if let Some(copy) = copy {
@@ -356,11 +342,7 @@ impl Unbuilt<'_> {
         let written = copy::close(self.program, scope, answer);
         self.program.replace_bodies(vec![(copy, written)]);
         super::normalize::resimplify(self.program, &[copy]);
-        let simplified = self
-            .program
-            .function(copy)
-            .body()
-            .expect("a copy has a body");
+        let simplified = self.program.function(copy).body().expect("a copy has a body");
         (branches(self.program, simplified) < before).then_some(copy)
     }
 }
@@ -383,13 +365,7 @@ fn site(known: &[Option<Made>], expr: ExprId, callee: FnId, args: Vec<Atom>) -> 
         shapes.push(shape);
         leaves.push(made_of);
     }
-    shapes.iter().any(Option::is_some).then_some(Site {
-        expr,
-        callee,
-        args,
-        shapes,
-        leaves,
-    })
+    shapes.iter().any(Option::is_some).then_some(Site { expr, callee, args, shapes, leaves })
 }
 
 /// The shape of what `atom` holds, where `known` says it is a construction
@@ -407,14 +383,8 @@ fn taken(
         return None;
     };
     *nodes -= 1;
-    let fields = fields
-        .iter()
-        .map(|&field| taken(known, field, nodes, leaves))
-        .collect();
-    Some(Shape {
-        ctor: *ctor,
-        fields,
-    })
+    let fields = fields.iter().map(|&field| taken(known, field, nodes, leaves)).collect();
+    Some(Shape { ctor: *ctor, fields })
 }
 
 /// The types of the leaves of `shape`, in order.

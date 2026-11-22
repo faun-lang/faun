@@ -73,9 +73,7 @@ pub fn two_and_two_in_barb() -> barb::Program {
         })
     });
 
-    let two = program
-        .intern_number(nat, 2)
-        .expect("the declared natural shape");
+    let two = program.intern_number(nat, 2).expect("the declared natural shape");
     let main = program.declare("main", &[], nat);
     program.define(main, |b, _| {
         let value = b.known(two);
@@ -105,9 +103,7 @@ pub fn an_arm_that_leaves(leave: bool) -> barb::Program {
     let (zero, succ) = (program.ctor_at(nat, 0), program.ctor_at(nat, 1));
     let exit = program.declare("exit!", &[host, nat], never);
     let one = program.intern_number(nat, 1).expect("a natural");
-    let which = program
-        .intern_number(nat, if leave { 0 } else { 2 })
-        .expect("a natural");
+    let which = program.intern_number(nat, if leave { 0 } else { 2 }).expect("a natural");
 
     let pick = program.declare_named("pick!", &[("host", host), ("n", nat)], nat);
     program.define(pick, |b, args| {
@@ -677,20 +673,8 @@ pub fn countdown(times: u64) -> Program {
 pub fn printing() -> Vec<(&'static str, Program, String)> {
     vec![
         ("hello world", hello_world(), "Hello, World!\n".to_owned()),
-        (
-            "a computed length",
-            writes_a_length_it_worked_out(),
-            "hi\n".to_owned(),
-        ),
-        (
-            "writing the heap",
-            writes_from_the_heap(),
-            "hi\n".to_owned(),
-        ),
-        (
-            "ticks",
-            counts_down_before_it_branches(3),
-            "tick\n".repeat(3),
-        ),
+        ("a computed length", writes_a_length_it_worked_out(), "hi\n".to_owned()),
+        ("writing the heap", writes_from_the_heap(), "hi\n".to_owned()),
+        ("ticks", counts_down_before_it_branches(3), "tick\n".repeat(3)),
     ]
 }

@@ -32,18 +32,12 @@ pub struct Refusal {
 
 impl Refusal {
     const fn of_program(message: String) -> Self {
-        Self {
-            message,
-            function: None,
-        }
+        Self { message, function: None }
     }
 
     /// A definition's fault, with nothing more to say than `message`.
     const fn of_function(message: String, function: FnId) -> Self {
-        Self {
-            message,
-            function: Some(function),
-        }
+        Self { message, function: Some(function) }
     }
 }
 
@@ -153,15 +147,9 @@ fn saturated(
     level: u32,
 ) -> Result<(), String> {
     if args.len() != takes {
-        return Err(format!(
-            "{name} gives `{held}` {} where it takes {takes}",
-            args.len()
-        ));
+        return Err(format!("{name} gives `{held}` {} where it takes {takes}", args.len()));
     }
-    program
-        .atoms(args)
-        .iter()
-        .try_for_each(|atom| bound(name, *atom, level))
+    program.atoms(args).iter().try_for_each(|atom| bound(name, *atom, level))
 }
 
 /// A match has an arm per constructor of what it takes apart, in the order
@@ -181,10 +169,7 @@ fn covers(program: &Program, name: &str, arms: Range) -> Result<(), String> {
         });
     if wrong {
         let owner = program.name(program.type_(owner).name);
-        return Err(format!(
-            "{name} matches `{owner}` with {} arms of its {ctors}",
-            held.len()
-        ));
+        return Err(format!("{name} matches `{owner}` with {} arms of its {ctors}", held.len()));
     }
     Ok(())
 }

@@ -19,12 +19,8 @@ use super::{Class, Op, Program, RegionId, Relation, ValueId};
 #[must_use]
 pub fn conversions_taking_nothing(program: &Program) -> Vec<bool> {
     let guards = Guards::of(program);
-    let mut walk = Walk {
-        program,
-        guards,
-        bounds: Vec::new(),
-        whole: vec![false; program.values_count()],
-    };
+    let mut walk =
+        Walk { program, guards, bounds: Vec::new(), whole: vec![false; program.values_count()] };
     for function in program.functions() {
         if let Some(body) = function.body() {
             walk.region(body);
@@ -52,19 +48,14 @@ impl Guards {
                     Op::Convert { value } if program.class(results[0]) == Class::Natural => {
                         constants[results[0].index()] = constants[value.index()];
                     }
-                    Op::Compare {
-                        relation,
-                        left,
-                        right,
-                    } => comparisons[results[0].index()] = Some((relation, left, right)),
+                    Op::Compare { relation, left, right } => {
+                        comparisons[results[0].index()] = Some((relation, left, right));
+                    }
                     _ => {}
                 }
             }
         }
-        Self {
-            constants,
-            comparisons,
-        }
+        Self { constants, comparisons }
     }
 }
 
@@ -84,11 +75,7 @@ impl Walk<'_> {
                     self.whole[results[0].index()] =
                         self.below(value, self.program.class(results[0]));
                 }
-                Op::If {
-                    condition,
-                    then_region,
-                    else_region,
-                } => {
+                Op::If { condition, then_region, else_region } => {
                     let [then_bound, else_bound] = self.arm_bounds(condition);
                     self.region_under(then_region, then_bound);
                     self.region_under(else_region, else_bound);
@@ -125,11 +112,7 @@ impl Walk<'_> {
         let Some(kept) = class.width() else {
             return false;
         };
-        let declared = self
-            .program
-            .class(value)
-            .facts()
-            .and_then(|facts| facts.high);
+        let declared = self.program.class(value).facts().and_then(|facts| facts.high);
         let high = self
             .bounds
             .iter()
@@ -154,12 +137,7 @@ impl CheckedWords {
         let mut plan = Self::default();
         let guards = Guards::of(p);
         for op in &p.ops {
-            let Op::If {
-                condition,
-                then_region,
-                ..
-            } = *op
-            else {
+            let Op::If { condition, then_region, .. } = *op else {
                 continue;
             };
             let Some((Relation::Less, source, bound)) = guards.comparisons[condition.index()]
@@ -202,8 +180,6 @@ fn scalar_arm(p: &Program, region: RegionId) -> bool {
                 | Op::Float { .. }
                 | Op::Shift { .. }
                 | Op::Compare { .. }
-        ) && results
-            .iter()
-            .all(|&v| matches!(p.class(v), Class::Word | Class::Held(_)))
+        ) && results.iter().all(|&v| matches!(p.class(v), Class::Word | Class::Held(_)))
     })
 }

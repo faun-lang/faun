@@ -329,11 +329,7 @@ impl Lexer<'_> {
     fn push(&mut self, kind: Kind, start: usize) {
         if self.newline_before && self.ends_line_before(kind) {
             let at = self.out.last().expect("a token before a line break").end;
-            self.out.push(Token {
-                kind: Kind::Newline,
-                start: at,
-                end: at,
-            });
+            self.out.push(Token { kind: Kind::Newline, start: at, end: at });
         }
         let kind = self.classify(kind);
         match kind {
@@ -501,10 +497,7 @@ impl Lexer<'_> {
     fn unicode_escape_end(&self) -> Option<usize> {
         let rest = self.bytes.get(self.at..)?;
         let digits = rest.strip_prefix(b"u{")?;
-        let count = digits
-            .iter()
-            .take_while(|byte| byte.is_ascii_hexdigit())
-            .count();
+        let count = digits.iter().take_while(|byte| byte.is_ascii_hexdigit()).count();
         if count == 0 || digits.get(count) != Some(&b'}') {
             return None;
         }
@@ -521,11 +514,7 @@ impl Lexer<'_> {
         if let Some(radix) = radix {
             self.at += 2;
             let digits = self.at;
-            while self
-                .bytes
-                .get(self.at)
-                .is_some_and(|byte| char::from(*byte).is_digit(radix))
-            {
+            while self.bytes.get(self.at).is_some_and(|byte| char::from(*byte).is_digit(radix)) {
                 self.at += 1;
             }
             if self.at == digits {
@@ -556,11 +545,7 @@ impl Lexer<'_> {
             }
         }
         // A numeral ends where a word would: `1True` is no token at all.
-        if self
-            .bytes
-            .get(self.at)
-            .is_some_and(|byte| is_word_char(*byte))
-        {
+        if self.bytes.get(self.at).is_some_and(|byte| is_word_char(*byte)) {
             self.eat_word_chars();
             return Kind::Error;
         }
@@ -574,11 +559,7 @@ impl Lexer<'_> {
     }
 
     fn eat_word_chars(&mut self) {
-        while self
-            .bytes
-            .get(self.at)
-            .is_some_and(|byte| is_word_char(*byte))
-        {
+        while self.bytes.get(self.at).is_some_and(|byte| is_word_char(*byte)) {
             self.at += 1;
         }
     }
@@ -716,22 +697,13 @@ mod tests {
                 Kind::Eof
             ]
         );
-        assert_eq!(
-            kinds(r#""\"\${""#),
-            [Kind::StrStart, Kind::StrText, Kind::StrEnd, Kind::Eof]
-        );
+        assert_eq!(kinds(r#""\"\${""#), [Kind::StrStart, Kind::StrText, Kind::StrEnd, Kind::Eof]);
     }
 
     #[test]
     fn numerals_keep_their_points_for_the_grammar() {
-        assert_eq!(
-            kinds("1..3")[..3],
-            [Kind::Number, Kind::DotDot, Kind::Number]
-        );
-        assert_eq!(
-            kinds("2.pow(k)")[..3],
-            [Kind::Number, Kind::Dot, Kind::Ident]
-        );
+        assert_eq!(kinds("1..3")[..3], [Kind::Number, Kind::DotDot, Kind::Number]);
+        assert_eq!(kinds("2.pow(k)")[..3], [Kind::Number, Kind::Dot, Kind::Ident]);
         assert_eq!(kinds("1.5e3")[0], Kind::Decimal);
         assert_eq!(kinds("0xffTrue")[0], Kind::Error);
         assert_eq!(kinds("0x")[0], Kind::Error);
@@ -740,10 +712,7 @@ mod tests {
     #[test]
     fn a_character_literal_names_a_scalar_by_its_digits() {
         assert_eq!(kinds(r"'\u{e9}'"), [Kind::Char, Kind::Eof]);
-        assert_eq!(
-            kinds(r"'\u{80}'..'\u{ff}'"),
-            [Kind::Char, Kind::DotDot, Kind::Char, Kind::Eof]
-        );
+        assert_eq!(kinds(r"'\u{80}'..'\u{ff}'"), [Kind::Char, Kind::DotDot, Kind::Char, Kind::Eof]);
         assert_eq!(kinds(r"'\n'"), [Kind::Char, Kind::Eof]);
         assert_eq!(kinds(r"'\u{}'")[0], Kind::Error);
     }
@@ -765,48 +734,17 @@ mod tests {
         // method block holds lines of items, and a plain `(` a block's.
         assert_eq!(
             kinds("f(a,\nb)"),
-            [
-                Ident,
-                CallParen,
-                Ident,
-                Kind::Comma,
-                Ident,
-                RParen,
-                Kind::Eof
-            ]
+            [Ident, CallParen, Ident, Kind::Comma, Ident, RParen, Kind::Eof]
         );
-        assert_eq!(
-            kinds("[a\nb]"),
-            [Kind::LBracket, Ident, Ident, Kind::RBracket, Kind::Eof]
-        );
-        assert_eq!(
-            kinds("(a,\nb\n)"),
-            [LParen, Ident, Kind::Comma, Ident, RParen, Kind::Eof]
-        );
+        assert_eq!(kinds("[a\nb]"), [Kind::LBracket, Ident, Ident, Kind::RBracket, Kind::Eof]);
+        assert_eq!(kinds("(a,\nb\n)"), [LParen, Ident, Kind::Comma, Ident, RParen, Kind::Eof]);
         assert_eq!(
             kinds("(a = b\nc\n)"),
-            [
-                LParen,
-                Ident,
-                Kind::Eq,
-                Ident,
-                Newline,
-                Ident,
-                RParen,
-                Kind::Eof
-            ]
+            [LParen, Ident, Kind::Eq, Ident, Newline, Ident, RParen, Kind::Eof]
         );
         assert_eq!(
             kinds("T.(a\nb\n)"),
-            [
-                TypeIdent,
-                DotParen,
-                Ident,
-                Newline,
-                Ident,
-                RParen,
-                Kind::Eof
-            ]
+            [TypeIdent, DotParen, Ident, Newline, Ident, RParen, Kind::Eof]
         );
         assert_eq!(kinds("\"${a\nb}\"")[2..4], [Ident, Ident]);
         assert_eq!(kinds("a\n"), [Ident, Kind::Eof]);

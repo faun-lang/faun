@@ -61,10 +61,7 @@ fn cost(source: &barb::Program) -> Cost {
         &scalar,
         scalar.entry(),
         &[],
-        evaluate::Config {
-            fuel: 100_000_000,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { fuel: 100_000_000, ..evaluate::Config::default() },
         &mut RejectHost,
     )
     .unwrap();
@@ -215,12 +212,7 @@ fn a_list_round_trip_costs_linear_work() {
 fn a_list_round_trip_costs_what_is_recorded() {
     assert_eq!(
         cost(&round_trip(100)),
-        Cost {
-            allocations: 5,
-            retains: 0,
-            releases: 7,
-            stored_bytes: 758,
-        }
+        Cost { allocations: 5, retains: 0, releases: 7, stored_bytes: 758 }
     );
 }
 
@@ -330,11 +322,9 @@ fn a_claim_read_last_by_a_branch_is_released_in_each_arm() {
     let (then_region, else_region) = scalar
         .walk(body)
         .find_map(|(op, results)| match *op {
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } if !results.is_empty() => Some((then_region, else_region)),
+            Op::If { then_region, else_region, .. } if !results.is_empty() => {
+                Some((then_region, else_region))
+            }
             _ => None,
         })
         .unwrap();
@@ -357,11 +347,7 @@ fn releases_in(
         .walk(region)
         .map(|(op, _)| match *op {
             Op::Call { function, .. } if function == release => 1,
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } if (then_region, else_region) != skip => {
+            Op::If { then_region, else_region, .. } if (then_region, else_region) != skip => {
                 releases_in(scalar, then_region, release, skip)
                     + releases_in(scalar, else_region, release, skip)
             }
@@ -376,10 +362,6 @@ fn releases_in(
 /// sharing its tail, each one element longer. It answers the sum of both
 /// forks' first counts (seven each), the count in the last element's cell
 /// (nought) and the count first in the unforked sequence (`n - 1`): `n + 13`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one program built, forked, and read back from each fork"
-)]
 fn pushes(n: u64) -> Program {
     let (mut p, main) = Program::new("main");
     p.define(main, |b, _| {
@@ -391,12 +373,7 @@ fn pushes(n: u64) -> Program {
         let built = b.loop_(&[empty, zero, zero], &sequence, |b, state| {
             let (buffer, start, len) = (state[0], state[1], state[2]);
             let done = b.compare(Relation::Equal, len, limit);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[buffer, start, len]),
-                |b| b.yield_(&[]),
-            );
+            b.if_(done, &[], |b| b.break_(&[buffer, start, len]), |b| b.yield_(&[]));
             let word = b.shape(&[Class::Word]);
             let boxed = b.cell(0, word, &[len]);
             let [grown, earlier] = b.buffer_push((buffer, start, len), pairs, &[len, boxed]);
@@ -438,10 +415,7 @@ fn run_machine_counting(machine: &Program, inline_counts: bool) -> (Vec<BigUint>
         machine,
         machine.entry(),
         &[],
-        evaluate::Config {
-            fuel: 100_000_000,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { fuel: 100_000_000, ..evaluate::Config::default() },
         &mut RejectHost,
     )
     .unwrap()
@@ -461,10 +435,7 @@ fn run_machine_counting(machine: &Program, inline_counts: bool) -> (Vec<BigUint>
         &scalar,
         scalar.entry(),
         &[],
-        evaluate::Config {
-            fuel: 100_000_000,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { fuel: 100_000_000, ..evaluate::Config::default() },
         &mut RejectHost,
     )
     .unwrap();

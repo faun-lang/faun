@@ -97,9 +97,7 @@ fn callee(program: &Program, function: FunctionId) -> Option<usize> {
 
 /// Which functions are in a call cycle.
 fn cycles(callees: &[Vec<Option<usize>>]) -> Vec<bool> {
-    (0..callees.len())
-        .map(|at| reaches_itself(callees, at))
-        .collect()
+    (0..callees.len()).map(|at| reaches_itself(callees, at)).collect()
 }
 
 /// Whether a function reaches itself through what it calls.
@@ -139,13 +137,7 @@ impl<'a> Walk<'a> {
         own: &'a [u32],
         step: u32,
     ) -> Self {
-        Self {
-            callees,
-            cycles,
-            own,
-            step,
-            below: vec![None; callees.len()],
-        }
+        Self { callees, cycles, own, step, below: vec![None; callees.len()] }
     }
 
     /// The deepest chain from a function's body: its own bytes, and the most
@@ -153,32 +145,20 @@ impl<'a> Walk<'a> {
     /// does not check, that one's deepest chain. Functions outside every
     /// cycle call round nothing, so this comes to an end.
     fn from(&mut self, function: usize) -> Chain {
-        let mut most = Chain {
-            bytes: 0,
-            ends: FunctionId::at(function),
-        };
+        let mut most = Chain { bytes: 0, ends: FunctionId::at(function) };
         let callees = self.callees;
         for &callee in &callees[function] {
             let beneath = match callee {
                 Some(at) if !self.cycles[at] => self.unchecked(at),
-                _ => Chain {
-                    bytes: 0,
-                    ends: FunctionId::at(function),
-                },
+                _ => Chain { bytes: 0, ends: FunctionId::at(function) },
             };
             let reach = self.step.saturating_add(beneath.bytes);
             if reach > most.bytes {
-                most = Chain {
-                    bytes: reach,
-                    ends: beneath.ends,
-                };
+                most = Chain { bytes: reach, ends: beneath.ends };
             }
         }
         let own = self.own[function];
-        Chain {
-            bytes: own.saturating_add(most.bytes),
-            ends: most.ends,
-        }
+        Chain { bytes: own.saturating_add(most.bytes), ends: most.ends }
     }
 
     /// The deepest chain from a function that does not check, worked out the

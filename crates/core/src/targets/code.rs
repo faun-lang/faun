@@ -27,11 +27,7 @@ pub struct Code<I> {
 
 impl<I> Default for Code<I> {
     fn default() -> Self {
-        Self {
-            insts: Vec::new(),
-            labels: Vec::new(),
-            last_bound: None,
-        }
+        Self { insts: Vec::new(), labels: Vec::new(), last_bound: None }
     }
 }
 
@@ -93,10 +89,7 @@ impl<I> Code<I> {
     /// Every label made so far, with where it is bound.
     #[must_use]
     pub fn labels(&self) -> impl ExactSizeIterator<Item = (Label, Option<usize>)> + '_ {
-        self.labels
-            .iter()
-            .enumerate()
-            .map(|(at, &position)| (Label::at(at), position))
+        self.labels.iter().enumerate().map(|(at, &position)| (Label::at(at), position))
     }
 
     /// Drop the instruction at `at`, moving labels after it back by one.
@@ -106,12 +99,7 @@ impl<I> Code<I> {
     /// If there is no instruction at `at`.
     pub fn remove(&mut self, at: usize) -> I {
         let inst = self.insts.remove(at);
-        for position in self
-            .labels
-            .iter_mut()
-            .chain([&mut self.last_bound])
-            .flatten()
-        {
+        for position in self.labels.iter_mut().chain([&mut self.last_bound]).flatten() {
             if *position > at {
                 *position -= 1;
             }
@@ -129,12 +117,7 @@ impl<I> Code<I> {
     pub fn replace(&mut self, at: usize, with: Vec<I>) {
         assert!(at < self.insts.len(), "an instruction to replace");
         let added = with.len();
-        for position in self
-            .labels
-            .iter_mut()
-            .chain([&mut self.last_bound])
-            .flatten()
-        {
+        for position in self.labels.iter_mut().chain([&mut self.last_bound]).flatten() {
             if *position > at {
                 *position = *position + added - 1;
             }
@@ -160,17 +143,11 @@ impl<I> Code<I> {
             at += usize::from(held);
         }
         moved.push(at);
-        for position in self
-            .labels
-            .iter_mut()
-            .chain([&mut self.last_bound])
-            .flatten()
-        {
+        for position in self.labels.iter_mut().chain([&mut self.last_bound]).flatten() {
             *position = moved[*position];
         }
         let mut held = kept.iter();
-        self.insts
-            .retain(|_| *held.next().expect("a keep for every instruction"));
+        self.insts.retain(|_| *held.next().expect("a keep for every instruction"));
     }
 }
 

@@ -41,11 +41,7 @@ use super::{TypeShape, type_shape};
 pub(crate) fn forward(program: &mut Program) {
     let recognised = program.recognised().clone();
     let count = program.functions().len();
-    let mut writer = Writer {
-        recognised,
-        helpers: HashMap::default(),
-        program,
-    };
+    let mut writer = Writer { recognised, helpers: HashMap::default(), program };
     let mut bodies = Vec::new();
     for at in 0..count {
         let id = FnId::at(at);
@@ -112,22 +108,10 @@ fn walk(program: &Program, id: FnId) -> Option<Walk> {
         Place::Whole => result,
         Place::Field { ctor, field } => program.types_of(program.ctor(ctor).fields)[field],
     };
-    let TypeShape::Sequence {
-        empty,
-        push,
-        recursive,
-        ..
-    } = type_shape(program, list)
-    else {
+    let TypeShape::Sequence { empty, push, recursive, .. } = type_shape(program, list) else {
         return None;
     };
-    (program.fields(push).len() == 2).then_some(Walk {
-        list,
-        empty,
-        push,
-        recursive,
-        place,
-    })
+    (program.fields(push).len() == 2).then_some(Walk { list, empty, push, recursive, place })
 }
 
 /// Whether every way through `body`, whose first binding takes `base`, is
@@ -166,10 +150,8 @@ fn read(
 fn tail(program: &Program, id: FnId, body: Body, base: usize) -> Option<Tail> {
     let bindings = program.bindings(body.bindings);
     let before = bindings.split_last();
-    let calls_before = |upto: &[super::ExprId]| {
-        upto.iter()
-            .any(|&binding| calls_itself(program, id, binding))
-    };
+    let calls_before =
+        |upto: &[super::ExprId]| upto.iter().any(|&binding| calls_itself(program, id, binding));
     if !calls_itself(program, id, body.tail) && !calls_before(bindings) {
         return Some(Tail::Base);
     }
@@ -209,10 +191,7 @@ fn stepped(program: &Program, body: Body, base: usize) -> Option<(Atom, Place)> 
                 return None;
             };
             let (element, field) = rebuilt(program, arm, base + count)?;
-            let place = Place::Field {
-                ctor: arm.ctor,
-                field,
-            };
+            let place = Place::Field { ctor: arm.ctor, field };
             (element, place)
         }
         _ => return None,
@@ -257,9 +236,7 @@ fn rebuilt(program: &Program, arm: Arm, first: usize) -> Option<(Atom, usize)> {
 /// The element of a push whose rest is local `rest`, where `ctor` is a
 /// sequence's push and the element is not `rest` too.
 fn pushed(program: &Program, ctor: CtorId, fields: &[Atom], rest: usize) -> Option<Atom> {
-    let TypeShape::Sequence {
-        push, recursive, ..
-    } = type_shape(program, program.ctor(ctor).owner)
+    let TypeShape::Sequence { push, recursive, .. } = type_shape(program, program.ctor(ctor).owner)
     else {
         return None;
     };
@@ -305,21 +282,12 @@ impl Writer<'_> {
         let helpers = self.helpers(walk);
         let params = self.program.params(id).to_vec();
         let result = self.program.function(id).result;
-        let name = format!(
-            "{}.forward",
-            self.program.name(self.program.function(id).name)
-        );
+        let name = format!("{}.forward", self.program.name(self.program.function(id).name));
         let mut taking = params.clone();
         taking.push(walk.list);
         let forward = self.program.declare(&name, &taking, result);
         let arity = params.len();
-        let rewriting = Rewriting {
-            walk,
-            id,
-            forward,
-            helpers,
-            built: Atom(Local::at(arity)),
-        };
+        let rewriting = Rewriting { walk, id, forward, helpers, built: Atom(Local::at(arity)) };
         let body = self.program.function(id).body().expect("a walk has a body");
         let locals = (0..arity).map(|at| Atom(Local::at(at))).collect();
         let mut scope = Scope::at(arity + 1);
@@ -330,10 +298,7 @@ impl Writer<'_> {
         let mut scope = Scope::at(arity);
         let none = self.program.terms.hold_atoms(std::iter::empty());
         let nothing = copy::push(self.program, &mut scope, Expr::Con(walk.empty, none));
-        let args = (0..arity)
-            .map(|at| Atom(Local::at(at)))
-            .chain([nothing])
-            .collect();
+        let args = (0..arity).map(|at| Atom(Local::at(at))).chain([nothing]).collect();
         let answer = self.call(&mut scope, forward, args);
         copy::close(self.program, scope, answer)
     }
@@ -399,10 +364,8 @@ impl Writer<'_> {
             inner.extend((0..fields).map(|at| Atom(Local::at(scope.level + at))));
             let mut arm_scope = Scope::at(scope.level + fields);
             let answer = self.write(rewriting, arm.body, inner, &mut arm_scope, level + fields);
-            rebuilt.push(Arm {
-                ctor: arm.ctor,
-                body: copy::close(self.program, arm_scope, answer),
-            });
+            rebuilt
+                .push(Arm { ctor: arm.ctor, body: copy::close(self.program, arm_scope, answer) });
         }
         let arms = self.program.terms.hold_arms(&rebuilt);
         copy::push(self.program, scope, Expr::Match(locals[on.0.index()], arms))
@@ -440,9 +403,8 @@ impl Writer<'_> {
             Place::Whole => self.call(scope, prepend, vec![built, answer]),
             Place::Field { ctor, field } => {
                 let fields = self.program.fields(ctor).len();
-                let taken: Vec<Atom> = (0..fields)
-                    .map(|at| Atom(Local::at(scope.level + at)))
-                    .collect();
+                let taken: Vec<Atom> =
+                    (0..fields).map(|at| Atom(Local::at(scope.level + at))).collect();
                 let mut inner = Scope::at(scope.level + fields);
                 let joined = self.call(&mut inner, prepend, vec![built, taken[field]]);
                 let mut rebuilt = taken;

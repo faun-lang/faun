@@ -41,11 +41,7 @@ fn both_arms_run_on_wasm_and_6502() {
             .arg(package.entry())
             .output()
             .unwrap();
-        assert!(
-            result.status.success(),
-            "{target}: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        assert!(result.status.success(), "{target}: {}", String::from_utf8_lossy(&result.stderr));
     }
 }
 
@@ -61,11 +57,7 @@ fn apple_silicon_builds_the_greeting() {
         .arg(&source)
         .output()
         .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let image = std::fs::read(&path).unwrap();
     assert_eq!(&image[..8], &[0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]);
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]

@@ -359,12 +359,8 @@ fn the_expectation_that_runs_out_of_steps_is_named() {
         "main.fn:9: this expectation ran out of fuel, the 1000000 steps of the reference \
          interpreter a file's expectations share"
     );
-    let took = before
-        .strip_prefix("the 2 before it took ")
-        .expect("how many were asked before it");
-    let (total, most) = took
-        .split_once(", the most main.fn:8 with ")
-        .expect("the most");
+    let took = before.strip_prefix("the 2 before it took ").expect("how many were asked before it");
+    let (total, most) = took.split_once(", the most main.fn:8 with ").expect("the most");
     let (total, most): (u64, u64) = (total.parse().unwrap(), most.parse().unwrap());
     assert!(most < total && total < 1_000_000, "{refused}");
 }
@@ -449,10 +445,7 @@ const BITWISE: [(&str, &str); 4] = [
          115792089237316195423570985008687907853950549399482440966384333222776666062849 \
          4 2 0 1",
     ),
-    (
-        "4294967295 65",
-        "65 4294967295 4294967230 18446744065119617025 1 4294967295 127 65",
-    ),
+    ("4294967295 65", "65 4294967295 4294967230 18446744065119617025 1 4294967295 127 65"),
 ];
 
 /// Bitwise operations and powers of numbers read from what a program is

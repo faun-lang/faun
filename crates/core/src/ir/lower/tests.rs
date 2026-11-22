@@ -3,10 +3,6 @@ use crate::ir::{Op, evaluate};
 use num_bigint::BigUint;
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one case table comparing suffix joins against the old fold and counting body visits"
-)]
 fn tag_planning_visits_each_body_once_and_preserves_every_suffix_join() {
     use Answer::{Never, Nothing, Value};
     for answers in [
@@ -31,10 +27,7 @@ fn tag_planning_visits_each_body_once_and_preserves_every_suffix_join() {
     ] {
         let arms = (0..answers.len()).map(|at| barb::Arm {
             ctor: barb::CtorId::at(at),
-            body: barb::Body {
-                bindings: barb::Range::EMPTY,
-                tail: barb::ExprId::at(at),
-            },
+            body: barb::Body { bindings: barb::Range::EMPTY, tail: barb::ExprId::at(at) },
         });
         let mut visits = 0;
         let plan = tag_plan(arms, |body| {
@@ -46,10 +39,7 @@ fn tag_planning_visits_each_body_once_and_preserves_every_suffix_join() {
         for (at, planned) in plan.iter().enumerate() {
             assert_eq!(planned.arm.ctor, barb::CtorId::at(at));
             // The old emission recomputed this left fold at every suffix.
-            assert_eq!(
-                planned.suffix,
-                answers[at..].iter().copied().fold(Never, widest)
-            );
+            assert_eq!(planned.suffix, answers[at..].iter().copied().fold(Never, widest));
         }
     }
 }
@@ -82,17 +72,11 @@ fn payload_sums_hold_their_products_flat() {
         let two = source.intern_number(nat, 2).unwrap();
 
         let second = source.declare("second", &[pair], nat);
-        source.define(second, |b, args| {
-            b.match_(args[0], pair, |_, _, fields| fields[1])
-        });
+        source.define(second, |b, args| b.match_(args[0], pair, |_, _, fields| fields[1]));
         let value = source.declare("value", &[maybe], nat);
         source.define(value, |b, args| {
             b.match_(args[0], maybe, |b, ctor, fields| {
-                if ctor == some {
-                    b.call(second, &[fields[0]])
-                } else {
-                    b.known(zero)
-                }
+                if ctor == some { b.call(second, &[fields[0]]) } else { b.known(zero) }
             })
         });
         let run = source.declare("run", &[], nat);
@@ -130,14 +114,8 @@ fn payload_sums_hold_their_products_flat() {
             })
             .collect();
         let (tag, field) = (
-            machine
-                .ops
-                .iter()
-                .any(|op| matches!(op, Op::CellTag { .. })),
-            machine
-                .ops
-                .iter()
-                .any(|op| matches!(op, Op::CellField { .. })),
+            machine.ops.iter().any(|op| matches!(op, Op::CellTag { .. })),
+            machine.ops.iter().any(|op| matches!(op, Op::CellField { .. })),
         );
         if reaching {
             // The rest and `main`'s `None` are built too, holding nothing.
@@ -217,11 +195,7 @@ fn selection() -> Program {
 fn nested_tagged_matches_keep_narrow_suffixes_and_local_scopes() {
     let machine = selection();
     let select = FunctionId::at(
-        machine
-            .functions()
-            .iter()
-            .position(|f| machine.name(f.name) == "select")
-            .unwrap(),
+        machine.functions().iter().position(|f| machine.name(f.name) == "select").unwrap(),
     );
     assert_eq!(
         machine.signature(machine.function(select).params).len(),
@@ -309,21 +283,13 @@ fn answer_analysis_restores_locals_after_nonreturning_bindings() {
     let barb::Expr::Match(_, arms) = source.expr(body.tail) else {
         panic!("a match");
     };
-    for (arm, expected) in source
-        .arms(arms)
-        .iter()
-        .zip([Answer::Never, Answer::Nothing])
-    {
+    for (arm, expected) in source.arms(arms).iter().zip([Answer::Never, Answer::Nothing]) {
         assert_eq!(lowering.body_answer(arm.body, &mut carried), expected);
         assert_eq!(carried, [word, None]);
     }
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the fixture covers nested construction, projection, bounds, and evaluation"
-)]
 fn one_field_products_are_transparent_through_machine_lowering() {
     let mut source = barb::Program::default();
     let nat = source.declare_type("Nat");
@@ -352,10 +318,7 @@ fn one_field_products_are_transparent_through_machine_lowering() {
     let machine = lower(&source, &Routines::builtin().with_word(8)).unwrap();
     let entry = machine.entry();
     assert_eq!(machine.parameter_name(entry, 0), "argc");
-    assert_eq!(
-        machine.signature(machine.function(entry).params),
-        [Class::fixed(8)]
-    );
+    assert_eq!(machine.signature(machine.function(entry).params), [Class::fixed(8)]);
     assert_eq!(
         evaluate::evaluate(
             &machine,
@@ -384,9 +347,7 @@ fn known_one_field_products_lower_as_their_field() {
         barb::Value(source.ctor_at(nat, 1), vec![held])
     });
     let startup = barb::Value(source.ctor_at(record, 0), vec![input]);
-    let known = source
-        .intern(host, &barb::Value(source.ctor_at(host, 0), vec![startup]))
-        .unwrap();
+    let known = source.intern(host, &barb::Value(source.ctor_at(host, 0), vec![startup])).unwrap();
     let main = source.declare("main", &[], host);
     source.define(main, |b, _| b.known(known));
     source.set_entry(main);
@@ -418,11 +379,7 @@ fn unused_parameters_do_not_demand_unsupported_representations() {
     barb::validate(&source).unwrap();
 
     let machine = lower(&source, &Routines::default()).unwrap();
-    assert!(
-        machine
-            .signature(machine.function(machine.entry()).params)
-            .is_empty()
-    );
+    assert!(machine.signature(machine.function(machine.entry()).params).is_empty());
 }
 
 #[test]
@@ -437,23 +394,19 @@ fn parameters_read_only_in_impossible_arms_are_unused() {
     let main = source.declare_named("main", &[("impossible", nat)], nat);
     source.define(main, |b, args| {
         let scrutinee = b.con(chosen, &[]);
-        b.match_(scrutinee, choice, |b, ctor, _| {
-            if ctor == chosen {
-                b.con(zero, &[])
-            } else {
-                args[0]
-            }
-        })
+        b.match_(
+            scrutinee,
+            choice,
+            |b, ctor, _| {
+                if ctor == chosen { b.con(zero, &[]) } else { args[0] }
+            },
+        )
     });
     source.set_entry(main);
     barb::validate(&source).unwrap();
 
     let machine = lower(&source, &Routines::default()).unwrap();
-    assert!(
-        machine
-            .signature(machine.function(machine.entry()).params)
-            .is_empty()
-    );
+    assert!(machine.signature(machine.function(machine.entry()).params).is_empty());
 }
 
 #[test]
@@ -483,11 +436,7 @@ fn parameters_read_only_after_a_nonreturning_call_are_unused() {
     });
 
     let machine = lower(&source, &routines).unwrap();
-    assert!(
-        machine
-            .signature(machine.function(machine.entry()).params)
-            .is_empty()
-    );
+    assert!(machine.signature(machine.function(machine.entry()).params).is_empty());
 }
 
 #[test]
@@ -524,10 +473,7 @@ fn external_parameter_names_survive_machine_lowering() {
         .position(|function| machine.name(function.name) == "stop")
         .map(FunctionId::at)
         .unwrap();
-    assert_eq!(
-        machine.parameter_names(stop).collect::<Vec<_>>(),
-        ["status"]
-    );
+    assert_eq!(machine.parameter_names(stop).collect::<Vec<_>>(), ["status"]);
 }
 
 #[test]
@@ -548,18 +494,10 @@ fn unused_parameters_leave_machine_signatures_and_calls_together() {
     barb::validate(&source).unwrap();
 
     let machine = lower(&source, &Routines::default()).unwrap();
-    let keep = machine
-        .functions()
-        .iter()
-        .find(|function| machine.name(function.name) == "keep")
-        .unwrap();
+    let keep =
+        machine.functions().iter().find(|function| machine.name(function.name) == "keep").unwrap();
     assert_eq!(machine.signature(keep.params), [Class::fixed(0)]);
-    assert_eq!(
-        machine
-            .parameter_names(FunctionId::at(1))
-            .collect::<Vec<_>>(),
-        ["kept"]
-    );
+    assert_eq!(machine.parameter_names(FunctionId::at(1)).collect::<Vec<_>>(), ["kept"]);
 }
 
 /// The functions in a lowered program named `name`.
@@ -646,25 +584,16 @@ fn products_are_held_flat_across_calls_and_nesting() {
 
     let machine = lower(&source, &Routines::builtin().with_word(64)).unwrap();
     assert!(
-        !machine
-            .ops
-            .iter()
-            .any(|op| matches!(op, Op::Cell { .. } | Op::CellField { .. })),
+        !machine.ops.iter().any(|op| matches!(op, Op::Cell { .. } | Op::CellField { .. })),
         "{}",
         machine.render()
     );
     let rotate = named(&machine, "rotate");
     // Both counts are only ever five or seven, and the flag is only `On`.
-    let count = Class::Held(barb::Bounds {
-        low: 5,
-        high: Some(7),
-    });
+    let count = Class::Held(barb::Bounds { low: 5, high: Some(7) });
     let leaves = [count, Class::Held(barb::Bounds::at(1)), count];
     assert_eq!(machine.signature(machine.function(rotate).params), leaves);
-    assert_eq!(
-        machine.signature(machine.function(rotate).returns.classes()),
-        leaves
-    );
+    assert_eq!(machine.signature(machine.function(rotate).returns.classes()), leaves);
     assert_eq!(run(&machine, named(&machine, "run")), [BigUint::from(5u8)]);
 }
 
@@ -684,11 +613,7 @@ fn wide_and_self_holding_products_are_cells() {
     source.define_type(knot, &[("Knot", &[knot, nat])]);
     let zero = source.ctor_at(nat, 0);
     let nought = source.intern_number(nat, 0).unwrap();
-    let main = source.declare_named(
-        "main",
-        &[("wide", wide), ("fits", fits), ("knot", knot)],
-        nat,
-    );
+    let main = source.declare_named("main", &[("wide", wide), ("fits", fits), ("knot", knot)], nat);
     source.define(main, |b, args| {
         let a = b.match_(args[0], wide, |_, _, fields| fields[0]);
         let c = b.match_(args[1], fits, |_, _, fields| fields[0]);
@@ -703,14 +628,8 @@ fn wide_and_self_holding_products_are_cells() {
     let mut expected = vec![Class::Cell];
     expected.extend(vec![Class::Natural; FLAT_LEAVES]);
     expected.push(Class::Cell);
-    assert_eq!(
-        machine.signature(machine.function(machine.entry()).params),
-        expected
-    );
-    assert_eq!(
-        machine.parameter_names(machine.entry()).nth(1),
-        Some("fits.0")
-    );
+    assert_eq!(machine.signature(machine.function(machine.entry()).params), expected);
+    assert_eq!(machine.parameter_names(machine.entry()).nth(1), Some("fits.0"));
 }
 
 /// A product built into a known value counts as built: its fields are as
@@ -731,18 +650,12 @@ fn a_constant_holding_a_product_widens_its_fields() {
     let maybe = source.declare_type("Maybe");
     source.define_type(maybe, &[("None", &[]), ("Some", &[pair])]);
     let some = source.ctor_at(maybe, 1);
-    let number = |n: u64| {
-        (0..n).fold(barb::Value(zero, vec![]), |held, _| {
-            barb::Value(succ, vec![held])
-        })
-    };
+    let number =
+        |n: u64| (0..n).fold(barb::Value(zero, vec![]), |held, _| barb::Value(succ, vec![held]));
     let known = source
         .intern(
             maybe,
-            &barb::Value(
-                some,
-                vec![barb::Value(pair_ctor, vec![number(200), number(1)])],
-            ),
+            &barb::Value(some, vec![barb::Value(pair_ctor, vec![number(200), number(1)])]),
         )
         .unwrap();
     let nought = source.intern_number(nat, 0).unwrap();
@@ -774,18 +687,9 @@ fn a_constant_holding_a_product_widens_its_fields() {
     source.set_entry(main);
 
     let facts = source.analyze();
-    assert_eq!(
-        facts.field(&source, pair_ctor, 0),
-        barb::Bounds {
-            low: 0,
-            high: Some(200)
-        }
-    );
+    assert_eq!(facts.field(&source, pair_ctor, 0), barb::Bounds { low: 0, high: Some(200) });
     let machine = lower(&source, &Routines::builtin().with_word(64)).unwrap();
-    assert_eq!(
-        run(&machine, named(&machine, "run")),
-        [BigUint::from(200u8)]
-    );
+    assert_eq!(run(&machine, named(&machine, "run")), [BigUint::from(200u8)]);
 }
 
 /// A field carried round a recursion grows each time round, so what it can
@@ -875,13 +779,12 @@ fn a_wrapped_byte_string_is_handed_over_as_its_bytes() {
             barb::Value(source.ctor_at(nat, 1), vec![held])
         })
     };
-    let listed = elements.iter().rev().fold(
-        barb::Value(source.ctor_at(list, 0), vec![]),
-        |rest, &byte| barb::Value(source.ctor_at(list, 1), vec![number(byte), rest]),
-    );
-    let greeting = source
-        .intern(text, &barb::Value(source.ctor_at(text, 0), vec![listed]))
-        .unwrap();
+    let listed =
+        elements.iter().rev().fold(barb::Value(source.ctor_at(list, 0), vec![]), |rest, &byte| {
+            barb::Value(source.ctor_at(list, 1), vec![number(byte), rest])
+        });
+    let greeting =
+        source.intern(text, &barb::Value(source.ctor_at(text, 0), vec![listed])).unwrap();
     let write = source.declare("write!", &[host, text], unit);
     let nought = source.intern_number(nat, 0).unwrap();
     let main = source.declare_named("main!", &[("host", host)], nat);
@@ -908,26 +811,17 @@ fn a_startup_field_names_and_bounds_what_the_entry_is_handed() {
     let nat = library.nat;
     let p = &mut library.program;
     let host = p.declare_type("Host");
-    let word = barb::Bounds {
-        low: 0,
-        high: Some(u64::from(u16::MAX)),
-    };
+    let word = barb::Bounds { low: 0, high: Some(u64::from(u16::MAX)) };
     p.define_fields(host, &[("Host", &[barb::Field::of(nat).named("argc")])]);
     let never = p.declare_type("Never");
     p.define_type(never, &[]);
     let exit = p.declare("exit!", &[host, nat], never);
     let main = p.declare_named("main!", &[("host", host)], never);
     p.define(main, |b, args| {
-        b.match_(args[0], host, |b, _, fields| {
-            b.call(exit, &[args[0], fields[0]])
-        })
+        b.match_(args[0], host, |b, _, fields| b.call(exit, &[args[0], fields[0]]))
     });
     p.set_entry(main);
-    assert!(
-        p.render().contains("Host = Host(argc: Nat)"),
-        "{}",
-        p.render()
-    );
+    assert!(p.render().contains("Host = Host(argc: Nat)"), "{}", p.render());
 
     let routines = Routines::builtin().with_word(16);
     let machine = crate::lower_to_machine_ir(&library.program, &routines).unwrap();

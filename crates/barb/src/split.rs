@@ -79,10 +79,8 @@ pub(crate) fn counted(program: &Program, most: u64, lists: bool) -> Option<Progr
         return None;
     }
     split.replace_bodies(bodies);
-    let copies = walks
-        .iter()
-        .flat_map(|walk| [copied(&mut split, walk), asker(&mut split, walk)])
-        .collect();
+    let copies =
+        walks.iter().flat_map(|walk| [copied(&mut split, walk), asker(&mut split, walk)]).collect();
     split.replace_bodies(copies);
     debug_assert!(super::validate(&split).is_ok(), "a split program validates");
     Some(split)
@@ -111,12 +109,7 @@ fn declared(
     let result = split.function(id).result;
     let copy = split.declare(&name, &params, result);
     let asker = split.declare(&format!("{name}.asked"), &params, result);
-    Some(Walk {
-        id,
-        copy,
-        asker,
-        tests,
-    })
+    Some(Walk { id, copy, asker, tests })
 }
 
 /// Every body calling a walk from outside it, each call sent to the copy,
@@ -147,10 +140,8 @@ fn asking(
             let Some(walk) = walks.iter().find(|walk| walk.id == callee && callee != id) else {
                 return expr;
             };
-            let handed = known
-                .iter()
-                .find(|(call, _)| *call == from)
-                .map(|(_, known)| known.as_slice());
+            let handed =
+                known.iter().find(|(call, _)| *call == from).map(|(_, known)| known.as_slice());
             match asked(program, walk, handed, most) {
                 Some(true) => Expr::Call(walk.asker, args),
                 Some(false) => Expr::Call(walk.copy, args),
@@ -171,10 +162,7 @@ fn copied(split: &mut Program, walk: &Walk) -> (FnId, Body) {
         Expr::Call(..) | Expr::Atom(_) | Expr::Con(..) | Expr::Static(_) | Expr::Match(..) => expr,
     };
     let body = split.function(walk.id).body().expect("a walk has a body");
-    (
-        walk.copy,
-        copy::body(split, body, locals, arity, Some(&mut edit)),
-    )
+    (walk.copy, copy::body(split, body, locals, arity, Some(&mut edit)))
 }
 
 /// The definition asking of what it is handed, and calling the copy or
@@ -257,16 +245,7 @@ fn ask(
     let yes_body = copy::close(program, inner, answer);
     let tail = program.terms.push(Expr::Call(walk.id, held));
     let no_body = program.terms.hold_body(&[], tail);
-    let mut arms = [
-        Arm {
-            ctor: yes,
-            body: yes_body,
-        },
-        Arm {
-            ctor: no,
-            body: no_body,
-        },
-    ];
+    let mut arms = [Arm { ctor: yes, body: yes_body }, Arm { ctor: no, body: no_body }];
     arms.sort_by_key(|arm| program.tag(arm.ctor));
     let arms = program.terms.hold_arms(&arms);
     Expr::Match(below, arms)
@@ -407,9 +386,8 @@ fn guarded(
     if !roles.contains(&Some(Role::Up)) {
         return None;
     }
-    let mut guarded: Vec<usize> = (0..arity)
-        .filter(|&at| matches!(roles[at], Some(Role::Up | Role::Down)))
-        .collect();
+    let mut guarded: Vec<usize> =
+        (0..arity).filter(|&at| matches!(roles[at], Some(Role::Up | Role::Down))).collect();
     if down.is_none() {
         // Without a count, a number counted up is compared with one kept.
         let kept = compared(program, recognised, body, arity, &roles);
@@ -468,9 +446,7 @@ fn counted_down(program: &Program, id: FnId, body: Body, calls: &[Vec<Handed>]) 
     };
     let [zero, _] = walk::split_arms(program, arms, empty, push)?;
     let again = walk::calls(program, zero.body, id);
-    let stepped = calls
-        .iter()
-        .all(|call| call[on] == Handed::Local(params.len()));
+    let stepped = calls.iter().all(|call| call[on] == Handed::Local(params.len()));
     (!again && stepped).then_some(on)
 }
 
@@ -544,10 +520,7 @@ fn compared(
         let Expr::Call(callee, args) = program.expr(expr) else {
             continue;
         };
-        if !matches!(
-            recognised.operations[callee.index()],
-            Some(Operation::LessThan { .. })
-        ) {
+        if !matches!(recognised.operations[callee.index()], Some(Operation::LessThan { .. })) {
             continue;
         }
         let &[a, b] = program.atoms(args) else {
@@ -641,9 +614,7 @@ mod tests {
         // The copy is handed counts and starts at most `most`, so what it
         // counts up is bounded; the walk is still handed any.
         let facts = split.analyze();
-        let counted_up = facts.takes(copy)[0]
-            .high
-            .expect("a bound on the copy's count up");
+        let counted_up = facts.takes(copy)[0].high.expect("a bound on the copy's count up");
         assert!(counted_up <= 2 * most, "{counted_up}");
         assert_eq!(facts.takes(w)[0].high, None);
         // A walk of numbers alone is split where a walk holding a list is

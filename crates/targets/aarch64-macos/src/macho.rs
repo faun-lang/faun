@@ -112,10 +112,7 @@ fn header(out: &mut Bytes) {
     out.le32(0);
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the fields are the segment command"
-)]
+#[expect(clippy::too_many_arguments, reason = "the fields are the segment command")]
 fn segment(
     out: &mut Bytes,
     name: &str,
@@ -263,9 +260,7 @@ mod tests {
 
     #[test]
     fn image_is_a_signed_arm64_macho_with_a_dyld_entry() {
-        let image = Aarch64Macos
-            .compile_machine_ir(&programs::hello_world())
-            .unwrap();
+        let image = Aarch64Macos.compile_machine_ir(&programs::hello_world()).unwrap();
         assert_eq!(&image[..4], &0xFEED_FACFu32.to_le_bytes());
         assert_eq!(&image[4..8], &0x0100_000Cu32.to_le_bytes());
         assert_eq!(&image[16..20], &10u32.to_le_bytes());

@@ -39,13 +39,7 @@ fn ground() -> Ground {
     program.define_type(nat, &[("Zero", &[]), ("Succ", &[nat])]);
 
     let exit = program.declare("exit!", &[host, nat], never);
-    Ground {
-        program,
-        host,
-        nat,
-        never,
-        exit,
-    }
+    Ground { program, host, nat, never, exit }
 }
 
 /// `main!`, handed authority and the count its target produces at startup,
@@ -64,14 +58,7 @@ fn counted_main(program: &mut Program, ground: (TypeId, TypeId, TypeId)) -> FnId
 /// If `status` does not fit the declared natural shape.
 #[must_use]
 pub fn exits_with_a_constant(status: u64) -> Program {
-    let Ground {
-        mut program,
-        host,
-        nat,
-        never,
-        exit,
-        ..
-    } = ground();
+    let Ground { mut program, host, nat, never, exit, .. } = ground();
     let main = program.declare("main!", &[host], never);
     program.define(main, |b, args| {
         let held = b.number(nat, status).expect("the declared natural shape");
@@ -92,21 +79,12 @@ pub fn exits_with_a_constant(status: u64) -> Program {
 /// If the modulus does not fit the declared natural shape.
 #[must_use]
 pub fn exits_with_the_count() -> Program {
-    let Ground {
-        mut program,
-        host,
-        nat,
-        never,
-        exit,
-        ..
-    } = ground();
+    let Ground { mut program, host, nat, never, exit, .. } = ground();
     let truth = program.declare_type("Bool");
     program.define_type(truth, &[("False", &[]), ("True", &[])]);
     let adding = adds(&mut program, nat);
     let remainder = remainders(&mut program, nat, truth, adding);
-    let modulus = program
-        .intern_number(nat, 256)
-        .expect("the declared natural shape");
+    let modulus = program.intern_number(nat, 256).expect("the declared natural shape");
     let main = counted_main(&mut program, (host, nat, never));
     program.define(main, |b, args| {
         let (host, count) = (args[0], args[1]);
@@ -133,14 +111,7 @@ pub fn exits_with_the_count() -> Program {
 /// If `limit` does not fit the declared natural shape.
 #[must_use]
 pub fn exits_with_the_count_and_more(limit: u64, more: u64) -> Program {
-    let Ground {
-        mut program,
-        host,
-        nat,
-        never,
-        exit,
-        ..
-    } = ground();
+    let Ground { mut program, host, nat, never, exit, .. } = ground();
     let truth = program.declare_type("Bool");
     program.define_type(truth, &[("False", &[]), ("True", &[])]);
     let (no, _) = (program.ctor_at(truth, 0), program.ctor_at(truth, 1));
@@ -185,14 +156,7 @@ pub fn exits_with_the_count_and_more(limit: u64, more: u64) -> Program {
 /// If `limit` or three does not fit the declared natural shape.
 #[must_use]
 pub fn exits_with_a_shared_intermediate(limit: u64) -> Program {
-    let Ground {
-        mut program,
-        host,
-        nat,
-        never,
-        exit,
-        ..
-    } = ground();
+    let Ground { mut program, host, nat, never, exit, .. } = ground();
     let truth = program.declare_type("Bool");
     program.define_type(truth, &[("False", &[]), ("True", &[])]);
     let (no, _) = (program.ctor_at(truth, 0), program.ctor_at(truth, 1));
@@ -238,27 +202,16 @@ pub fn exits_with_a_shared_intermediate(limit: u64) -> Program {
 /// If `bits` or `more` does not describe something the declared shape holds.
 #[must_use]
 pub fn exits_with_the_count_and_a_constant(bits: u32, more: u64) -> Program {
-    let Ground {
-        mut program,
-        host,
-        nat,
-        never,
-        exit,
-        ..
-    } = ground();
+    let Ground { mut program, host, nat, never, exit, .. } = ground();
     let truth = program.declare_type("Bool");
     program.define_type(truth, &[("False", &[]), ("True", &[])]);
     let adding = adds(&mut program, nat);
     let remainder = remainders(&mut program, nat, truth, adding);
-    let modulus = program
-        .intern_number(nat, 1 << bits)
-        .expect("the declared natural shape");
+    let modulus = program.intern_number(nat, 1 << bits).expect("the declared natural shape");
     // Counting onto the count rather than the other way about: what `add`
     // goes round on is its second argument, and the one that is known is the
     // one whose steps can be run together before anything runs.
-    let more = program
-        .intern_number(nat, more)
-        .expect("the declared natural shape");
+    let more = program.intern_number(nat, more).expect("the declared natural shape");
 
     let main = counted_main(&mut program, (host, nat, never));
     program.define(main, |b, args| {
@@ -285,21 +238,12 @@ pub fn exits_with_the_count_and_a_constant(bits: u32, more: u64) -> Program {
 /// If `bits` does not describe a power of two the declared shape holds.
 #[must_use]
 pub fn exits_with_the_low_bits_of_a_sum(bits: u32) -> Program {
-    let Ground {
-        mut program,
-        host,
-        nat,
-        never,
-        exit,
-        ..
-    } = ground();
+    let Ground { mut program, host, nat, never, exit, .. } = ground();
     let truth = program.declare_type("Bool");
     program.define_type(truth, &[("False", &[]), ("True", &[])]);
     let adding = adds(&mut program, nat);
     let remainder = remainders(&mut program, nat, truth, adding);
-    let modulus = program
-        .intern_number(nat, 1 << bits)
-        .expect("the declared natural shape");
+    let modulus = program.intern_number(nat, 1 << bits).expect("the declared natural shape");
 
     let main = counted_main(&mut program, (host, nat, never));
     program.define(main, |b, args| {
@@ -324,21 +268,13 @@ pub fn exits_with_the_low_bits_of_a_sum(bits: u32) -> Program {
 /// If the greeting does not fit the declared shapes.
 #[must_use]
 pub fn greets() -> Program {
-    let Ground {
-        mut program,
-        host,
-        nat,
-        never,
-        exit,
-        ..
-    } = ground();
+    let Ground { mut program, host, nat, never, exit, .. } = ground();
     let bytes = program.declare_type("Bytes");
     program.define_type(bytes, &[("Nil", &[]), ("Cons", &[nat, bytes])]);
     // Standard output is what the first descriptor past input names.
     let put = program.declare("fd_put!", &[nat, bytes], nat);
-    let greeting = program
-        .intern_byte_spine(bytes, b"Hello, world!")
-        .expect("the declared byte shape");
+    let greeting =
+        program.intern_byte_spine(bytes, b"Hello, world!").expect("the declared byte shape");
 
     let main = program.declare("main!", &[host], never);
     program.define(main, |b, args| {
@@ -387,11 +323,7 @@ fn remainders(program: &mut Program, nat: TypeId, truth: TypeId, adding: FnId) -
     let step = program.declare("mod_step", &[truth, nat], nat);
     program.define(step, |b, args| {
         b.match_(args[0], truth, |b, ctor, _| {
-            if ctor == no {
-                b.con(succ, &[args[1]])
-            } else {
-                b.con(zero, &[])
-            }
+            if ctor == no { b.con(succ, &[args[1]]) } else { b.con(zero, &[]) }
         })
     });
 
@@ -478,20 +410,11 @@ pub fn every() -> Vec<(&'static str, Program)> {
     vec![
         ("a constant", exits_with_a_constant(0)),
         ("the count", exits_with_the_count()),
-        (
-            "the count and a constant",
-            exits_with_the_count_and_a_constant(8, 4),
-        ),
+        ("the count and a constant", exits_with_the_count_and_a_constant(8, 4)),
         ("the low bits of a sum", exits_with_the_low_bits_of_a_sum(8)),
-        (
-            "the count under a guard",
-            exits_with_the_count_and_more(4, 0),
-        ),
+        ("the count under a guard", exits_with_the_count_and_more(4, 0)),
         ("the count and more", exits_with_the_count_and_more(4, 4)),
-        (
-            "a shared intermediate",
-            exits_with_a_shared_intermediate(32),
-        ),
+        ("a shared intermediate", exits_with_a_shared_intermediate(32)),
         ("a greeting", greets()),
     ]
 }

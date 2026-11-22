@@ -32,10 +32,7 @@ pub(super) fn word_values(source: &Program, word_bits: u16) -> BTreeMap<ValueId,
             match *op {
                 Op::Convert { value }
                     if source.class(value) == Class::Word
-                        || source
-                            .class(value)
-                            .width()
-                            .is_some_and(|bits| bits <= word_bits) =>
+                        || source.class(value).width().is_some_and(|bits| bits <= word_bits) =>
                 {
                     words.insert(result, Word::Scalar(value));
                 }
@@ -151,13 +148,7 @@ pub(crate) fn lower(p: &Program, bits: u16) -> Option<Program> {
         if values.iter().any(|v| params.contains(v)) {
             let classes: Vec<_> = values
                 .iter()
-                .map(|&v| {
-                    if params.contains(&v) {
-                        Class::Word
-                    } else {
-                        p.class(v)
-                    }
-                })
+                .map(|&v| if params.contains(&v) { Class::Word } else { p.class(v) })
                 .collect();
             declared.functions[id].params = append_range(&mut declared.signature, &classes);
         }
@@ -175,20 +166,16 @@ struct Lower {
 
 impl Lower {
     fn value(&self, r: &Rebuild, b: &mut Builder, v: ValueId) -> ValueId {
-        self.words
-            .get(&v)
-            .map_or_else(|| r.value(v), |w| w.emit(r, b))
+        self.words.get(&v).map_or_else(|| r.value(v), |w| w.emit(r, b))
     }
 }
 
 impl rewrite::Pass for Lower {
     fn op(&mut self, r: &Rebuild, b: &mut Builder, op: Op, results: &[ValueId]) -> bool {
         match op {
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } if self.params.contains(&left) || self.params.contains(&right) => {
+            Op::Compare { relation, left, right }
+                if self.params.contains(&left) || self.params.contains(&right) =>
+            {
                 let left = self.value(r, b, left);
                 let right = self.value(r, b, right);
                 r.stands_for(results[0], b.compare(relation, left, right));
@@ -234,10 +221,7 @@ mod tests {
     fn comparison_only_parameters_use_unsigned_words_across_branches() {
         let (p, order) = comparisons::of_words();
         let lowered = lower(&p, 64).unwrap();
-        assert_eq!(
-            lowered.signature(lowered.function(order).params),
-            [Class::Word; 2]
-        );
+        assert_eq!(lowered.signature(lowered.function(order).params), [Class::Word; 2]);
         assert!(
             !lowered
                 .every(lowered.function(p.entry()).body().unwrap())

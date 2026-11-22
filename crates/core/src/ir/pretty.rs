@@ -66,10 +66,8 @@ impl Program {
         if !self.ops.iter().any(|op| matches!(op, Op::Cell { .. })) {
             return;
         }
-        let packed: Vec<_> = self
-            .shape_ids()
-            .map(|s| super::packing::Packed::of(self.shaped(s), 64))
-            .collect();
+        let packed: Vec<_> =
+            self.shape_ids().map(|s| super::packing::Packed::of(self.shaped(s), 64)).collect();
         let plan = super::region::Plan::of(self, &packed);
         for (id, f) in self.functions.iter_enumerated() {
             if plan.constructors.contains(&id) {
@@ -102,12 +100,7 @@ impl Program {
     /// names.
     fn render_shapes(&self, out: &mut String) {
         for shape in self.shape_ids() {
-            let _ = writeln!(
-                out,
-                "s{} = ({})",
-                shape.index(),
-                class_list(self.shaped(shape))
-            );
+            let _ = writeln!(out, "s{} = ({})", shape.index(), class_list(self.shaped(shape)));
         }
     }
 
@@ -123,12 +116,8 @@ impl Program {
     fn render_regions(&self, out: &mut String, borrowed: &[bool]) {
         for id in self.regions.ids() {
             let region = self.region(id);
-            let _ = writeln!(
-                out,
-                "\nr{}({}):",
-                id.index(),
-                self.bindings(self.values(region.params))
-            );
+            let _ =
+                writeln!(out, "\nr{}({}):", id.index(), self.bindings(self.values(region.params)));
             for (op, results) in self.walk(id) {
                 out.push_str("  ");
                 if !results.is_empty() {
@@ -145,12 +134,7 @@ impl Program {
                 out.push('\n');
             }
             if let Some(term) = region.terminator {
-                let _ = writeln!(
-                    out,
-                    "  {:?}({})",
-                    term.exit,
-                    arguments(self.values(term.values))
-                );
+                let _ = writeln!(out, "  {:?}({})", term.exit, arguments(self.values(term.values)));
             } else {
                 out.push_str("  <no terminator>\n");
             }
@@ -175,77 +159,45 @@ impl Program {
             Op::NaturalConstant(data) => format!("natural d{}", data.index()),
             Op::AddressOf(data) => format!("address d{}", data.index()),
             Op::Cell { tag, fields, shape } => {
-                format!(
-                    "cell {tag}({}) as s{}",
-                    arguments(self.values(fields)),
-                    shape.index()
-                )
+                format!("cell {tag}({}) as s{}", arguments(self.values(fields)), shape.index())
             }
             Op::CellTag { cell } => format!("cell_tag v{}", cell.index()),
             Op::CellField { cell, index, shape } => {
-                format!(
-                    "cell_field v{}, {index} of s{}",
-                    cell.index(),
-                    shape.index()
-                )
+                format!("cell_field v{}, {index} of s{}", cell.index(), shape.index())
             }
             Op::BufferEmpty { shape } => format!("buffer_empty of s{}", shape.index()),
-            Op::BufferKnown {
-                elements,
-                shape,
-                bytes,
-            } => {
+            Op::BufferKnown { elements, shape, bytes } => {
                 format!(
                     "buffer_known d{} of s{} at {bytes} bytes a leaf",
                     elements.index(),
                     shape.index()
                 )
             }
-            Op::BufferPush { operands, shape } => format!(
-                "buffer_push {} of s{}",
-                arguments(self.values(operands)),
-                shape.index()
-            ),
-            Op::BufferAppend { operands, shape } => format!(
-                "buffer_append {} of s{}",
-                arguments(self.values(operands)),
-                shape.index()
-            ),
-            Op::BufferReplace { operands, shape } => format!(
-                "buffer_replace {} of s{}",
-                arguments(self.values(operands)),
-                shape.index()
-            ),
+            Op::BufferPush { operands, shape } => {
+                format!("buffer_push {} of s{}", arguments(self.values(operands)), shape.index())
+            }
+            Op::BufferAppend { operands, shape } => {
+                format!("buffer_append {} of s{}", arguments(self.values(operands)), shape.index())
+            }
+            Op::BufferReplace { operands, shape } => {
+                format!("buffer_replace {} of s{}", arguments(self.values(operands)), shape.index())
+            }
             Op::BufferPrepend { operands, shape } => format!(
                 "buffer_prepend_reversed {} of s{}",
                 arguments(self.values(operands)),
                 shape.index()
             ),
-            Op::BufferExtend { operands, shape } => format!(
-                "buffer_extend {} of s{}",
-                arguments(self.values(operands)),
-                shape.index()
-            ),
+            Op::BufferExtend { operands, shape } => {
+                format!("buffer_extend {} of s{}", arguments(self.values(operands)), shape.index())
+            }
             Op::BufferRoom { count, shape } => {
                 format!("buffer_room v{} of s{}", count.index(), shape.index())
             }
-            Op::BufferAt {
-                buffer,
-                start,
-                shape,
-            } => format!(
-                "buffer_at v{}, v{} of s{}",
-                buffer.index(),
-                start.index(),
-                shape.index()
-            ),
+            Op::BufferAt { buffer, start, shape } => {
+                format!("buffer_at v{}, v{} of s{}", buffer.index(), start.index(), shape.index())
+            }
             Op::Keep { value } => format!("keep v{}", value.index()),
-            Op::BufferField {
-                buffer,
-                start,
-                index,
-                shape,
-            } => format!(
+            Op::BufferField { buffer, start, index, shape } => format!(
                 "buffer_field v{}, v{}, {index} of s{}",
                 buffer.index(),
                 start.index(),
@@ -257,60 +209,39 @@ impl Program {
             Op::Float { float, operands } => {
                 format!("{float} {}", arguments(self.values(operands)))
             }
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } => format!("{direction:?} v{} by {by}", value.index()),
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } => format!("{relation:?} v{}, v{}", left.index(), right.index()),
-            Op::Load {
-                width,
-                address,
-                offset,
-            } => format!("load.{width:?} v{}, {offset:?}", address.index()),
-            Op::Store {
-                width,
-                address,
-                offset,
-                value,
-            } => format!(
-                "store.{width:?} v{}, {offset:?}, v{}",
-                address.index(),
-                value.index()
-            ),
+            Op::Shift { direction, value, by } => {
+                format!("{direction:?} v{} by {by}", value.index())
+            }
+            Op::Compare { relation, left, right } => {
+                format!("{relation:?} v{}, v{}", left.index(), right.index())
+            }
+            Op::Load { width, address, offset } => {
+                format!("load.{width:?} v{}, {offset:?}", address.index())
+            }
+            Op::Store { width, address, offset, value } => {
+                format!("store.{width:?} v{}, {offset:?}, v{}", address.index(), value.index())
+            }
             // The class is the one the value it writes is held at, shown
             // beside that value already; saying it again here is for whoever
             // reads a conversion and wants to see what it converts to.
-            Op::Convert { value } => format!(
-                "convert v{} to {}",
-                value.index(),
-                class(self.class(results[0]))
-            ),
+            Op::Convert { value } => {
+                format!("convert v{} to {}", value.index(), class(self.class(results[0])))
+            }
             Op::Call { function, args } => format!(
                 "call {}({})  # f{}",
                 self.name(self.function(function).name),
                 arguments(self.values(args)),
                 function.index()
             ),
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => format!(
+            Op::If { condition, then_region, else_region } => format!(
                 "if v{} then r{} else r{}",
                 condition.index(),
                 then_region.index(),
                 else_region.index()
             ),
-            Op::Loop { initial, body } => format!(
-                "loop r{}({})",
-                body.index(),
-                arguments(self.values(initial))
-            ),
+            Op::Loop { initial, body } => {
+                format!("loop r{}({})", body.index(), arguments(self.values(initial)))
+            }
         }
     }
 }
@@ -325,25 +256,16 @@ fn class(held: Class) -> String {
         // What is known, not how wide it makes the value. A width rounds
         // the greatest up to the next power of two and says nothing of the
         // least, so it hides what this tier was told.
-        Class::Held(facts) => facts.high.map_or_else(
-            || format!("{}..", facts.low),
-            |high| format!("{}..{high}", facts.low),
-        ),
+        Class::Held(facts) => facts
+            .high
+            .map_or_else(|| format!("{}..", facts.low), |high| format!("{}..{high}", facts.low)),
     }
 }
 
 fn class_list(classes: &[Class]) -> String {
-    classes
-        .iter()
-        .map(|&c| class(c))
-        .collect::<Vec<_>>()
-        .join(", ")
+    classes.iter().map(|&c| class(c)).collect::<Vec<_>>().join(", ")
 }
 
 fn arguments(values: &[ValueId]) -> String {
-    values
-        .iter()
-        .map(|v| format!("v{}", v.index()))
-        .collect::<Vec<_>>()
-        .join(", ")
+    values.iter().map(|v| format!("v{}", v.index())).collect::<Vec<_>>().join(", ")
 }

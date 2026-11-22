@@ -111,11 +111,8 @@ pub(super) fn answer(
         patterns.push(natural);
     }
     let (wrappers, natural) = wrapped(program, result)?;
-    let mut answer = Held::number(
-        program.type_info(),
-        natural,
-        &BigUint::from(float.calculate(&patterns)),
-    );
+    let mut answer =
+        Held::number(program.type_info(), natural, &BigUint::from(float.calculate(&patterns)));
     for &constructor in wrappers.iter().rev() {
         answer = match Held::build(program.type_info(), constructor, &[answer], budget) {
             Ok(answer) => answer,

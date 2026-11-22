@@ -65,9 +65,7 @@ impl Target for Wasm32Wasi {
         // arguments' addresses lie.
         for (at, name) in program.parameter_names(entry).enumerate() {
             if ![(0, "argc"), (1, "argv")].contains(&(at, name)) {
-                return Err(format!(
-                    "wasm32-wasi cannot supply entry parameter {at} `{name}`"
-                ));
+                return Err(format!("wasm32-wasi cannot supply entry parameter {at} `{name}`"));
             }
         }
         Ok(())

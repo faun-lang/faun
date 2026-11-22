@@ -42,13 +42,9 @@ fn externals(
         .as_ref()
         .map_or_else(crate::ast::Span::default, |signature| signature.span);
     let name = symbols.spelling(function.name);
-    Err(failure(
-        function.module,
-        span,
-        format!("`{name}` has a signature and no clauses"),
-    )
-    .note("only the host leaves a definition for its target to answer")
-    .help(format!("write the clauses of `{name}`")))
+    Err(failure(function.module, span, format!("`{name}` has a signature and no clauses"))
+        .note("only the host leaves a definition for its target to answer")
+        .help(format!("write the clauses of `{name}`")))
 }
 
 /// Refuse a declared type that holds itself, through whatever types it
@@ -120,10 +116,8 @@ fn inhabited(data: &HashMap<Symbol, n::Data>, symbols: &Symbols) -> Result<(), R
             break;
         }
     }
-    let mut unbuilt: Vec<_> = data
-        .values()
-        .filter(|declared| !built.contains(&declared.name))
-        .collect();
+    let mut unbuilt: Vec<_> =
+        data.values().filter(|declared| !built.contains(&declared.name)).collect();
     unbuilt.sort_by_key(|declared| (declared.module, declared.span));
     let Some(declared) = unbuilt.first() else {
         return Ok(());
@@ -150,9 +144,7 @@ fn buildable(ty: &h::Type, data: &HashMap<Symbol, n::Data>, built: &HashSet<Symb
                     .iter()
                     .any(|tag| tag.fields.iter().all(|field| buildable(field, data, built)))
         }
-        h::Type::Record(fields, _) => fields
-            .iter()
-            .all(|(_, field)| buildable(field, data, built)),
+        h::Type::Record(fields, _) => fields.iter().all(|(_, field)| buildable(field, data, built)),
         h::Type::Tuple(members) => members.iter().all(|member| buildable(member, data, built)),
     }
 }
@@ -220,14 +212,12 @@ fn mentions(ty: &h::Type, variable: Symbol) -> bool {
         h::Type::Named(_, parts) | h::Type::Tuple(parts) => {
             parts.iter().any(|part| mentions(part, variable))
         }
-        h::Type::Function(parameters, result) => parameters
-            .iter()
-            .chain([result.as_ref()])
-            .any(|part| mentions(part, variable)),
-        h::Type::Variants(tags) => tags
-            .iter()
-            .flat_map(|tag| &tag.fields)
-            .any(|field| mentions(field, variable)),
+        h::Type::Function(parameters, result) => {
+            parameters.iter().chain([result.as_ref()]).any(|part| mentions(part, variable))
+        }
+        h::Type::Variants(tags) => {
+            tags.iter().flat_map(|tag| &tag.fields).any(|field| mentions(field, variable))
+        }
         h::Type::Record(fields, _) => fields.iter().any(|(_, field)| mentions(field, variable)),
     }
 }

@@ -43,20 +43,12 @@ const fn bar(node: usize) -> usize {
 
 /// Two bounds added, no bound where either is none.
 const fn plus(a: Bound, b: Bound) -> Bound {
-    if a >= INFINITE || b >= INFINITE {
-        INFINITE
-    } else {
-        a + b
-    }
+    if a >= INFINITE || b >= INFINITE { INFINITE } else { a + b }
 }
 
 /// The greatest even number no more than `bound`.
 const fn even(bound: Bound) -> Bound {
-    if bound >= INFINITE {
-        bound
-    } else {
-        bound - bound.rem_euclid(2)
-    }
+    if bound >= INFINITE { bound } else { bound - bound.rem_euclid(2) }
 }
 
 /// Where a growing entry is widened to: the next width a machine holds a
@@ -66,17 +58,11 @@ const fn even(bound: Bound) -> Bound {
 #[cfg(test)]
 fn threshold(bound: Bound, own: bool) -> Bound {
     let scale = if own { 2 } else { 1 };
-    [
-        0,
-        Bound::from(u8::MAX),
-        Bound::from(u16::MAX),
-        Bound::from(u32::MAX),
-        Bound::from(u64::MAX),
-    ]
-    .into_iter()
-    .map(|width| width * scale)
-    .find(|&width| width >= bound)
-    .unwrap_or(INFINITE)
+    [0, Bound::from(u8::MAX), Bound::from(u16::MAX), Bound::from(u32::MAX), Bound::from(u64::MAX)]
+        .into_iter()
+        .map(|width| width * scale)
+        .find(|&width| width >= bound)
+        .unwrap_or(INFINITE)
 }
 
 /// A constraint between two nodes: `u - v <= bound`.
@@ -90,48 +76,28 @@ pub(super) struct Constraint {
 impl Constraint {
     /// `x - y <= bound`.
     pub(super) const fn difference(x: usize, y: usize, bound: Bound) -> Self {
-        Self {
-            from: node(x, false),
-            to: node(y, false),
-            bound,
-        }
+        Self { from: node(x, false), to: node(y, false), bound }
     }
 
     /// `x + y <= bound`.
     #[cfg(test)]
     const fn sum(x: usize, y: usize, bound: Bound) -> Self {
-        Self {
-            from: node(x, false),
-            to: node(y, true),
-            bound,
-        }
+        Self { from: node(x, false), to: node(y, true), bound }
     }
 
     /// `x <= bound`.
     pub(super) const fn most(x: usize, bound: Bound) -> Self {
-        Self {
-            from: node(x, false),
-            to: node(x, true),
-            bound: 2 * bound,
-        }
+        Self { from: node(x, false), to: node(x, true), bound: 2 * bound }
     }
 
     /// `x >= bound`.
     pub(super) const fn least(x: usize, bound: Bound) -> Self {
-        Self {
-            from: node(x, true),
-            to: node(x, false),
-            bound: -2 * bound,
-        }
+        Self { from: node(x, true), to: node(x, false), bound: -2 * bound }
     }
 
     /// The same constraint, the other way round: `-v - -u <= bound`.
     const fn turned(self) -> Self {
-        Self {
-            from: bar(self.to),
-            to: bar(self.from),
-            bound: self.bound,
-        }
+        Self { from: bar(self.to), to: bar(self.from), bound: self.bound }
     }
 
     /// The variables it constrains.
@@ -142,11 +108,7 @@ impl Constraint {
     /// The same constraint over other variables, `x` and `y` standing
     /// where its first and second were.
     pub(super) const fn renamed(self, x: usize, y: usize) -> Self {
-        Self {
-            from: node(x, self.from % 2 == 1),
-            to: node(y, self.to % 2 == 1),
-            bound: self.bound,
-        }
+        Self { from: node(x, self.from % 2 == 1), to: node(y, self.to % 2 == 1), bound: self.bound }
     }
 
     /// Whether it says something of one variable alone.
@@ -217,15 +179,8 @@ impl Octagon {
         } else {
             u64::try_from(high.div_euclid(2)).ok()
         };
-        let bounds = Bounds {
-            low: least,
-            high: greatest,
-        };
-        if bounds.is_nothing() {
-            Bounds::NOTHING
-        } else {
-            bounds
-        }
+        let bounds = Bounds { low: least, high: greatest };
+        if bounds.is_nothing() { Bounds::NOTHING } else { bounds }
     }
 
     /// Say that a variable lies within `bounds`, without closing.
@@ -348,15 +303,8 @@ impl Octagon {
         }
         // Its own bounds, as introduced, where tighter than `from` moved
         // says: they bound `from`, and through it the rest.
-        self.add(Constraint {
-            from: up,
-            to: down,
-            bound: own.0,
-        }) && self.add(Constraint {
-            from: down,
-            to: up,
-            bound: own.1,
-        })
+        self.add(Constraint { from: up, to: down, bound: own.0 })
+            && self.add(Constraint { from: down, to: up, bound: own.1 })
     }
 
     /// Whether some value of every variable meets every constraint, which
@@ -754,11 +702,7 @@ mod tests {
     }
 
     fn value(point: &[i128], node: usize) -> i128 {
-        if node.is_multiple_of(2) {
-            point[node / 2]
-        } else {
-            -point[node / 2]
-        }
+        if node.is_multiple_of(2) { point[node / 2] } else { -point[node / 2] }
     }
 
     fn meets(point: &[i128], constraints: &[Constraint]) -> bool {
@@ -805,21 +749,13 @@ mod tests {
             let constraints = random_constraints(&mut random, variables, 4);
             let mut octagon = Octagon::top(variables);
             for variable in 0..variables {
-                octagon.bound(
-                    variable,
-                    Bounds {
-                        low: 0,
-                        high: Some(u64::try_from(limit).unwrap()),
-                    },
-                );
+                octagon
+                    .bound(variable, Bounds { low: 0, high: Some(u64::try_from(limit).unwrap()) });
             }
             for &c in &constraints {
                 octagon.assume(c);
             }
-            let inside: Vec<_> = space
-                .iter()
-                .filter(|point| meets(point, &constraints))
-                .collect();
+            let inside: Vec<_> = space.iter().filter(|point| meets(point, &constraints)).collect();
             let feasible = octagon.close();
             assert_eq!(feasible, !inside.is_empty(), "{constraints:?}");
             if !feasible {
@@ -849,10 +785,7 @@ mod tests {
             let mut stepped = Octagon::top(variables);
             let mut afresh = Octagon::top(variables);
             for variable in 0..variables {
-                let bounds = Bounds {
-                    low: 0,
-                    high: Some(9),
-                };
+                let bounds = Bounds { low: 0, high: Some(9) };
                 stepped.bound(variable, bounds);
                 afresh.bound(variable, bounds);
             }
@@ -879,20 +812,8 @@ mod tests {
         assert!(octagon.add(Constraint::difference(i, len, -1)));
         assert_eq!(octagon.bounds(i), Bounds::ANY);
         assert!(octagon.add(Constraint::most(len, 10)));
-        assert_eq!(
-            octagon.bounds(i),
-            Bounds {
-                low: 0,
-                high: Some(9)
-            }
-        );
-        assert_eq!(
-            octagon.bounds(len),
-            Bounds {
-                low: 1,
-                high: Some(10)
-            }
-        );
+        assert_eq!(octagon.bounds(i), Bounds { low: 0, high: Some(9) });
+        assert_eq!(octagon.bounds(len), Bounds { low: 1, high: Some(10) });
     }
 
     /// `s = bit + 9` and `s <= total`, `total <= 100`: `bit <= 91`, with no
@@ -909,13 +830,7 @@ mod tests {
         assert!(octagon.add(Constraint::difference(sum, bit, 9)));
         assert!(octagon.add(Constraint::difference(bit, sum, -9)));
         assert!(octagon.add(Constraint::difference(sum, total, 0)));
-        assert_eq!(
-            octagon.bounds(bit),
-            Bounds {
-                low: 0,
-                high: Some(91)
-            }
-        );
+        assert_eq!(octagon.bounds(bit), Bounds { low: 0, high: Some(91) });
         // And a guard no sum can meet leaves nothing.
         assert!(!octagon.add(Constraint::least(bit, 92)));
         assert_eq!(octagon.bounds(bit), Bounds::NOTHING);
@@ -933,13 +848,7 @@ mod tests {
         second.bound(1, Bounds::at(4));
         assert!(second.close());
         first.join(&second);
-        assert_eq!(
-            first.bounds(0),
-            Bounds {
-                low: 0,
-                high: Some(1)
-            }
-        );
+        assert_eq!(first.bounds(0), Bounds { low: 0, high: Some(1) });
         // The sum is five on both sides, and stays so.
         assert_eq!(first.get(node(0, false), node(1, true)), 5);
         assert_eq!(first.get(node(0, true), node(1, false)), -5);
@@ -957,13 +866,7 @@ mod tests {
         let (count, rest) = (0, 1);
         let mut entry = Octagon::top(2);
         entry.bound(count, Bounds::at(0));
-        entry.bound(
-            rest,
-            Bounds {
-                low: 0,
-                high: Some(5),
-            },
-        );
+        entry.bound(rest, Bounds { low: 0, high: Some(5) });
         // What comes in is closed; only what widening makes of it is not.
         assert!(entry.close());
         let mut held = entry.clone();
@@ -989,13 +892,7 @@ mod tests {
         }
         let mut closed = held.clone();
         assert!(closed.close());
-        assert_eq!(
-            closed.bounds(count),
-            Bounds {
-                low: 0,
-                high: Some(5)
-            }
-        );
+        assert_eq!(closed.bounds(count), Bounds { low: 0, high: Some(5) });
     }
 
     /// A growing bound widens to the next machine width, and past the
@@ -1005,21 +902,9 @@ mod tests {
         let mut held = Octagon::top(1);
         held.bound(0, Bounds::at(300));
         let mut found = Octagon::top(1);
-        found.bound(
-            0,
-            Bounds {
-                low: 299,
-                high: Some(301),
-            },
-        );
+        found.bound(0, Bounds { low: 299, high: Some(301) });
         held.widen(&found);
-        assert_eq!(
-            held.bounds(0),
-            Bounds {
-                low: 0,
-                high: Some(u64::from(u16::MAX))
-            }
-        );
+        assert_eq!(held.bounds(0), Bounds { low: 0, high: Some(u64::from(u16::MAX)) });
         let mut beyond = Octagon::top(1);
         beyond.bound(0, Bounds::at(u64::MAX));
         held.widen(&beyond);
@@ -1038,13 +923,7 @@ mod tests {
             let constraints = random_constraints(&mut random, 3, 4);
             let mut octagon = Octagon::top(3);
             for variable in 0..3 {
-                octagon.bound(
-                    variable,
-                    Bounds {
-                        low: 0,
-                        high: Some(9),
-                    },
-                );
+                octagon.bound(variable, Bounds { low: 0, high: Some(9) });
             }
             for &c in &constraints {
                 octagon.assume(c);
@@ -1053,10 +932,7 @@ mod tests {
                 continue;
             }
             octagon.forget(1);
-            let bounds = Bounds {
-                low: random.next(4),
-                high: Some(4 + random.next(4)),
-            };
+            let bounds = Bounds { low: random.next(4), high: Some(4 + random.next(4)) };
             let mut added = octagon.clone();
             assert!(added.add(Constraint::least(1, Bound::from(bounds.low))));
             assert!(added.add(Constraint::most(1, Bound::from(bounds.high.unwrap()))));
@@ -1074,13 +950,7 @@ mod tests {
             let constraints = random_constraints(&mut random, 3, 4);
             let mut octagon = Octagon::top(3);
             for variable in 0..3 {
-                octagon.bound(
-                    variable,
-                    Bounds {
-                        low: 0,
-                        high: Some(9),
-                    },
-                );
+                octagon.bound(variable, Bounds { low: 0, high: Some(9) });
             }
             for &c in &constraints {
                 octagon.assume(c);
@@ -1089,10 +959,7 @@ mod tests {
                 continue;
             }
             octagon.forget(2);
-            let own = Bounds {
-                low: random.next(5),
-                high: Some(5 + random.next(10)),
-            };
+            let own = Bounds { low: random.next(5), high: Some(5 + random.next(10)) };
             octagon.introduce(2, own);
             let least = Bound::from(random.next(5)) - 2;
             let most = least + Bound::from(random.next(4));
@@ -1114,13 +981,7 @@ mod tests {
             let constraints = random_constraints(&mut random, 3, 4);
             let mut octagon = Octagon::top(3);
             for variable in 0..3 {
-                octagon.bound(
-                    variable,
-                    Bounds {
-                        low: 0,
-                        high: Some(9),
-                    },
-                );
+                octagon.bound(variable, Bounds { low: 0, high: Some(9) });
             }
             for &constraint in &constraints {
                 octagon.assume(constraint);
@@ -1128,10 +989,7 @@ mod tests {
             if !octagon.close() {
                 continue;
             }
-            let bounds = Bounds {
-                low: random.next(5),
-                high: Some(3 + random.next(7)),
-            };
+            let bounds = Bounds { low: random.next(5), high: Some(3 + random.next(7)) };
             let mut added = octagon.clone();
             let feasible = added.add(Constraint::least(1, Bound::from(bounds.low)))
                 && added.add(Constraint::most(1, Bound::from(bounds.high.unwrap())));

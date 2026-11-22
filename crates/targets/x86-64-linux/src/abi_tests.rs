@@ -9,11 +9,7 @@ use super::shared::status as execute;
 fn stack_arguments_and_results_preserve_every_value() {
     for params in [0, 1, 6, 7, 12, 32] {
         for returns in [0, 1, 2, 3, 10, 32] {
-            assert_eq!(
-                execute(&abi::function(params, returns)),
-                0,
-                "{params} -> {returns}"
-            );
+            assert_eq!(execute(&abi::function(params, returns)), 0, "{params} -> {returns}");
         }
     }
 }

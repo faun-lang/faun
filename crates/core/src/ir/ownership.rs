@@ -27,11 +27,7 @@ pub(super) const fn managed(class: Class) -> bool {
 pub(super) fn deep_uses(source: &Program, op: &Op, out: &mut Vec<ValueId>) {
     out.extend(source.operands(op));
     match *op {
-        Op::If {
-            then_region,
-            else_region,
-            ..
-        } => {
+        Op::If { then_region, else_region, .. } => {
             region_uses(source, then_region, out);
             region_uses(source, else_region, out);
         }
@@ -97,11 +93,8 @@ impl Liveness {
 /// Which parameters of each function are owned, by function and position.
 /// External declarations own nothing.
 pub(super) fn owned_parameters(source: &Program) -> Vec<Vec<bool>> {
-    let mut owned: Vec<Vec<bool>> = source
-        .functions()
-        .iter()
-        .map(|function| vec![false; function.params.len()])
-        .collect();
+    let mut owned: Vec<Vec<bool>> =
+        source.functions().iter().map(|function| vec![false; function.params.len()]).collect();
     loop {
         let mut changed = false;
         for (id, function) in source.functions.iter_enumerated() {
@@ -136,10 +129,8 @@ pub(super) fn borrowed_cells(source: &Program, owned: &[Vec<bool>]) -> Vec<bool>
         let Some(body) = function.body() else {
             continue;
         };
-        for (&param, &owns) in source
-            .values(source.region(body).params)
-            .iter()
-            .zip(taken(owned, id))
+        for (&param, &owns) in
+            source.values(source.region(body).params).iter().zip(taken(owned, id))
         {
             borrowed[param.index()] = source.class(param) == Class::Cell && !owns;
         }
@@ -181,11 +172,7 @@ fn consumed_in(source: &Program, region: RegionId, owned: &[Vec<bool>], out: &mu
     for (op, results) in source.walk(region) {
         taken_by(source, op, results, owned, out);
         match *op {
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } => {
+            Op::If { then_region, else_region, .. } => {
                 consumed_in(source, then_region, owned, out);
                 consumed_in(source, else_region, owned, out);
             }

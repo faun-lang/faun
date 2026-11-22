@@ -39,10 +39,7 @@ fn a_spine_is_recognised_and_a_branching_type_is_not() {
 #[test]
 fn runtime_shapes_distinguish_sequences_from_other_spines_and_aggregates() {
     let (mut program, nat, byte, list) = types();
-    assert!(matches!(
-        type_shape(&program, nat),
-        TypeShape::Natural { .. }
-    ));
+    assert!(matches!(type_shape(&program, nat), TypeShape::Natural { .. }));
     assert!(matches!(
         type_shape(&program, list),
         TypeShape::Sequence { element, .. } if element == byte
@@ -69,16 +66,10 @@ fn runtime_shapes_distinguish_sequences_from_other_spines_and_aggregates() {
         type_shape(&program, wrapper),
         TypeShape::Wrapper { field, .. } if field == nat
     ));
-    assert!(matches!(
-        type_shape(&program, product),
-        TypeShape::Product { .. }
-    ));
+    assert!(matches!(type_shape(&program, product), TypeShape::Product { .. }));
     assert_eq!(type_shape(&program, enumeration), TypeShape::Enumeration);
     assert_eq!(type_shape(&program, sum), TypeShape::Sum);
-    assert!(matches!(
-        type_shape(&program, wide),
-        TypeShape::Spine { .. }
-    ));
+    assert!(matches!(type_shape(&program, wide), TypeShape::Spine { .. }));
 }
 
 #[test]

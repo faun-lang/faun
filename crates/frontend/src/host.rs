@@ -44,23 +44,16 @@ impl HostIds {
             })
         });
         if exposes_constructor {
-            return Err(Diagnostic::new(
-                "the `Host` constructor must not be publicly exposed",
-            ));
+            return Err(Diagnostic::new("the `Host` constructor must not be publicly exposed"));
         }
         let exit_name = symbol(program, "exit!")?;
         let exit = binding.methods.get(&exit_name).copied().ok_or_else(|| {
             Diagnostic::new("the selected host's `Host` must have an `exit!` method")
         })?;
         if has_method_clause(program, program.host, "exit!")? {
-            return Err(Diagnostic::new(
-                "the selected host must declare `exit!` bodyless",
-            ));
+            return Err(Diagnostic::new("the selected host must declare `exit!` bodyless"));
         }
-        Ok(Self {
-            host: binding.canonical,
-            exit,
-        })
+        Ok(Self { host: binding.canonical, exit })
     }
 
     /// The signature the ABI gives an entry `name`, spelled `spelling`:
@@ -100,10 +93,7 @@ pub(crate) fn sign_main(mut program: h::Program, cx: &Context, main: Option<&Mai
         }
     }
     let spelling = cx.symbols.find("main!");
-    let module = program
-        .modules
-        .iter_mut()
-        .find(|module| module.source == main.module);
+    let module = program.modules.iter_mut().find(|module| module.source == main.module);
     if let (false, Some(span), Some(spelling), Some(module)) = (signed, written, spelling, module) {
         let signature = cx.host().entry_signature(span, main.symbol, spelling);
         module.items.push(signature);
@@ -130,21 +120,14 @@ pub(crate) fn check_application_abi(
         .map_or_else(Span::default, |function| function.span);
     let refused = |message: String| cx.diagnostic(main.module, span, message);
     // `Host` wraps the record of startup values its target produces.
-    let wrapper = program
-        .data
-        .get(&host.host)
-        .and_then(|data| data.wrapper.as_ref());
+    let wrapper = program.data.get(&host.host).and_then(|data| data.wrapper.as_ref());
     if !wrapper.is_some_and(|wrapper| matches!(wrapper.field, h::Type::Record(..))) {
         let message = "the application ABI requires `Host` to wrap a record of startup values";
         return Err(refused(message.to_owned()));
     }
     let named = |name| InferredType::Named(name, Vec::new());
     let required = [
-        (
-            main.symbol,
-            effect(vec![named(host.host)]),
-            "main! : Host -> []",
-        ),
+        (main.symbol, effect(vec![named(host.host)]), "main! : Host -> []"),
         (
             host.exit,
             effect(vec![named(host.host), named(cx.prelude.u8_)]),
@@ -166,10 +149,7 @@ pub(crate) fn check_application_abi(
 
 /// An effect taking `parameters` and answering nothing, `[]`.
 fn effect(parameters: Vec<InferredType>) -> InferredType {
-    InferredType::Function(
-        parameters,
-        Box::new(InferredType::Variants(Vec::new(), None)),
-    )
+    InferredType::Function(parameters, Box::new(InferredType::Variants(Vec::new(), None)))
 }
 
 /// An application's entry point: the `main!` its entry module defines.
@@ -188,10 +168,8 @@ impl Main {
     /// Rejects a `main!` declared without a clause to run.
     pub fn find_in(program: &LoadedProgram) -> Result<Option<Self>, Diagnostic> {
         let module = program.module(program.entry);
-        let Some(symbol) = program
-            .symbols
-            .find("main!")
-            .and_then(|name| module.scope.values.get(&name).copied())
+        let Some(symbol) =
+            program.symbols.find("main!").and_then(|name| module.scope.values.get(&name).copied())
         else {
             return Ok(None);
         };
@@ -207,10 +185,7 @@ impl Main {
             return Err(Diagnostic::new("the entry module must define `main!`")
                 .help("write `main! : Host -> []` and a clause `main!(host) -> ...`"));
         }
-        Ok(Some(Self {
-            module: program.entry,
-            symbol,
-        }))
+        Ok(Some(Self { module: program.entry, symbol }))
     }
 }
 
@@ -253,10 +228,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
             let root = std::env::temp_dir().join(format!("faun-host-{unique}"));
             fs::create_dir_all(&root).unwrap();
             Self(root)

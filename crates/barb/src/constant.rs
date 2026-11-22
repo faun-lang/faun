@@ -72,26 +72,11 @@ pub struct Value(pub CtorId, pub Vec<Self>);
 
 pub(super) fn shape(types: TypeInfo<'_>, id: TypeId) -> Shape {
     match types.shape(id) {
-        TypeShape::Natural {
-            empty,
-            push,
-            recursive,
+        TypeShape::Natural { empty, push, recursive }
+        | TypeShape::Sequence { empty, push, recursive, .. }
+        | TypeShape::Spine { empty, push, recursive } => {
+            Shape::Spine { nil: empty, cons: push, recursive }
         }
-        | TypeShape::Sequence {
-            empty,
-            push,
-            recursive,
-            ..
-        }
-        | TypeShape::Spine {
-            empty,
-            push,
-            recursive,
-        } => Shape::Spine {
-            nil: empty,
-            cons: push,
-            recursive,
-        },
         TypeShape::Uninhabited
         | TypeShape::Unit { .. }
         | TypeShape::Wrapper { .. }
@@ -104,11 +89,7 @@ pub(super) fn shape(types: TypeInfo<'_>, id: TypeId) -> Shape {
 /// Encode an already-validated constructor tree without materializing a spine.
 fn encode(types: TypeInfo<'_>, id: TypeId, value: &Value, out: &mut Vec<u8>) {
     match shape(types, id) {
-        Shape::Spine {
-            nil,
-            cons,
-            recursive,
-        } => {
+        Shape::Spine { nil, cons, recursive } => {
             // Walking twice beats allocating a temporary chain of references.
             let mut count = 0u64;
             let mut rest = value;
@@ -145,11 +126,7 @@ fn encode(types: TypeInfo<'_>, id: TypeId, value: &Value, out: &mut Vec<u8>) {
 #[cfg(test)]
 pub(super) fn decode(program: &Program, id: TypeId, bytes: &[u8]) -> (Value, usize) {
     match shape(program.type_info(), id) {
-        Shape::Spine {
-            nil,
-            cons,
-            recursive,
-        } => decode_spine(program, bytes, nil, cons, recursive),
+        Shape::Spine { nil, cons, recursive } => decode_spine(program, bytes, nil, cons, recursive),
         Shape::Tagged => decode_tagged(program, id, bytes),
     }
 }
@@ -216,20 +193,13 @@ fn header_bytes(bytes: &[u8]) -> Option<&[u8]> {
 pub(super) fn read_natural(bytes: &[u8]) -> (BigUint, usize) {
     let header = header_bytes(bytes).expect("a terminated number");
     let digits: Vec<u8> = header.iter().map(|byte| byte & 0x7f).collect();
-    (
-        BigUint::from_radix_le(&digits, 128).expect("base 128 digits"),
-        header.len(),
-    )
+    (BigUint::from_radix_le(&digits, 128).expect("base 128 digits"), header.len())
 }
 
 pub(super) fn write_natural(value: &BigUint, out: &mut Vec<u8>) {
     let digits = value.to_radix_le(128);
     for (at, digit) in digits.iter().enumerate() {
-        out.push(if at + 1 == digits.len() {
-            *digit
-        } else {
-            *digit | 0x80
-        });
+        out.push(if at + 1 == digits.len() { *digit } else { *digit | 0x80 });
     }
 }
 
@@ -258,17 +228,15 @@ fn leb128(mut value: u64, out: &mut Vec<u8>) {
 // just like read_natural; length alone is not evidence of overflow.
 fn read_u64(bytes: &[u8]) -> (Option<u64>, usize) {
     let header = header_bytes(bytes).expect("a terminated number");
-    let value = header.iter().rev().try_fold(0u64, |value, byte| {
-        value.checked_mul(128)?.checked_add(u64::from(byte & 0x7f))
-    });
+    let value = header
+        .iter()
+        .rev()
+        .try_fold(0u64, |value, byte| value.checked_mul(128)?.checked_add(u64::from(byte & 0x7f)));
     (value, header.len())
 }
 
 #[cfg(test)]
 fn unleb128(bytes: &[u8]) -> (u64, usize) {
     let (value, took) = read_u64(bytes);
-    (
-        value.expect("a constructor count small enough to materialize"),
-        took,
-    )
+    (value.expect("a constructor count small enough to materialize"), took)
 }

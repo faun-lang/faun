@@ -50,13 +50,7 @@ pub fn base58(bytes: &[u8]) -> String {
     }
     let zeros = bytes.iter().take_while(|&&byte| byte == 0).count();
     let ones = std::iter::repeat_n('1', zeros);
-    ones.chain(
-        digits
-            .iter()
-            .rev()
-            .map(|&digit| char::from(ALPHABET[usize::from(digit)])),
-    )
-    .collect()
+    ones.chain(digits.iter().rev().map(|&digit| char::from(ALPHABET[usize::from(digit)]))).collect()
 }
 
 /// The bytes `text` spells in base58, where it is base58.
@@ -92,11 +86,7 @@ impl Version {
     /// What a compatible version shares: its major, or below `1.0.0` its
     /// minor too.
     const fn compatibility(self) -> (u64, u64) {
-        if self.major == 0 {
-            (0, self.minor)
-        } else {
-            (self.major, 0)
-        }
+        if self.major == 0 { (0, self.minor) } else { (self.major, 0) }
     }
 }
 
@@ -162,18 +152,12 @@ impl PackageUrl {
         }
         let scheme = &written[..written.len() - rest.len()];
         let (version, package) = match versions.first() {
-            Some(&(start, end, version)) => (
-                Some(version),
-                format!("{scheme}{}*{}", &before[..start], &before[end..]),
-            ),
+            Some(&(start, end, version)) => {
+                (Some(version), format!("{scheme}{}*{}", &before[..start], &before[end..]))
+            }
             None => (None, format!("{scheme}{before}/{last}")),
         };
-        Ok(Self {
-            written: written.to_owned(),
-            hash,
-            version,
-            package,
-        })
+        Ok(Self { written: written.to_owned(), hash, version, package })
     }
 
     /// Which versions this one is chosen among: none, for a URL with no
@@ -198,9 +182,7 @@ fn after_scheme(written: &str) -> Result<&str, String> {
         return Ok(rest);
     }
     let scheme = crate::modules::url_scheme(written).unwrap_or("?");
-    Err(format!(
-        "is a `{scheme}://` URL, and only `https` is fetched"
-    ))
+    Err(format!("is a `{scheme}://` URL, and only `https` is fetched"))
 }
 
 /// Every `MAJOR.MINOR.PATCH` in `text`, where it starts and ends, each not
@@ -215,23 +197,12 @@ fn versions(text: &str) -> Vec<(usize, usize, Version)> {
             continue;
         }
         let end = at
-            + bytes[at..]
-                .iter()
-                .take_while(|byte| byte.is_ascii_digit() || **byte == b'.')
-                .count();
+            + bytes[at..].iter().take_while(|byte| byte.is_ascii_digit() || **byte == b'.').count();
         let parts: Vec<&str> = text[at..end].split('.').collect();
         if let [major, minor, patch] = parts[..]
             && let (Ok(major), Ok(minor), Ok(patch)) = (major.parse(), minor.parse(), patch.parse())
         {
-            found.push((
-                at,
-                end,
-                Version {
-                    major,
-                    minor,
-                    patch,
-                },
-            ));
+            found.push((at, end, Version { major, minor, patch }));
         }
         at = end;
     }
@@ -313,12 +284,7 @@ pub fn resolve(entry: &Path, fetch: &mut dyn Fetch) -> Result<Packages, Diagnost
             tree: Vec::new(),
         };
         walk.package(entry, &mut vec![root_name(entry)], 0, true)?;
-        let Walk {
-            mentions,
-            urls,
-            tree,
-            ..
-        } = walk;
+        let Walk { mentions, urls, tree, .. } = walk;
         let next = choose(mentions)?;
         if next == chosen {
             return Ok(Packages { urls, tree });
@@ -409,11 +375,12 @@ impl Walk<'_> {
             let (module, chosen) = if PackageUrl::is_url(&written) {
                 let mut wanted_by = chain.clone();
                 wanted_by.push(format!("`{name}`"));
-                self.url(&written, wanted_by, is_root, chooses)
-                    .map_err(|diagnostic| match diagnostic.location() {
+                self.url(&written, wanted_by, is_root, chooses).map_err(|diagnostic| {
+                    match diagnostic.location() {
                         Some(_) => diagnostic,
                         None => diagnostic.at_location(at),
-                    })?
+                    }
+                })?
             } else {
                 // A path that finds no module is the loader's to report.
                 let Ok(module) = module_base(directory, &directory.join(&written)) else {
@@ -423,14 +390,7 @@ impl Walk<'_> {
             };
             let identity = module.canonicalize().unwrap_or_else(|_| module.clone());
             let shown = !self.visited.insert(identity);
-            self.tree.push(Use {
-                depth,
-                name: name.clone(),
-                written,
-                chosen,
-                shown,
-                for_tests,
-            });
+            self.tree.push(Use { depth, name: name.clone(), written, chosen, shown, for_tests });
             if !shown {
                 chain.push(format!("`{name}`"));
                 self.package(&module, chain, depth + 1, false)?;
@@ -456,11 +416,7 @@ impl Walk<'_> {
         let url = PackageUrl::parse(written)
             .map_err(|message| Diagnostic::new(format!("dependency {name} {message}")))?;
         let group = url.group().filter(|_| chooses);
-        let used = group
-            .as_ref()
-            .and_then(|group| self.chosen.get(group))
-            .unwrap_or(&url)
-            .clone();
+        let used = group.as_ref().and_then(|group| self.chosen.get(group)).unwrap_or(&url).clone();
         if let Some(group) = group {
             self.mentions.entry(group).or_default().push(Mention {
                 url: url.clone(),
@@ -470,9 +426,7 @@ impl Walk<'_> {
         }
         let module = self.fetch.fetch(&used)?.join("main.fn");
         self.urls.insert(written.to_owned(), module.clone());
-        let chosen = (used.version != url.version)
-            .then_some(used.version)
-            .flatten();
+        let chosen = (used.version != url.version).then_some(used.version).flatten();
         Ok((module, chosen))
     }
 }
@@ -547,14 +501,7 @@ mod tests {
     fn a_url_names_its_bundle_by_hash_and_may_hold_one_version() {
         let hash = base58(&[7; 32]);
         let one = url(&format!("https://example.com/pcg/1.2.0/{hash}.tar.zst")).unwrap();
-        assert_eq!(
-            one.version,
-            Some(Version {
-                major: 1,
-                minor: 2,
-                patch: 0
-            })
-        );
+        assert_eq!(one.version, Some(Version { major: 1, minor: 2, patch: 0 }));
         assert_eq!(one.hash, [7; 32]);
         let two = url(&format!("https://example.com/pcg/1.4.1/{hash}.tar.zst")).unwrap();
         assert_eq!(one.group(), two.group());
@@ -583,11 +530,7 @@ mod tests {
                 std::env::temp_dir().join(format!("faun-versions-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&directory);
             std::fs::create_dir_all(&directory).unwrap();
-            Self {
-                directory,
-                bundles: HashMap::default(),
-                fetched: Vec::new(),
-            }
+            Self { directory, bundles: HashMap::default(), fetched: Vec::new() }
         }
 
         /// A package at `path` whose header is `header`.
@@ -603,12 +546,8 @@ mod tests {
         fn bundle(&mut self, name: &str, version: &str, seed: u8, header: &str) -> String {
             let hash = [seed; 32];
             let root = self.package(&format!("{name}-{version}-{seed}"), header);
-            self.bundles
-                .insert(hash, root.parent().unwrap().to_path_buf());
-            format!(
-                "https://example.com/{name}/{version}/{}.tar.zst",
-                base58(&hash)
-            )
+            self.bundles.insert(hash, root.parent().unwrap().to_path_buf());
+            format!("https://example.com/{name}/{version}/{}.tar.zst", base58(&hash))
         }
     }
 
@@ -644,19 +583,8 @@ mod tests {
         let packages = resolve(&entry, &mut world).unwrap();
         assert_eq!(packages.root(&old), packages.root(&new));
         assert_ne!(packages.root(&new), packages.root(&next));
-        let chosen: Vec<_> = packages
-            .tree
-            .iter()
-            .filter_map(|used| used.chosen)
-            .collect();
-        assert_eq!(
-            chosen,
-            [Version {
-                major: 1,
-                minor: 4,
-                patch: 1
-            }]
-        );
+        let chosen: Vec<_> = packages.tree.iter().filter_map(|used| used.chosen).collect();
+        assert_eq!(chosen, [Version { major: 1, minor: 4, patch: 1 }]);
     }
 
     #[test]
@@ -667,11 +595,7 @@ mod tests {
         let wanting = world.bundle("wants", "1.0.0", 3, &format!("lib: \"{new}\""));
         let entry = world.package("app", &format!("lib: \"{old}\", wants: \"{wanting}\""));
         let error = resolve(&entry, &mut world).unwrap_err();
-        assert!(
-            error.message.contains("`wants` → `lib` wants"),
-            "{}",
-            error.message
-        );
+        assert!(error.message.contains("`wants` → `lib` wants"), "{}", error.message);
         assert!(error.message.contains("newer than"), "{}", error.message);
         let fine = world.package("fine", &format!("lib: \"{new}\", wants: \"{wanting}\""));
         resolve(&fine, &mut world).unwrap();
@@ -685,17 +609,10 @@ mod tests {
         let left = world.package("left", &format!("lib: \"{first}\""));
         let entry = world.package(
             "app",
-            &format!(
-                "left: \"{}\", lib: \"{second}\"",
-                left.with_extension("").display()
-            ),
+            &format!("left: \"{}\", lib: \"{second}\"", left.with_extension("").display()),
         );
         let error = resolve(&entry, &mut world).unwrap_err();
-        assert!(
-            error.message.contains("named by two bundles"),
-            "{}",
-            error.message
-        );
+        assert!(error.message.contains("named by two bundles"), "{}", error.message);
     }
 
     #[test]
@@ -704,9 +621,7 @@ mod tests {
         let versioned = world.bundle("lib", "1.0.0", 1, "");
         let hash = [9; 32];
         let root = world.package("bare", "");
-        world
-            .bundles
-            .insert(hash, root.parent().unwrap().to_path_buf());
+        world.bundles.insert(hash, root.parent().unwrap().to_path_buf());
         let bare = format!("https://example.com/lib/{}.tar.zst", base58(&hash));
         let entry = world.package("app", &format!("a: \"{versioned}\", b: \"{bare}\""));
         let packages = resolve(&entry, &mut world).unwrap();
@@ -717,23 +632,11 @@ mod tests {
     fn a_url_that_names_no_bundle_is_refused() {
         let hash = base58(&[7; 32]);
         for (written, said) in [
-            (
-                format!("http://example.com/{hash}.tar.zst"),
-                "only `localhost`",
-            ),
+            (format!("http://example.com/{hash}.tar.zst"), "only `localhost`"),
             (format!("ftp://example.com/{hash}.tar.zst"), "only `https`"),
-            (
-                "https://example.com/pcg.tar.zst".to_owned(),
-                "not a BLAKE3 hash",
-            ),
-            (
-                format!("https://example.com/{hash}.zip"),
-                "not a BLAKE3 hash",
-            ),
-            (
-                format!("https://example.com/1.0.0/2.0.0/{hash}.tar.zst"),
-                "more than one version",
-            ),
+            ("https://example.com/pcg.tar.zst".to_owned(), "not a BLAKE3 hash"),
+            (format!("https://example.com/{hash}.zip"), "not a BLAKE3 hash"),
+            (format!("https://example.com/1.0.0/2.0.0/{hash}.tar.zst"), "more than one version"),
             (format!("https://example.com/{hash}.tar.zst?x=1"), "query"),
         ] {
             let error = url(&written).unwrap_err();

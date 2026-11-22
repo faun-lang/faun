@@ -122,9 +122,7 @@ fn hold_shared(program: &mut Program) -> Vec<FnId> {
             .map(|(param, &passed)| {
                 let (first, rest) = calls.split_first()?;
                 let value = first.handed[param].filter(|_| passed)?;
-                rest.iter()
-                    .all(|call| call.handed[param] == Some(value))
-                    .then_some(value)
+                rest.iter().all(|call| call.handed[param] == Some(value)).then_some(value)
             })
             .collect());
         if shared.known() {
@@ -178,9 +176,7 @@ impl Sites {
         let count = program.functions().len();
         let mut sites = Self {
             calls: (0..count).map(|_| Vec::new()).collect(),
-            passed: (0..count)
-                .map(|at| vec![true; program.params(FnId::at(at)).len()])
-                .collect(),
+            passed: (0..count).map(|at| vec![true; program.params(FnId::at(at)).len()]).collect(),
         };
         let reached = super::sweep::reached(program, entry).0;
         for (at, &reached) in reached.iter().enumerate() {
@@ -253,15 +249,9 @@ impl Sites {
 fn copied(program: &mut Program, id: FnId, body: Body, key: &Key) -> FnId {
     let function = program.function(id);
     let (name, result) = (function.name, function.result);
-    let params: Vec<_> = program
-        .parameter_names(id)
-        .map(str::to_owned)
-        .zip(program.params(id).to_vec())
-        .collect();
-    let named: Vec<_> = params
-        .iter()
-        .map(|(name, ty)| (name.as_str(), *ty))
-        .collect();
+    let params: Vec<_> =
+        program.parameter_names(id).map(str::to_owned).zip(program.params(id).to_vec()).collect();
+    let named: Vec<_> = params.iter().map(|(name, ty)| (name.as_str(), *ty)).collect();
     let name = format!("{}.{}", program.name(name), program.functions().len());
     let copy = program.declare_named(&name, &named, result);
     let body = holding(program, body, key);

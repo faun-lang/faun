@@ -64,10 +64,7 @@ pub(crate) const UNIT: u8 = 0x1f;
 pub(crate) fn main(loaded: &mut LoadedProgram) -> Main {
     let entry = loaded.module(loaded.entry);
     let name = format!("{}$$expect main!", loaded.symbols.text(entry.namespace));
-    Main {
-        module: loaded.entry,
-        symbol: loaded.symbols.intern(&name),
-    }
+    Main { module: loaded.entry, symbol: loaded.symbols.intern(&name) }
 }
 
 /// `program` with `main` the test entry, and where each expectation it asks
@@ -81,10 +78,7 @@ pub(crate) fn enter(
     let (asked, locations) = asked(&program, cx);
     let mut records = Vec::with_capacity(asked.len());
     for (at, &expectation) in asked.iter().enumerate() {
-        let record = Record {
-            number: at + 1,
-            reporting,
-        };
+        let record = Record { number: at + 1, reporting };
         let shows = shows_sides(&mut program, cx, expectation, &record);
         records.push((expectation, record, shows));
     }
@@ -95,10 +89,7 @@ pub(crate) fn enter(
         .iter_mut()
         .find(|module| module.source == main.module)
         .expect("the entry module was resolved");
-    module.items.push(
-        cx.host()
-            .entry_signature(clause.span, main.symbol, spelling),
-    );
+    module.items.push(cx.host().entry_signature(clause.span, main.symbol, spelling));
     module.items.push(h::Item::Clause(clause));
     (program, locations)
 }
@@ -162,10 +153,7 @@ fn shows_sides(
     let str_ = cx.prelude.str_;
     let defines =
         |item: &h::Item| matches!(item, h::Item::Clause(clause) if clause.name == expectation);
-    let Some(module) = program
-        .modules
-        .iter_mut()
-        .find(|module| module.items.iter().any(defines))
+    let Some(module) = program.modules.iter_mut().find(|module| module.items.iter().any(defines))
     else {
         return false;
     };
@@ -225,9 +213,7 @@ fn answer_record(clause: &mut h::Clause, cx: &mut Context, record: &Record) -> b
         to_str,
     };
     let span = last.span;
-    let pair = cx
-        .sites
-        .expr(span, h::ExprKind::Tuple(vec![*first, *second]));
+    let pair = cx.sites.expr(span, h::ExprKind::Tuple(vec![*first, *second]));
     let arm = arm(&mut cx.sites, (span, operator), &both, record);
     last.kind = h::ExprKind::Match(Box::new(pair), vec![arm]);
     clause.locals += 2;
@@ -244,25 +230,14 @@ fn arm(
 ) -> h::Arm {
     let x = sites.expr(both.spans.0, h::ExprKind::Local(both.locals.0));
     let y = sites.expr(both.spans.1, h::ExprKind::Local(both.locals.1));
-    let compared = sites.expr(
-        span,
-        h::ExprKind::Binary(operator, Box::new(x), Box::new(y)),
-    );
+    let compared = sites.expr(span, h::ExprKind::Binary(operator, Box::new(x), Box::new(y)));
     let held = sites.expr(span, text(record.held()));
     let failed = failed(sites, span, both, record);
-    let answer = sites.expr(
-        span,
-        h::ExprKind::If(Box::new(compared), Box::new(held), Box::new(failed)),
-    );
-    let pattern = h::Pattern::Tuple(vec![
-        h::Pattern::Bind(both.locals.0),
-        h::Pattern::Bind(both.locals.1),
-    ]);
-    h::Arm {
-        pattern,
-        guard: None,
-        body: answer,
-    }
+    let answer =
+        sites.expr(span, h::ExprKind::If(Box::new(compared), Box::new(held), Box::new(failed)));
+    let pattern =
+        h::Pattern::Tuple(vec![h::Pattern::Bind(both.locals.0), h::Pattern::Bind(both.locals.1)]);
+    h::Arm { pattern, guard: None, body: answer }
 }
 
 /// Where a comparison's two sides were written, the locals they are bound
@@ -276,9 +251,7 @@ struct Sides {
 /// The last line of `result`, inside any block it is.
 fn last_line(mut result: &mut h::Expr) -> &mut h::Expr {
     while matches!(result.kind, h::ExprKind::Block(_)) {
-        let h::ExprKind::Block(body) = &mut result.kind else {
-            unreachable!("matched above")
-        };
+        let h::ExprKind::Block(body) = &mut result.kind else { unreachable!("matched above") };
         result = &mut body.result;
     }
     result
@@ -297,10 +270,8 @@ fn text(bytes: Vec<u8>) -> h::ExprKind {
 fn failed(sites: &mut h::Sites, span: Span, both: &Sides, record: &Record) -> h::Expr {
     let mut side = |local, place| {
         let value = sites.expr(place, h::ExprKind::Local(local));
-        let written = sites.expr(
-            place,
-            h::ExprKind::Method(Box::new(value), both.to_str, place, Vec::new()),
-        );
+        let written =
+            sites.expr(place, h::ExprKind::Method(Box::new(value), both.to_str, place, Vec::new()));
         sites.show(written.site);
         h::StringPart::Splice(written)
     };
@@ -326,11 +297,8 @@ fn entry(
 ) -> h::Clause {
     let written = cx.source(main.module).text().len();
     let span = Span::new(written, written);
-    let (print, exit, select) = (
-        cx.symbols.intern("print!"),
-        cx.symbols.intern("exit!"),
-        cx.symbols.intern("select"),
-    );
+    let (print, exit, select) =
+        (cx.symbols.intern("print!"), cx.symbols.intern("exit!"), cx.symbols.intern("select"));
     let sites = &mut cx.sites;
     let parts = records
         .iter()
@@ -343,10 +311,7 @@ fn entry(
         Reporting::Failures => vec![parts],
         Reporting::Each => parts.into_iter().map(|part| vec![part]).collect(),
     };
-    let bindings = lines
-        .into_iter()
-        .map(|line| printing(sites, span, print, line))
-        .collect();
+    let bindings = lines.into_iter().map(|line| printing(sites, span, print, line)).collect();
     let status = sites.expr(span, h::ExprKind::Number(0u8.into()));
     let receiver = sites.expr(span, h::ExprKind::Local(h::LocalId(0)));
     let exited = h::ExprKind::Method(Box::new(receiver), exit, span, vec![status]);
@@ -357,10 +322,7 @@ fn entry(
         name: main.symbol,
         patterns: vec![h::Pattern::Bind(h::LocalId(0))],
         guard: None,
-        body: h::Body {
-            bindings,
-            result: exited,
-        },
+        body: h::Body { bindings, result: exited },
         locals: 1,
     }
 }
@@ -382,10 +344,7 @@ fn said(
     }
     let held = sites.expr(span, text(record.held()));
     let failed = sites.expr(span, text(record.ended("-")));
-    sites.expr(
-        span,
-        h::ExprKind::Method(Box::new(answered), select, span, vec![held, failed]),
-    )
+    sites.expr(span, h::ExprKind::Method(Box::new(answered), select, span, vec![held, failed]))
 }
 
 /// A line of the test entry printing `line`, handed the host as its first
@@ -398,12 +357,7 @@ fn printing(
 ) -> h::Binding {
     let text = sites.expr(span, h::ExprKind::String(line));
     let receiver = sites.expr(span, h::ExprKind::Local(h::LocalId(0)));
-    let printed = sites.expr(
-        span,
-        h::ExprKind::Method(Box::new(receiver), print, span, vec![text]),
-    );
-    h::Binding {
-        pattern: h::Pattern::Wild,
-        value: printed,
-    }
+    let printed =
+        sites.expr(span, h::ExprKind::Method(Box::new(receiver), print, span, vec![text]));
+    h::Binding { pattern: h::Pattern::Wild, value: printed }
 }

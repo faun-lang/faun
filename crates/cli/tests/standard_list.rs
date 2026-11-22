@@ -13,77 +13,29 @@ use support::Package;
 /// leaves with from `xs`, `[0, 1, 2, 3, 4]`, and `n`, its length.
 const CASES: &[(&str, &str, u32)] = &[
     ("len", "xs.len() + xs.take(0).len()", 5),
-    (
-        "is_empty",
-        "xs.is_empty().to_nat() + xs.take(0).is_empty().to_nat() * 2",
-        2,
-    ),
+    ("is_empty", "xs.is_empty().to_nat() + xs.take(0).is_empty().to_nat() * 2", 2),
     ("append", "xs.append(9).get(5).ok_or(0)", 9),
-    (
-        "concat",
-        "xs.concat([7, 8]).get(6).ok_or(0) + xs.concat([7, 8]).len() * 10",
-        78,
-    ),
-    (
-        "prepend",
-        "xs.prepend(9).get(0).ok_or(0) + xs.prepend(9).len() * 10",
-        69,
-    ),
+    ("concat", "xs.concat([7, 8]).get(6).ok_or(0) + xs.concat([7, 8]).len() * 10", 78),
+    ("prepend", "xs.prepend(9).get(0).ok_or(0) + xs.prepend(9).len() * 10", 69),
     ("map", "xs.map(|x| x * 2).get(4).ok_or(0)", 8),
-    (
-        "map2",
-        "xs.map2([10, 20], |a, b| a + b).fold(0, |s, x| s + x)",
-        31,
-    ),
+    ("map2", "xs.map2([10, 20], |a, b| a + b).fold(0, |s, x| s + x)", 31),
     ("flat_map", "xs.flat_map(|x| [x, x]).len()", 10),
     ("flatten", "[[1, 2], [], [3]].flatten().len()", 3),
-    (
-        "join",
-        "[[1], [2, 3], [4]].join([0, 0]).len() + [[7]].join([0]).len() * 10",
-        18,
-    ),
-    (
-        "filter",
-        "xs.filter(|x| x % 2 == 1).fold(0, |s, x| s + x)",
-        4,
-    ),
+    ("join", "[[1], [2, 3], [4]].join([0, 0]).len() + [[7]].join([0]).len() * 10", 18),
+    ("filter", "xs.filter(|x| x % 2 == 1).fold(0, |s, x| s + x)", 4),
     ("count", "xs.count(|x| x % 2 == 0)", 3),
-    (
-        "any",
-        "xs.any(|x| x == 2).to_nat() + xs.any(|x| x == 9).to_nat() * 2",
-        1,
-    ),
-    (
-        "all",
-        "[1, 3].all(|x| x % 2 == 1).to_nat() + xs.all(|x| x % 2 == 1).to_nat() * 2",
-        1,
-    ),
+    ("any", "xs.any(|x| x == 2).to_nat() + xs.any(|x| x == 9).to_nat() * 2", 1),
+    ("all", "[1, 3].all(|x| x % 2 == 1).to_nat() + xs.all(|x| x % 2 == 1).to_nat() * 2", 1),
     ("fold", "xs.fold(0, |s, x| s * 10 + x)", 1_234 % 256),
-    (
-        "fold_right",
-        "xs.fold_right(0, |x, s| s * 10 + x)",
-        43_210 % 256,
-    ),
+    ("fold_right", "xs.fold_right(0, |x, s| s * 10 + x)", 43_210 % 256),
     (
         "trail",
         "xs.trail(0, |s, x| s + x).get(4).ok_or(0) + xs.trail(0, |s, x| s + x).len() * 20",
         110,
     ),
-    (
-        "reverse",
-        "xs.reverse().get(0).ok_or(9) + xs.reverse().len() * 10",
-        54,
-    ),
-    (
-        "first",
-        "xs.first().ok_or(9) + xs.take(0).first().ok_or(9) * 10",
-        90,
-    ),
-    (
-        "last",
-        "xs.last().ok_or(9) + xs.take(0).last().ok_or(9) * 10",
-        94,
-    ),
+    ("reverse", "xs.reverse().get(0).ok_or(9) + xs.reverse().len() * 10", 54),
+    ("first", "xs.first().ok_or(9) + xs.take(0).first().ok_or(9) * 10", 90),
+    ("last", "xs.last().ok_or(9) + xs.take(0).last().ok_or(9) * 10", 94),
     ("get", "xs.get(3).ok_or(9) + xs.get(n).ok_or(9) * 10", 93),
     ("get_or", "xs.get(2).ok_or(9) + xs.get(n).ok_or(9) * 10", 92),
     (
@@ -91,53 +43,25 @@ const CASES: &[(&str, &str, u32)] = &[
         "xs.put(1, 7).get(1).ok_or(0) + xs.put(n, 7).len() * 10 + xs.put(n, 7).get(4).ok_or(0) * 100",
         (7 + 50 + 400) % 256,
     ),
-    (
-        "set",
-        "xs.set(1, 7).ok_or([]).get(1).ok_or(0) + xs.set(n, 7).ok_or([]).len() * 10",
-        7,
-    ),
-    (
-        "find",
-        "xs.find(|x| x % 2 == 1).ok_or(9) + xs.find(|x| x == 7).ok_or(9) * 10",
-        91,
-    ),
+    ("set", "xs.set(1, 7).ok_or([]).get(1).ok_or(0) + xs.set(n, 7).ok_or([]).len() * 10", 7),
+    ("find", "xs.find(|x| x % 2 == 1).ok_or(9) + xs.find(|x| x == 7).ok_or(9) * 10", 91),
     (
         "find_index",
         "xs.find_index(|x| x == 3).ok_or(9) + xs.find_index(|x| x == 7).ok_or(9) * 10",
         93,
     ),
-    (
-        "try_map",
-        "xs.try_map(|x| Ok(x + 1)).ok_or([]).fold(0, |s, x| s + x)",
-        15,
-    ),
+    ("try_map", "xs.try_map(|x| Ok(x + 1)).ok_or([]).fold(0, |s, x| s + x)", 15),
     (
         "exchange",
         "xs.exchange(0, 4).ok_or([]).get(0).ok_or(9) + xs.exchange(0, n).ok_or([]).len() * 10",
         4,
     ),
     ("take", "xs.take(2).len() + xs.take(9).len() * 10", 52),
-    (
-        "drop",
-        "xs.drop(1).get(0).ok_or(9) + xs.drop(9).len() * 10",
-        1,
-    ),
+    ("drop", "xs.drop(1).get(0).ok_or(9) + xs.drop(9).len() * 10", 1),
     ("take_while", "xs.take_while(|x| x % 4 == x).len()", 4),
-    (
-        "drop_while",
-        "xs.drop_while(|x| x % 4 == x).get(0).ok_or(9)",
-        4,
-    ),
-    (
-        "range",
-        "List.range(n).fold(0, |s, x| s + x) + List.range(0).len()",
-        10,
-    ),
-    (
-        "repeat",
-        "List.repeat(7, 3).fold(0, |s, x| s + x) + List.repeat(7, 0).len()",
-        21,
-    ),
+    ("drop_while", "xs.drop_while(|x| x % 4 == x).get(0).ok_or(9)", 4),
+    ("range", "List.range(n).fold(0, |s, x| s + x) + List.range(0).len()", 10),
+    ("repeat", "List.repeat(7, 3).fold(0, |s, x| s + x) + List.repeat(7, 0).len()", 21),
 ];
 
 #[test]
@@ -188,11 +112,9 @@ fn taking_a_lists_first_elements_is_a_view_of_it() {
            ].map(|n| n.to_str()).join(\",\")
          )",
     );
-    for (input, said) in [
-        ("12345678", "1234,8,26,579,78"),
-        ("", "0,0,0,0,0"),
-        ("123456", "1234,6,24,579,0"),
-    ] {
+    for (input, said) in
+        [("12345678", "1234,8,26,579,78"), ("", "0,0,0,0,0"), ("123456", "1234,6,24,579,0")]
+    {
         assert_eq!(
             support::run_file(&package.entry(), input.as_bytes()),
             (0, format!("{said}\n")),

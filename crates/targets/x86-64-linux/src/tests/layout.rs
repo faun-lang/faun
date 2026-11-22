@@ -69,10 +69,7 @@ main!(host) -> (
 "#;
     let machine = super::faun::lower(source, &super::TARGET).unwrap();
     let prepared = super::TARGET.prepare(&machine).unwrap();
-    assert_eq!(
-        super::shared::execute(&prepared),
-        (0, "éééééééééééé|c3a9|ffc0|ffc02a".into())
-    );
+    assert_eq!(super::shared::execute(&prepared), (0, "éééééééééééé|c3a9|ffc0|ffc02a".into()));
 }
 
 #[test]
@@ -100,11 +97,7 @@ main!(host) -> (
     let entry = machine.function(machine.entry()).body().unwrap();
     // This program has one literal byte buffer, the backing for the rows.
     // Its construction must dominate the loop that looks up each name.
-    assert!(
-        machine
-            .walk(entry)
-            .any(|(op, _)| matches!(op, faun_core::ir::Op::BufferKnown { .. }))
-    );
+    assert!(machine.walk(entry).any(|(op, _)| matches!(op, faun_core::ir::Op::BufferKnown { .. })));
     assert_eq!(
         machine
             .every(entry)
@@ -197,8 +190,5 @@ main!(host) -> (
 ";
     let machine = super::faun::lower(source, &super::TARGET).unwrap();
     let prepared = super::TARGET.prepare(&machine).unwrap();
-    assert_eq!(
-        super::shared::execute_with_input(&prepared, b"A"),
-        (0, "414141114141".into())
-    );
+    assert_eq!(super::shared::execute_with_input(&prepared, b"A"), (0, "414141114141".into()));
 }

@@ -110,16 +110,10 @@ fn build() -> impl Parser<Command> {
                 SymbolTable::Omitted
             }
         });
-    construct!(Command::Build {
-        output,
-        symbols,
-        compiler,
-        favour,
-        source,
-    })
-    .to_options()
-    .descr("Compile a Faun program")
-    .command("build")
+    construct!(Command::Build { output, symbols, compiler, favour, source })
+        .to_options()
+        .descr("Compile a Faun program")
+        .command("build")
 }
 
 fn run() -> impl Parser<Command> {
@@ -128,14 +122,10 @@ fn run() -> impl Parser<Command> {
     let args = positional::<String>("ARGS")
         .help("What the program is run with; after `--`, even what looks like an option")
         .many();
-    construct!(Command::Run {
-        compiler,
-        source,
-        args
-    })
-    .to_options()
-    .descr("Compile a Faun program for the selected machine and run it")
-    .command("run")
+    construct!(Command::Run { compiler, source, args })
+        .to_options()
+        .descr("Compile a Faun program for the selected machine and run it")
+        .command("run")
 }
 
 fn test() -> impl Parser<Command> {
@@ -158,14 +148,10 @@ fn emit() -> impl Parser<Command> {
             _ => Err("expected barb, machine or target"),
         });
     let source = positional::<PathBuf>("PATH").help("The source file to compile");
-    construct!(Command::Emit {
-        compiler,
-        stage,
-        source,
-    })
-    .to_options()
-    .descr("Print an intermediate stage of a Faun program")
-    .command("emit")
+    construct!(Command::Emit { compiler, stage, source })
+        .to_options()
+        .descr("Print an intermediate stage of a Faun program")
+        .command("emit")
 }
 
 fn bundle() -> impl Parser<Command> {
@@ -177,14 +163,10 @@ fn bundle() -> impl Parser<Command> {
         .fallback(PathBuf::from("."))
         .debug_fallback();
     let source = positional::<PathBuf>("PATH").help("The root module of the package to bundle");
-    construct!(Command::Bundle {
-        target,
-        output,
-        source,
-    })
-    .to_options()
-    .descr("Write a package as a bundle named by its hash, for a URL dependency to name")
-    .command("bundle")
+    construct!(Command::Bundle { target, output, source })
+        .to_options()
+        .descr("Write a package as a bundle named by its hash, for a URL dependency to name")
+        .command("bundle")
 }
 
 fn fetch() -> impl Parser<Command> {
@@ -207,10 +189,7 @@ fn compiler() -> impl Parser<Compiler> {
     let target = target();
     // Every target has one backend; `--backend lab` names it still, for
     // scripts written when there were two, as `--backend x86-lab` does.
-    let backend = long("backend")
-        .argument::<String>("BACKEND")
-        .optional()
-        .hide();
+    let backend = long("backend").argument::<String>("BACKEND").optional().hide();
     construct!(target, backend)
         .parse(|(target, backend)| Compiler::choose(target, backend.as_deref()))
 }
@@ -233,10 +212,6 @@ fn target() -> impl Parser<&'static dyn Target> {
 const NO_NATIVE: &str = "no target runs on this machine, so --target is required";
 
 fn unknown_target(name: &str) -> String {
-    let known = TARGETS
-        .iter()
-        .map(|target| target.name())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let known = TARGETS.iter().map(|target| target.name()).collect::<Vec<_>>().join(", ");
     format!("unknown target `{name}`, expected: {known}")
 }

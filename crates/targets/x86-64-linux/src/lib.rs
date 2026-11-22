@@ -89,9 +89,7 @@ impl Target for X86_64Linux {
                 continue;
             }
             {
-                return Err(format!(
-                    "x86-64-linux cannot supply entry parameter {at} `{name}`"
-                ));
+                return Err(format!("x86-64-linux cannot supply entry parameter {at} `{name}`"));
             }
         }
         Ok(())

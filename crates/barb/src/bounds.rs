@@ -29,10 +29,7 @@ impl Bounds {
     /// has reached yet holds nothing, rather than holding anything. Starting
     /// at anything would be sound and would stay there, since what is known
     /// only ever grows.
-    pub const NOTHING: Self = Self {
-        low: 1,
-        high: Some(0),
-    };
+    pub const NOTHING: Self = Self { low: 1, high: Some(0) };
 
     #[must_use]
     pub const fn is_nothing(self) -> bool {
@@ -42,10 +39,7 @@ impl Bounds {
     /// Exactly this.
     #[must_use]
     pub const fn at(value: u64) -> Self {
-        Self {
-            low: value,
-            high: Some(value),
-        }
+        Self { low: value, high: Some(value) }
     }
 
     /// Either of two, which is what a match holds where its arms disagree.
@@ -81,10 +75,7 @@ impl Bounds {
         if self.is_nothing() {
             return self;
         }
-        Self {
-            low: self.low.saturating_sub(1),
-            high: self.high.map(|high| high.saturating_sub(1)),
-        }
+        Self { low: self.low.saturating_sub(1), high: self.high.map(|high| high.saturating_sub(1)) }
     }
 
     /// Both together, which is what adding them answers.
@@ -95,10 +86,7 @@ impl Bounds {
         }
         Self {
             low: self.low.saturating_add(other.low),
-            high: self
-                .high
-                .zip(other.high)
-                .and_then(|(a, b)| a.checked_add(b)),
+            high: self.high.zip(other.high).and_then(|(a, b)| a.checked_add(b)),
         }
     }
 
@@ -135,10 +123,7 @@ impl Bounds {
         }
         Self {
             low: self.low.saturating_mul(other.low),
-            high: self
-                .high
-                .zip(other.high)
-                .and_then(|(a, b)| a.checked_mul(b)),
+            high: self.high.zip(other.high).and_then(|(a, b)| a.checked_mul(b)),
         }
     }
 
@@ -151,11 +136,7 @@ impl Bounds {
             return Self::at(0);
         }
         Self {
-            low: if other.low == 0 {
-                0
-            } else {
-                other.high.map_or(0, |b| self.low / b)
-            },
+            low: if other.low == 0 { 0 } else { other.high.map_or(0, |b| self.low / b) },
             high: self.high.map(|a| a / other.low.max(1)),
         }
     }
@@ -207,10 +188,7 @@ impl Bounds {
             let widest = a.max(b);
             u64::MAX.checked_shr(widest.leading_zeros()).unwrap_or(0)
         });
-        Self {
-            low: if at_least { self.low.max(other.low) } else { 0 },
-            high,
-        }
+        Self { low: if at_least { self.low.max(other.low) } else { 0 }, high }
     }
 
     /// What the first to the power of the second can be: at least one
@@ -230,10 +208,7 @@ impl Bounds {
                 .and_then(|exponent| base.checked_pow(exponent)),
             None => None,
         };
-        Self {
-            low: u64::from(self.low > 0),
-            high,
-        }
+        Self { low: u64::from(self.low > 0), high }
     }
 
     /// How many bits hold every number this could be, where anything does.

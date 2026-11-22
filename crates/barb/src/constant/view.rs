@@ -100,19 +100,11 @@ impl<'a> SpineView<'a> {
     /// 255. The shape, not a source type name, establishes byte capability.
     #[must_use]
     pub fn to_bytes(self) -> Option<Vec<u8>> {
-        let Shape::Spine {
-            cons, recursive, ..
-        } = shape(self.0.types, self.0.owner)
-        else {
+        let Shape::Spine { cons, recursive, .. } = shape(self.0.types, self.0.owner) else {
             return None;
         };
-        let mut elements = self
-            .0
-            .types
-            .fields(cons)
-            .iter()
-            .enumerate()
-            .filter(|(at, _)| *at != recursive);
+        let mut elements =
+            self.0.types.fields(cons).iter().enumerate().filter(|(at, _)| *at != recursive);
         let (_, &element) = elements.next()?;
         if elements.next().is_some() {
             return None;
@@ -163,16 +155,12 @@ impl<'a> SpineView<'a> {
         self,
         budget: &mut Budget,
     ) -> Result<Vec<Vec<Constant<'a>>>, LimitExceeded> {
-        let Shape::Spine {
-            cons, recursive, ..
-        } = shape(self.0.types, self.0.owner)
-        else {
+        let Shape::Spine { cons, recursive, .. } = shape(self.0.types, self.0.owner) else {
             unreachable!("a spine view has a spine's shape");
         };
         let (count, mut at) = read_u64(self.0.bytes);
-        let count = count
-            .and_then(|count| usize::try_from(count).ok())
-            .ok_or(LimitExceeded::ValueSize)?;
+        let count =
+            count.and_then(|count| usize::try_from(count).ok()).ok_or(LimitExceeded::ValueSize)?;
         budget.bytes(self.0.bytes.len())?;
         let mut elements = Vec::with_capacity(count);
         for _ in 0..count {
@@ -182,11 +170,7 @@ impl<'a> SpineView<'a> {
                     continue;
                 }
                 let took = field_extent(self.0.types, owner, &self.0.bytes[at..], budget)?;
-                fields.push(Constant::new(
-                    self.0.types,
-                    owner,
-                    &self.0.bytes[at..at + took],
-                ));
+                fields.push(Constant::new(self.0.types, owner, &self.0.bytes[at..at + took]));
                 at += took;
             }
             elements.push(fields);
@@ -229,11 +213,7 @@ impl<'a> ConstructorView<'a> {
         let mut fields = Vec::new();
         for &owner in value.types.fields(self.ctor) {
             let took = field_extent(value.types, owner, &value.bytes[at..], budget)?;
-            fields.push(Constant::new(
-                value.types,
-                owner,
-                &value.bytes[at..at + took],
-            ));
+            fields.push(Constant::new(value.types, owner, &value.bytes[at..at + took]));
             at += took;
         }
         Ok(fields)
@@ -243,11 +223,7 @@ impl<'a> ConstructorView<'a> {
 impl<'a> Constant<'a> {
     // Only the codec and pool may establish this invariant, including field views.
     pub(super) const fn new(types: TypeInfo<'a>, owner: TypeId, bytes: &'a [u8]) -> Self {
-        Self {
-            types,
-            owner,
-            bytes,
-        }
+        Self { types, owner, bytes }
     }
 
     #[must_use]
@@ -282,49 +258,27 @@ impl<'a> Constant<'a> {
 
     pub(crate) fn to_owned(self, budget: &mut Budget) -> Result<Held, LimitExceeded> {
         budget.bytes(self.bytes.len())?;
-        Ok(Held {
-            owner: self.owner,
-            bytes: self.bytes.to_vec(),
-        })
+        Ok(Held { owner: self.owner, bytes: self.bytes.to_vec() })
     }
 
     fn head(self) -> Head {
         match shape(self.types, self.owner) {
-            Shape::Spine {
-                nil,
-                cons,
-                recursive,
-            } => {
+            Shape::Spine { nil, cons, recursive } => {
                 let header = header_bytes(self.bytes).expect("a validated count");
                 if header.iter().any(|byte| byte & 0x7f != 0) {
-                    Head {
-                        ctor: cons,
-                        at: header.len(),
-                        tail: Some(recursive),
-                    }
+                    Head { ctor: cons, at: header.len(), tail: Some(recursive) }
                 } else {
-                    Head {
-                        ctor: nil,
-                        at: header.len(),
-                        tail: None,
-                    }
+                    Head { ctor: nil, at: header.len(), tail: None }
                 }
             }
             Shape::Tagged => {
                 let (tag, at) = if self.types.ctors(self.owner).len() > 1 {
                     let (tag, took) = read_u64(self.bytes);
-                    (
-                        u32::try_from(tag.expect("a validated tag")).expect("a validated tag"),
-                        took,
-                    )
+                    (u32::try_from(tag.expect("a validated tag")).expect("a validated tag"), took)
                 } else {
                     (0, 0)
                 };
-                Head {
-                    ctor: self.types.ctor_at(self.owner, tag),
-                    at,
-                    tail: None,
-                }
+                Head { ctor: self.types.ctor_at(self.owner, tag), at, tail: None }
             }
         }
     }
@@ -341,10 +295,7 @@ impl<'a> Constant<'a> {
         for (index, &owner) in self.types.fields(ctor).iter().enumerate() {
             if tail != Some(index) {
                 let took = field_extent(self.types, owner, &self.bytes[at..], budget)?;
-                fields.push(Held {
-                    owner,
-                    bytes: self.bytes[at..at + took].to_vec(),
-                });
+                fields.push(Held { owner, bytes: self.bytes[at..at + took].to_vec() });
                 at += took;
             }
         }
@@ -355,13 +306,7 @@ impl<'a> Constant<'a> {
             let mut bytes = Vec::new();
             write_natural(&count, &mut bytes);
             bytes.extend_from_slice(&self.bytes[at..]);
-            fields.insert(
-                recursive,
-                Held {
-                    owner: self.owner,
-                    bytes,
-                },
-            );
+            fields.insert(recursive, Held { owner: self.owner, bytes });
         }
         Ok((ctor, fields))
     }
@@ -418,12 +363,7 @@ impl Held {
         fields: &[Self],
         budget: &mut Budget,
     ) -> Result<Self, ConstructionError> {
-        checked::fields(
-            types,
-            ctor,
-            fields.len(),
-            fields.iter().map(|value| Ok(value.owner())),
-        )?;
+        checked::fields(types, ctor, fields.len(), fields.iter().map(|value| Ok(value.owner())))?;
         Ok(Self::assemble(
             types,
             ctor,
@@ -435,10 +375,6 @@ impl Held {
     /// Both construction entry points validate fields before entering here.
     /// A cloned slice iterator permits sizing and tail lookup without collecting
     /// field views or allocating an owned value for each field.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one encoding dispatch with its conservative reservation"
-    )]
     pub(super) fn assemble<'a>(
         types: TypeInfo<'a>,
         ctor: CtorId,
@@ -451,30 +387,16 @@ impl Held {
             .clone()
             .try_fold(0usize, |n, field| n.checked_add(field.bytes.len()))
             .ok_or(LimitExceeded::ValueSize)?;
-        let overhead = if matches!(shape, Shape::Spine { .. }) {
-            1
-        } else {
-            5
-        };
-        budget.bytes(
-            payload
-                .checked_add(overhead)
-                .ok_or(LimitExceeded::ValueSize)?,
-        )?;
+        let overhead = if matches!(shape, Shape::Spine { .. }) { 1 } else { 5 };
+        budget.bytes(payload.checked_add(overhead).ok_or(LimitExceeded::ValueSize)?)?;
         let mut bytes = Vec::new();
         match shape {
             Shape::Spine { nil, recursive, .. } => {
                 if ctor == nil {
-                    return Ok(Self {
-                        owner,
-                        bytes: vec![0],
-                    });
+                    return Ok(Self { owner, bytes: vec![0] });
                 }
-                let tail = fields
-                    .clone()
-                    .nth(recursive)
-                    .expect("validated constructor arity")
-                    .encoded();
+                let tail =
+                    fields.clone().nth(recursive).expect("validated constructor arity").encoded();
                 let (count, took) = read_natural(tail);
                 write_natural(&(count + BigUint::one()), &mut bytes);
                 for (at, field) in fields.enumerate() {

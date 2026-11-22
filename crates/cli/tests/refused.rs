@@ -29,9 +29,7 @@ fn main() {
         let trial = Trial::test(name, move || check(&case));
         trials.push(trial);
     }
-    trials.push(Trial::test("every_err_file_has_its_case", move || {
-        orphans(&directory)
-    }));
+    trials.push(Trial::test("every_err_file_has_its_case", move || orphans(&directory)));
     libtest_mimic::run(&arguments, trials).exit();
 }
 
@@ -64,11 +62,7 @@ fn cases(directory: &Path) -> Vec<Case> {
             continue;
         };
         let golden = directory.join(format!("{name}.err"));
-        cases.push(Case {
-            name,
-            entry,
-            golden,
-        });
+        cases.push(Case { name, entry, golden });
     }
     cases.sort_by(|a, b| a.name.cmp(&b.name));
     cases

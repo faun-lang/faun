@@ -102,10 +102,7 @@ fn ladder_code_size_ratchets() {
         code.push((name, crate::encode::encode(&allocated).bytes));
     }
 
-    let sizes: Vec<_> = code
-        .iter()
-        .map(|(name, bytes)| (*name, bytes.len()))
-        .collect();
+    let sizes: Vec<_> = code.iter().map(|(name, bytes)| (*name, bytes.len())).collect();
     assert_eq!(
         sizes,
         [
@@ -121,10 +118,7 @@ fn ladder_code_size_ratchets() {
     );
     assert_eq!(code[0].1, [0x31, 0xFF, 0x6A, 0x3C, 0x58, 0x0F, 0x05]);
     // The count's low byte, read straight from where the kernel left it.
-    assert_eq!(
-        code[1].1,
-        [0x0F, 0xB6, 0x3C, 0x24, 0x6A, 0x3C, 0x58, 0x0F, 0x05]
-    );
+    assert_eq!(code[1].1, [0x0F, 0xB6, 0x3C, 0x24, 0x6A, 0x3C, 0x58, 0x0F, 0x05]);
 }
 
 #[test]
@@ -147,11 +141,7 @@ fn division_case(
     let right = Class::fixed(divisor_bits);
     let divide = program.declare("divide", &[left, right], &[Class::Word, Class::Word]);
     program.define(divide, |builder, args| {
-        let divisor = if constant_divisor {
-            builder.constant(right, denominator)
-        } else {
-            args[1]
-        };
+        let divisor = if constant_divisor { builder.constant(right, denominator) } else { args[1] };
         let quotient = builder.binary_at(Class::Word, Binary::Div, args[0], divisor);
         let remainder = builder.binary_at(Class::Word, Binary::Mod, args[0], divisor);
         builder.ret(&[quotient, remainder]);
@@ -162,10 +152,8 @@ fn division_case(
         let pair = builder.call(divide, &[dividend, divisor]);
         let quotient =
             builder.constant(Class::Word, numerator.checked_div(denominator).unwrap_or(0));
-        let remainder = builder.constant(
-            Class::Word,
-            numerator.checked_rem(denominator).unwrap_or(numerator),
-        );
+        let remainder =
+            builder.constant(Class::Word, numerator.checked_rem(denominator).unwrap_or(numerator));
         let first = builder.compare(Relation::Equal, pair[0], quotient);
         let second = builder.compare(Relation::Equal, pair[1], remainder);
         let both = builder.binary(Binary::And, first, second);
@@ -242,11 +230,7 @@ fn low_word_multiplication_preserves_unsigned_high_bits() {
 #[test]
 fn numbers_of_different_widths_are_compared_at_the_wider() {
     let top = |bits: u16| {
-        if bits == 64 {
-            u64::MAX
-        } else {
-            (1u64 << bits) - 1
-        }
+        if bits == 64 { u64::MAX } else { (1u64 << bits) - 1 }
     };
     let widths = [0u16, 1, 8, 31, 32, 33, 52, 53, 64];
     for &narrow in &widths {
@@ -254,10 +238,7 @@ fn numbers_of_different_widths_are_compared_at_the_wider() {
             let small = top(narrow);
             // The wide number's low thirty-two bits are the small one's.
             let big = (top(wide) & !u64::from(u32::MAX)) | (small & u64::from(u32::MAX));
-            for (left, right) in [
-                ((small, narrow), (big, wide)),
-                ((big, wide), (small, narrow)),
-            ] {
+            for (left, right) in [((small, narrow), (big, wide)), ((big, wide), (small, narrow))] {
                 let answer = i32::from(left.0 == right.0)
                     | i32::from(left.0 < right.0) << 1
                     | i32::from(left.0 > right.0) << 2
@@ -283,18 +264,10 @@ fn numbers_of_different_widths_are_compared_at_the_wider() {
 fn compared((left, left_bits): (u64, u16), (right, right_bits): (u64, u16)) -> i32 {
     use faun_core::ir::{Binary, Class, Direction, Program, Relation};
     let class = |bits: u16| {
-        if bits == 64 {
-            Class::Word
-        } else {
-            Class::fixed(bits)
-        }
+        if bits == 64 { Class::Word } else { Class::fixed(bits) }
     };
     let (mut p, main) = Program::new("main");
-    let probe = p.declare(
-        "probe",
-        &[class(left_bits), class(right_bits)],
-        &[Class::Word],
-    );
+    let probe = p.declare("probe", &[class(left_bits), class(right_bits)], &[Class::Word]);
     p.define(probe, |b, params| {
         let (x, y) = (params[0], params[1]);
         let equal = b.compare(Relation::Equal, x, y);
@@ -331,10 +304,8 @@ fn an_early_way_out_saves_nothing() {
     let first = |favour| {
         let allocated =
             crate::selected::select_and_allocate_favouring(&program, favour, false).unwrap();
-        let (_, start) = allocated
-            .functions()
-            .find(|&(function, _)| function != program.entry())
-            .unwrap();
+        let (_, start) =
+            allocated.functions().find(|&(function, _)| function != program.entry()).unwrap();
         allocated.instructions()[start]
     };
     assert!(!matches!(first(Favour::Speed), Inst::OpenFrame { .. }));
@@ -362,11 +333,7 @@ fn a_program_written_with_symbols_chains_its_frames() {
                     code[start..start + 2],
                     [
                         Inst::PushRegister { src: Reg::Rbp },
-                        Inst::Move {
-                            dst: Reg::Rbp,
-                            src: Reg::Rsp,
-                            width: RegisterWidth::Word,
-                        },
+                        Inst::Move { dst: Reg::Rbp, src: Reg::Rsp, width: RegisterWidth::Word },
                     ]
                 );
             }
@@ -390,11 +357,7 @@ fn chaining_frames_changes_no_answer() {
         faun_core::programs::values_survive_a_call(),
         faun_core::programs::calls_a_function(),
     ];
-    programs.extend(
-        faun_core::programs::printing()
-            .into_iter()
-            .map(|(_, program, _)| program),
-    );
+    programs.extend(faun_core::programs::printing().into_iter().map(|(_, program, _)| program));
     for program in programs {
         let program = TARGET.prepare(&program).unwrap();
         let run = |symbols| {

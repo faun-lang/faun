@@ -101,10 +101,7 @@ pub(super) fn rebuild_declared<P: Pass>(
     pass: &mut P,
 ) -> Program {
     let mut output = skeleton(source, declared);
-    let rebuild = Rebuild {
-        source,
-        values: vec![Cell::new(None); source.values_count()],
-    };
+    let rebuild = Rebuild { source, values: vec![Cell::new(None); source.values_count()] };
     for (id, function) in source.functions.iter_enumerated() {
         let Some(body) = function.body() else {
             continue;
@@ -143,11 +140,8 @@ pub(super) fn skeleton(source: &Program, declared: Declarations) -> Program {
     for id in output.functions.ids() {
         if output.functions[id].body().is_some() {
             let params = output.mint_from(output.functions[id].params);
-            let body = output.regions.push(super::Region {
-                params,
-                ops: Range::EMPTY,
-                terminator: None,
-            });
+            let body =
+                output.regions.push(super::Region { params, ops: Range::EMPTY, terminator: None });
             output.functions[id].definition = Definition::Declared(body);
         }
     }
@@ -168,9 +162,7 @@ impl<'a> Rebuild<'a> {
     /// for: an operand names something the walk has already passed.
     #[must_use]
     pub(super) fn value(&self, old: ValueId) -> ValueId {
-        self.values[old.index()]
-            .get()
-            .expect("a value written before it is read")
+        self.values[old.index()].get().expect("a value written before it is read")
     }
 
     /// Say that `new` is what the new program has instead of `old`.
@@ -192,11 +184,7 @@ impl<'a> Rebuild<'a> {
     /// A run of operands, each as the new program names it.
     #[must_use]
     pub(super) fn args(&self, operands: Range) -> Vec<ValueId> {
-        self.source
-            .values(operands)
-            .iter()
-            .map(|&old| self.value(old))
-            .collect()
+        self.source.values(operands).iter().map(|&old| self.value(old)).collect()
     }
 
     /// The classes a run of results is held at.
@@ -236,18 +224,9 @@ impl<'a> Rebuild<'a> {
     /// region it holds walked through `pass`.
     pub(super) fn copy<P: Pass>(&self, b: &mut Builder, op: Op, results: &[ValueId], pass: &mut P) {
         let fresh = match op {
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => self.if_(
-                b,
-                self.value(condition),
-                results,
-                then_region,
-                else_region,
-                pass,
-            ),
+            Op::If { condition, then_region, else_region } => {
+                self.if_(b, self.value(condition), results, then_region, else_region, pass)
+            }
             Op::Loop { initial, body } => {
                 // A loop goes round at the classes it was written with,
                 // however much narrower what now starts it is.
@@ -258,11 +237,7 @@ impl<'a> Rebuild<'a> {
                     .zip(params)
                     .map(|(value, &param)| {
                         let class = self.source.class(param);
-                        if b.class(value) == class {
-                            value
-                        } else {
-                            b.convert(class, value)
-                        }
+                        if b.class(value) == class { value } else { b.convert(class, value) }
                     })
                     .collect();
                 b.loop_(&initial, &self.classes(results), |b, params| {
@@ -294,22 +269,18 @@ impl<'a> Rebuild<'a> {
             Op::Cell { tag, fields, shape } => vec![b.cell(tag, shape, &self.args(fields))],
             Op::CellTag { cell } => vec![b.cell_tag(self.value(cell))],
             Op::BufferEmpty { shape } => vec![b.buffer_empty(shape)],
-            Op::BufferKnown {
-                elements,
-                shape,
-                bytes,
-            } => vec![b.buffer_known(elements, shape, bytes)],
+            Op::BufferKnown { elements, shape, bytes } => {
+                vec![b.buffer_known(elements, shape, bytes)]
+            }
             Op::BufferPush { operands, shape } => {
                 let operands = self.args(operands);
                 let (sequence, fields) = operands.split_at(3);
-                b.buffer_push((sequence[0], sequence[1], sequence[2]), shape, fields)
-                    .to_vec()
+                b.buffer_push((sequence[0], sequence[1], sequence[2]), shape, fields).to_vec()
             }
             Op::BufferAppend { operands, shape } => {
                 let operands = self.args(operands);
                 let (sequence, fields) = operands.split_at(3);
-                b.buffer_append((sequence[0], sequence[1], sequence[2]), shape, fields)
-                    .to_vec()
+                b.buffer_append((sequence[0], sequence[1], sequence[2]), shape, fields).to_vec()
             }
             Op::BufferReplace { operands, shape } => {
                 let operands = self.args(operands);
@@ -341,52 +312,32 @@ impl<'a> Rebuild<'a> {
                 .to_vec()
             }
             Op::BufferRoom { count, shape } => vec![b.buffer_room(self.value(count), shape)],
-            Op::BufferAt {
-                buffer,
-                start,
-                shape,
-            } => vec![b.buffer_at((self.value(buffer), self.value(start)), shape)],
+            Op::BufferAt { buffer, start, shape } => {
+                vec![b.buffer_at((self.value(buffer), self.value(start)), shape)]
+            }
             Op::Keep { value } => {
                 b.keep(self.value(value));
                 Vec::new()
             }
-            Op::BufferField {
-                buffer,
-                start,
-                index,
-                shape,
-            } => vec![b.buffer_field(
+            Op::BufferField { buffer, start, index, shape } => vec![b.buffer_field(
                 (self.source.class(results[0]), shape),
                 (self.value(buffer), self.value(start)),
                 index,
             )],
-            Op::CellField { cell, index, shape } => vec![b.cell_field(
-                (self.source.class(results[0]), shape),
-                self.value(cell),
-                index,
-            )],
+            Op::CellField { cell, index, shape } => {
+                vec![b.cell_field((self.source.class(results[0]), shape), self.value(cell), index)]
+            }
             Op::Binary { op, left, right } => vec![b.binary_at(
                 self.source.class(results[0]),
                 op,
                 self.value(left),
                 self.value(right),
             )],
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } => vec![b.compare(relation, self.value(left), self.value(right))],
-            Op::Load {
-                width,
-                address,
-                offset,
-            } => vec![b.load(width, self.value(address), offset)],
-            Op::Store {
-                width,
-                address,
-                offset,
-                value,
-            } => {
+            Op::Compare { relation, left, right } => {
+                vec![b.compare(relation, self.value(left), self.value(right))]
+            }
+            Op::Load { width, address, offset } => vec![b.load(width, self.value(address), offset)],
+            Op::Store { width, address, offset, value } => {
                 b.store(width, self.value(address), offset, self.value(value));
                 Vec::new()
             }
@@ -394,16 +345,9 @@ impl<'a> Rebuild<'a> {
             Op::Convert { value } => {
                 vec![b.convert(self.source.class(results[0]), self.value(value))]
             }
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } => vec![b.shift(
-                self.source.class(results[0]),
-                direction,
-                self.value(value),
-                by,
-            )],
+            Op::Shift { direction, value, by } => {
+                vec![b.shift(self.source.class(results[0]), direction, self.value(value), by)]
+            }
             Op::Call { function, args } => b.call(function, &self.args(args)),
             Op::If { .. } | Op::Loop { .. } => unreachable!("a region is walked, not written"),
         }

@@ -11,9 +11,7 @@ use support::{Package, run_counted};
 
 /// The fuel a program spends on `steps` bytes of input, and what it prints.
 fn spent(package: &Package, steps: usize) -> (String, u64) {
-    let input: Vec<u8> = (0..steps)
-        .map(|at| u8::try_from(at * 7 % 13).unwrap())
-        .collect();
+    let input: Vec<u8> = (0..steps).map(|at| u8::try_from(at * 7 % 13).unwrap()).collect();
     let (status, written, fuel) = run_counted(&package.entry(), &input);
     assert_eq!(status, 0);
     (written.trim().to_owned(), fuel)
@@ -137,10 +135,7 @@ fn prints_everywhere(package: &Package, expected: &str) {
             .output()
             .unwrap();
         assert_eq!(
-            (
-                result.status.code(),
-                String::from_utf8_lossy(&result.stdout).trim()
-            ),
+            (result.status.code(), String::from_utf8_lossy(&result.stdout).trim()),
             (Some(0), expected),
             "{target}: {}",
             String::from_utf8_lossy(&result.stderr)
@@ -219,9 +214,6 @@ fn a_natural_a_branch_bounds_is_narrowed_where_it_is_operated_on() {
             .unwrap();
         let machine = String::from_utf8_lossy(&result.stdout);
         assert!(machine.contains("to 0..9\n"), "{target}: {machine}");
-        assert!(
-            !machine.contains(&format!("to 0..{}\n", u64::MAX)),
-            "{target}: {machine}"
-        );
+        assert!(!machine.contains(&format!("to 0..{}\n", u64::MAX)), "{target}: {machine}");
     }
 }

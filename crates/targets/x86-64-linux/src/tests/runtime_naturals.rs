@@ -50,10 +50,7 @@ fn comparisons_of_naturals_passed_as_words_answer_as_the_naturals_do() {
         (comparisons::one_past_a_word(), 5),
         (comparisons::a_compared_peer_escapes(), 1),
     ] {
-        assert_eq!(
-            super::shared::status(&super::TARGET.prepare(&p).unwrap()),
-            answer
-        );
+        assert_eq!(super::shared::status(&super::TARGET.prepare(&p).unwrap()), answer);
     }
 }
 
@@ -80,9 +77,7 @@ main!(host) -> (
 fn source_rotates_select_native_widths_and_wrap_the_count() {
     use crate::machine::Inst;
     let target = crate::X86_64Linux;
-    let prepared = target
-        .prepare(&faun::lower(ROTATE_PROGRAM, &target).unwrap())
-        .unwrap();
+    let prepared = target.prepare(&faun::lower(ROTATE_PROGRAM, &target).unwrap()).unwrap();
     let code = crate::selected::select_and_allocate(&prepared).unwrap();
     for (width, count) in [(8, None), (16, None), (32, None), (64, Some(7))] {
         assert!(
@@ -102,10 +97,7 @@ fn source_rotates_select_native_widths_and_wrap_the_count() {
             0x8100_0005_u32.rotate_left(n),
             0x8100_0000_0000_0005_u64.rotate_left(7)
         );
-        assert_eq!(
-            super::shared::execute_with_input(&prepared, &input),
-            (0, expected)
-        );
+        assert_eq!(super::shared::execute_with_input(&prepared, &input), (0, expected));
     }
 }
 
@@ -136,13 +128,9 @@ fn unsigned_comparisons_at_the_sign_bit_test_the_full_operand_width() {
         let prepared = super::TARGET.prepare(&p).unwrap();
         let code = crate::selected::select_and_allocate(&prepared).unwrap();
         assert!(
-            code.instructions().iter().any(|inst| matches!(
-                inst,
-                Inst::SetIf {
-                    condition: Condition::NotSign,
-                    ..
-                }
-            )),
+            code.instructions()
+                .iter()
+                .any(|inst| matches!(inst, Inst::SetIf { condition: Condition::NotSign, .. })),
             "missing {bits}-bit sign test"
         );
         assert_eq!(super::shared::status(&prepared), 0b1100);

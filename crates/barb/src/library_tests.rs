@@ -33,11 +33,7 @@ impl Library {
         let magnitude = p.declare("magnitude", &[signed], nat);
         p.define(magnitude, |b, args| {
             b.match_(args[0], signed, |b, ctor, fields| {
-                if ctor == pos {
-                    fields[0]
-                } else {
-                    b.con(succ, &[fields[0]])
-                }
+                if ctor == pos { fields[0] } else { b.con(succ, &[fields[0]]) }
             })
         });
         // negative(Zero) -> Pos(Zero)
@@ -45,11 +41,7 @@ impl Library {
         let negative = p.declare("negative", &[nat], signed);
         p.define(negative, |b, args| {
             b.match_(args[0], nat, |b, ctor, fields| {
-                if ctor == zero {
-                    b.con(pos, &[args[0]])
-                } else {
-                    b.con(neg, &[fields[0]])
-                }
+                if ctor == zero { b.con(pos, &[args[0]]) } else { b.con(neg, &[fields[0]]) }
             })
         });
         // negate(Pos(n)) -> negative(n)
@@ -71,16 +63,8 @@ impl Library {
         p.define(signed_mul, |b, args| {
             b.match_(args[0], signed, |b, left, a| {
                 b.match_(args[1], signed, |b, right, c| {
-                    let a = if left == pos {
-                        a[0]
-                    } else {
-                        b.con(succ, &[a[0]])
-                    };
-                    let c = if right == pos {
-                        c[0]
-                    } else {
-                        b.con(succ, &[c[0]])
-                    };
+                    let a = if left == pos { a[0] } else { b.con(succ, &[a[0]]) };
+                    let c = if right == pos { c[0] } else { b.con(succ, &[c[0]]) };
                     let product = b.call(mul, &[a, c]);
                     if (left == pos) == (right == pos) {
                         b.con(pos, &[product])
@@ -93,16 +77,12 @@ impl Library {
         // pair_swap(Pair(a, b)) -> Pair(b, a)
         let pair_swap = p.declare("pair_swap", &[pair], pair);
         p.define(pair_swap, |b, args| {
-            b.match_(args[0], pair, |b, _, fields| {
-                b.con(both, &[fields[1], fields[0]])
-            })
+            b.match_(args[0], pair, |b, _, fields| b.con(both, &[fields[1], fields[0]]))
         });
         // pair_sum(Pair(a, b)) -> add(a, b)
         let pair_sum = p.declare("pair_sum", &[pair], nat);
         p.define(pair_sum, |b, args| {
-            b.match_(args[0], pair, |b, _, fields| {
-                b.call(add, &[fields[0], fields[1]])
-            })
+            b.match_(args[0], pair, |b, _, fields| b.call(add, &[fields[0], fields[1]]))
         });
         // pair_scaled(Pair(a, b), n) -> Pair(mul(a, n), mul(b, n))
         let pair_scaled = p.declare("pair_scaled", &[pair, nat], pair);
@@ -119,10 +99,7 @@ impl Library {
 
         validate(&p).unwrap();
         let operations = arithmetic::recognise(&p);
-        Self {
-            program: p,
-            operations,
-        }
+        Self { program: p, operations }
     }
 
     fn function(&self, name: &str) -> FnId {
@@ -137,23 +114,14 @@ impl Library {
 
     fn call(&self, name: &str, args: &[Held]) -> Held {
         let id = self.function(name);
-        assert_eq!(
-            self.program.params(id),
-            args.iter().map(Held::owner).collect::<Vec<_>>()
-        );
-        Evaluator {
-            program: &self.program,
-            operations: &self.operations,
-        }
-        .body(
-            self.program.function(id).body().unwrap(),
-            args.iter().cloned().map(Ok).collect(),
-            &mut Budget::new(FoldLimits {
-                max_depth: 512,
-                ..FoldLimits::default()
-            }),
-        )
-        .unwrap_or_else(|reason| panic!("cannot evaluate {name}: {reason:?}"))
+        assert_eq!(self.program.params(id), args.iter().map(Held::owner).collect::<Vec<_>>());
+        Evaluator { program: &self.program, operations: &self.operations }
+            .body(
+                self.program.function(id).body().unwrap(),
+                args.iter().cloned().map(Ok).collect(),
+                &mut Budget::new(FoldLimits { max_depth: 512, ..FoldLimits::default() }),
+            )
+            .unwrap_or_else(|reason| panic!("cannot evaluate {name}: {reason:?}"))
     }
 
     fn natural(&self, n: impl Into<BigUint>) -> Held {
@@ -172,18 +140,10 @@ impl Library {
             .ctors(ctor.owner)
             .iter()
             .position(|c| c.name == ctor.name)
-            .map(|tag| {
-                self.program
-                    .ctor_at(ctor.owner, u32::try_from(tag).unwrap())
-            })
+            .map(|tag| self.program.ctor_at(ctor.owner, u32::try_from(tag).unwrap()))
             .unwrap();
-        Held::build(
-            self.program.type_info(),
-            id,
-            fields,
-            &mut Budget::new(FoldLimits::default()),
-        )
-        .unwrap()
+        Held::build(self.program.type_info(), id, fields, &mut Budget::new(FoldLimits::default()))
+            .unwrap()
     }
 
     fn integer(&self, n: i64) -> Held {
@@ -217,14 +177,8 @@ fn small_library_calls_also_evaluate_without_arithmetic_recognition() {
         }
         let n = u32::try_from(a + 3).unwrap();
         same(&lib.call("negate", &[lib.integer(a)]), &lib.integer(-a));
-        same(
-            &lib.call("pair_sum", &[lib.pair(n, 2u32)]),
-            &lib.natural(n + 2),
-        );
-        same(
-            &lib.call("pair_swap", &[lib.pair(n, 2u32)]),
-            &lib.pair(2u32, n),
-        );
+        same(&lib.call("pair_sum", &[lib.pair(n, 2u32)]), &lib.natural(n + 2));
+        same(&lib.call("pair_swap", &[lib.pair(n, 2u32)]), &lib.pair(2u32, n));
     }
 }
 
@@ -251,19 +205,10 @@ fn library_products_sums_and_large_magnitudes_fold_as_ordinary_calls() {
         ),
         ("signed_mul", vec![lib.integer(3), lib.integer(-4)]),
         ("negate", vec![lib.integer(0)]),
-        (
-            "magnitude",
-            vec![lib.construct("NegSucc", &[lib.natural(huge.clone())])],
-        ),
+        ("magnitude", vec![lib.construct("NegSucc", &[lib.natural(huge.clone())])]),
         ("pair_swap", vec![lib.pair(1u32, 2u32)]),
         ("pair_sum", vec![lib.pair(huge, 5u32)]),
-        (
-            "pair_scaled",
-            vec![
-                lib.pair(3u32, 4u32),
-                lib.natural(BigUint::from(1u8) << 64usize),
-            ],
-        ),
+        ("pair_scaled", vec![lib.pair(3u32, 4u32), lib.natural(BigUint::from(1u8) << 64usize)]),
     ];
     assert_calls_fold(&mut lib, &cases);
 }
@@ -273,9 +218,7 @@ fn assert_calls_fold(lib: &mut Library, cases: &[(&str, Vec<Held>)]) {
     for (index, (name, args)) in cases.iter().enumerate() {
         let expected = lib.call(name, args);
         let called = lib.function(name);
-        let probe = lib
-            .program
-            .declare(&format!("probe_{index}"), &[], expected.owner());
+        let probe = lib.program.declare(&format!("probe_{index}"), &[], expected.owner());
         let values: Vec<_> = args.iter().map(|v| lib.program.intern_held(v)).collect();
         lib.program.define(probe, |b, _| {
             let args: Vec<_> = values.iter().map(|&v| b.known(v)).collect();
@@ -296,10 +239,7 @@ fn assert_calls_fold(lib: &mut Library, cases: &[(&str, Vec<Held>)]) {
                 panic!("probe did not fold (normalized={normalized})");
             };
             same(
-                &program
-                    .constant(value)
-                    .to_owned(&mut Budget::new(FoldLimits::default()))
-                    .unwrap(),
+                &program.constant(value).to_owned(&mut Budget::new(FoldLimits::default())).unwrap(),
                 expected,
             );
         }
@@ -377,13 +317,13 @@ fn naming_probe(renamed: bool) -> (Program, FnId) {
     });
     let magnitude = p.declare(name("magnitude", "size"), &[signed], nat);
     p.define(magnitude, |b, args| {
-        b.match_(args[0], signed, |b, ctor, fields| {
-            if ctor == pos {
-                fields[0]
-            } else {
-                b.con(succ, &[fields[0]])
-            }
-        })
+        b.match_(
+            args[0],
+            signed,
+            |b, ctor, fields| {
+                if ctor == pos { fields[0] } else { b.con(succ, &[fields[0]]) }
+            },
+        )
     });
     let k = p.intern_number(nat, 254).unwrap();
     let probe = p.declare("probe", &[], nat);

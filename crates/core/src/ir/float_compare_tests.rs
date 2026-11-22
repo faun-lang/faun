@@ -9,19 +9,10 @@ fn patterns(format: Format) -> Vec<u64> {
         Format::Binary64 => (0x7ff0_0000_0000_0000, 1.0f64.to_bits()),
     };
     let sign = 1 << (format.bits() - 1);
-    [
-        0,
-        1,
-        one - 1,
-        one,
-        one + 1,
-        infinity - 1,
-        infinity,
-        infinity + 1,
-    ]
-    .into_iter()
-    .flat_map(|n| [n, n | sign])
-    .collect()
+    [0, 1, one - 1, one, one + 1, infinity - 1, infinity, infinity + 1]
+        .into_iter()
+        .flat_map(|n| [n, n | sign])
+        .collect()
 }
 
 #[test]

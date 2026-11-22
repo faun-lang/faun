@@ -67,11 +67,8 @@ pub(crate) fn heads(program: &mut Program) {
     if found.sites.is_empty() {
         return;
     }
-    let mut wanted: Vec<(FnId, Reader)> = found
-        .sites
-        .values()
-        .map(|site| (site.producer, site.reader))
-        .collect();
+    let mut wanted: Vec<(FnId, Reader)> =
+        found.sites.values().map(|site| (site.producer, site.reader)).collect();
     wanted.sort_by_key(|(id, reader)| (id.index(), reader.order()));
     wanted.dedup();
     let copies = declared(program, &wanted);
@@ -173,11 +170,7 @@ fn found(program: &Program, recognised: &Recognised, pure: &[bool]) -> Found {
             finder.find(body, program.params(id).len());
         }
     }
-    Found {
-        sites: finder.sites,
-        feeding: finder.feeding,
-        producers: finder.producers,
-    }
+    Found { sites: finder.sites, feeding: finder.feeding, producers: finder.producers }
 }
 
 /// What a list-building definition builds: its empty list, its step, and
@@ -267,9 +260,7 @@ impl Head {
         let answer = program.function(copy).result;
         let nothing = match reader {
             Reader::Head | Reader::Fold(_) => {
-                super::sequence::sequence(program, answer)
-                    .expect("a fold answers a list")
-                    .0
+                super::sequence::sequence(program, answer).expect("a fold answers a list").0
             }
             Reader::Search(walker) => searched_nothing(program, walker.walk, walker.list)
                 .expect("a search answers one constructor on the empty list"),
@@ -314,18 +305,10 @@ impl Finder<'_> {
                         continue;
                     };
                     if self.read_for_head(&exprs[at + 1..], level, shape) {
-                        let site = Site {
-                            producer: callee,
-                            reader: Reader::Head,
-                            feed: None,
-                        };
+                        let site = Site { producer: callee, reader: Reader::Head, feed: None };
                         self.sites.insert(id, site);
                     } else if let Some((walked, reader)) = self.walked(&exprs, base, at) {
-                        let site = Site {
-                            producer: callee,
-                            reader,
-                            feed: Some(id),
-                        };
+                        let site = Site { producer: callee, reader, feed: Some(id) };
                         self.sites.insert(walked, site);
                         self.feeding.insert(id);
                     }
@@ -360,11 +343,7 @@ impl Finder<'_> {
         let body = self.program.function(id).body()?;
         let (empty, push, recursive) =
             super::sequence::sequence(self.program, self.program.function(id).result)?;
-        self.joins_in_tail(body).then_some(Shape {
-            empty,
-            push,
-            recursive,
-        })
+        self.joins_in_tail(body).then_some(Shape { empty, push, recursive })
     }
 
     /// Whether `id` reaches no bodyless call and is not answered as an
@@ -377,11 +356,9 @@ impl Finder<'_> {
     fn joins_in_tail(&self, body: Body) -> bool {
         match self.program.expr(body.tail) {
             Expr::Call(callee, _) => joins(self.recognised, callee),
-            Expr::Match(_, arms) => self
-                .program
-                .arms(arms)
-                .iter()
-                .any(|arm| self.joins_in_tail(arm.body)),
+            Expr::Match(_, arms) => {
+                self.program.arms(arms).iter().any(|arm| self.joins_in_tail(arm.body))
+            }
             Expr::Atom(_) | Expr::Con(..) | Expr::Static(_) => false,
         }
     }
@@ -391,11 +368,8 @@ impl Finder<'_> {
     /// of those reads the rest. Inlining a test and a negation of it leaves
     /// two such matches, one read by nothing.
     fn read_for_head(&self, later: &[ExprId], level: usize, shape: Shape) -> bool {
-        let reads = walk::reads(
-            self.program,
-            walk::nested(self.program, later.iter().copied()),
-            level,
-        );
+        let reads =
+            walk::reads(self.program, walk::nested(self.program, later.iter().copied()), level);
         let mut matched = 0;
         for (at, &id) in later.iter().enumerate() {
             let Expr::Match(Atom(on), arms) = self.program.expr(id) else {
@@ -425,11 +399,8 @@ impl Finder<'_> {
     fn walked(&mut self, exprs: &[ExprId], base: usize, at: usize) -> Option<(ExprId, Reader)> {
         let level = base + at;
         let later = &exprs[at + 1..];
-        let reads = walk::reads(
-            self.program,
-            walk::nested(self.program, later.iter().copied()),
-            level,
-        );
+        let reads =
+            walk::reads(self.program, walk::nested(self.program, later.iter().copied()), level);
         if reads != 1 {
             return None;
         }
@@ -461,12 +432,7 @@ impl Finder<'_> {
     /// Whether `atom` is bound among `exprs`, the first at `base`, to the
     /// empty list.
     fn empty_at(&self, exprs: &[ExprId], base: usize, atom: Atom, empty: CtorId) -> bool {
-        let Some(&bound) = atom
-            .0
-            .index()
-            .checked_sub(base)
-            .and_then(|at| exprs.get(at))
-        else {
+        let Some(&bound) = atom.0.index().checked_sub(base).and_then(|at| exprs.get(at)) else {
             return false;
         };
         constructor(self.program, bound) == Some(empty)
@@ -480,21 +446,10 @@ impl Finder<'_> {
         }
         let found = if self.takes_part(walk) {
             folded(self.program, self.recognised, walk, list)
-                .map(|acc| {
-                    Reader::Fold(Walker {
-                        walk,
-                        list,
-                        acc: Some(acc),
-                    })
-                })
+                .map(|acc| Reader::Fold(Walker { walk, list, acc: Some(acc) }))
                 .or_else(|| {
-                    searched_nothing(self.program, walk, list).map(|_| {
-                        Reader::Search(Walker {
-                            walk,
-                            list,
-                            acc: None,
-                        })
-                    })
+                    searched_nothing(self.program, walk, list)
+                        .map(|_| Reader::Search(Walker { walk, list, acc: None }))
                 })
         } else {
             None
@@ -507,11 +462,7 @@ impl Finder<'_> {
 impl Shape {
     fn of(program: &Program, ty: TypeId) -> Option<Self> {
         let (empty, push, recursive) = super::sequence::sequence(program, ty)?;
-        Some(Self {
-            empty,
-            push,
-            recursive,
-        })
+        Some(Self { empty, push, recursive })
     }
 }
 
@@ -549,17 +500,9 @@ fn folded(program: &Program, recognised: &Recognised, walk: FnId, list: usize) -
     if acc >= arity || acc == list || program.params(walk)[acc] != program.function(walk).result {
         return None;
     }
-    let fold = Steps {
-        program,
-        recognised,
-        walk,
-        list,
-        rest,
-        arity,
-    };
+    let fold = Steps { program, recognised, walk, list, rest, arity };
     let fields = program.fields(step.ctor).len();
-    fold.folds(step.body, arity + fields, acc, &mut HashMap::default())
-        .then_some(acc)
+    fold.folds(step.body, arity + fields, acc, &mut HashMap::default()).then_some(acc)
 }
 
 /// What `walk` answers on the empty list, where it searches its parameter
@@ -581,9 +524,7 @@ fn searched_nothing(program: &Program, walk: FnId, list: usize) -> Option<CtorId
     };
     let fields = program.fields(step.ctor).len();
     let level = search.arity + fields;
-    search
-        .searches(step.body, level, nothing, &mut HashMap::default())
-        .then_some(nothing)
+    search.searches(step.body, level, nothing, &mut HashMap::default()).then_some(nothing)
 }
 
 /// Reading the ways a walk's step goes.
@@ -604,11 +545,7 @@ impl Steps<'_> {
         args.len() == self.arity
             && args.iter().enumerate().all(|(at, atom)| {
                 let level = atom.0.index();
-                if at == self.list {
-                    level == self.rest
-                } else {
-                    Some(at) == except || level == at
-                }
+                if at == self.list { level == self.rest } else { Some(at) == except || level == at }
             })
     }
 
@@ -654,12 +591,7 @@ impl Steps<'_> {
             return false;
         };
         self.recognised.sequences.get(callee.index()) == Some(&Some(SequenceOperation::Append))
-            && self
-                .program
-                .atoms(args)
-                .first()
-                .map(|first| first.0.index())
-                == Some(acc)
+            && self.program.atoms(args).first().map(|first| first.0.index()) == Some(acc)
     }
 
     /// Whether every way `body` goes is a call of the walk going on with
@@ -753,10 +685,7 @@ impl Rewrite<'_> {
 
     /// The body of the copy `head` is becoming.
     fn copy_of(&self, program: &mut Program, head: &Head) -> Body {
-        let body = program
-            .function(head.producer)
-            .body()
-            .expect("a producer has a body");
+        let body = program.function(head.producer).body().expect("a producer has a body");
         let arity = program.params(head.producer).len();
         let locals = (0..arity).map(|at| Atom(Local::at(at))).collect();
         let mut scope = Scope::at(arity + head.kept.len());
@@ -983,10 +912,7 @@ fn leaf(program: &mut Program, head: &Head, list: Atom, scope: &mut Scope) -> At
             let none = program.terms.hold_atoms(std::iter::empty());
             args.push(copy::push(program, scope, Expr::Con(head.nothing, none)));
         } else {
-            args.push(
-                kept.next()
-                    .expect("the copy is handed the walk's other parameters"),
-            );
+            args.push(kept.next().expect("the copy is handed the walk's other parameters"));
         }
     }
     let args = program.terms.hold_atoms(args.into_iter());
@@ -1012,13 +938,7 @@ fn pushed_onto_nothing(
         .atoms(fields)
         .iter()
         .enumerate()
-        .map(|(at, atom)| {
-            if at == head.shape.recursive {
-                nothing
-            } else {
-                locals[atom.0.index()]
-            }
-        })
+        .map(|(at, atom)| if at == head.shape.recursive { nothing } else { locals[atom.0.index()] })
         .collect();
     let fields = program.terms.hold_atoms(fields.into_iter());
     copy::push(program, scope, Expr::Con(ctor, fields))

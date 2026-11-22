@@ -55,11 +55,7 @@ fn never_calls_need_no_marker_and_reject_following_code_or_transfers() {
         });
         if following == 0 {
             validate(&p).unwrap();
-            assert!(
-                p.region(p.function(p.entry()).body().unwrap())
-                    .terminator
-                    .is_none()
-            );
+            assert!(p.region(p.function(p.entry()).body().unwrap()).terminator.is_none());
         } else {
             rejects(&p, "does not come back");
         }
@@ -154,18 +150,13 @@ fn a_nested_loops_break_does_not_make_an_outer_loop_return() {
             &p,
             main,
             &[],
-            Config {
-                fuel: 50,
-                ..Config::default()
-            },
+            Config { fuel: 50, ..Config::default() },
             &mut RejectHost
         ),
         Err(Error::FuelExhausted)
     );
-    p.regions[RegionId(0)].terminator = Some(Terminator {
-        exit: Exit::Return,
-        values: Range::EMPTY,
-    });
+    p.regions[RegionId(0)].terminator =
+        Some(Terminator { exit: Exit::Return, values: Range::EMPTY });
     rejects(&p, "does not come back");
 }
 
@@ -183,10 +174,7 @@ impl Host for Stop {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "build, legalize and run both paths at every word width"
-)]
+#[expect(clippy::too_many_lines, reason = "build, legalize and run both paths at every word width")]
 fn an_earlier_branch_break_survives_a_terminal_tail_and_legalization() {
     for condition in [0, 1] {
         let (mut p, main) = Program::new("main");
@@ -221,10 +209,7 @@ fn an_earlier_branch_break_survives_a_terminal_tail_and_legalization() {
                     program,
                     main,
                     &[],
-                    Config {
-                        word_bits,
-                        ..Config::default()
-                    },
+                    Config { word_bits, ..Config::default() },
                     &mut Stop,
                 )
                 .unwrap();
@@ -271,15 +256,9 @@ fn source_never_functions_keep_their_contract_without_inlining() {
     source.set_entry(main);
     let p = lower(&source, &routines).unwrap();
     validate(&p).unwrap();
+    assert_eq!(p.functions().iter().filter(|f| f.body().is_some()).count(), 2);
     assert_eq!(
-        p.functions().iter().filter(|f| f.body().is_some()).count(),
-        2
-    );
-    assert_eq!(
-        p.functions()
-            .iter()
-            .filter(|f| f.body().is_some() && f.returns == Returns::Never)
-            .count(),
+        p.functions().iter().filter(|f| f.body().is_some() && f.returns == Returns::Never).count(),
         1
     );
 }
@@ -307,7 +286,6 @@ fn an_instruction_cannot_be_reordered_before_an_explicit_transfer() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "table of immediate operand shapes")]
 fn immediate_operands_preserve_order_and_repeated_uses() {
     let (mut p, main) = Program::new("main");
     let a = p.mint_one(Class::Word).0;
@@ -317,45 +295,11 @@ fn immediate_operands_preserve_order_and_repeated_uses() {
         (Op::Constant { value: 7 }, &[]),
         (Op::Convert { value: a }, &[a]),
         (Op::Keep { value: b }, &[b]),
-        (
-            Op::Binary {
-                op: Binary::Add,
-                left: b,
-                right: a,
-            },
-            &[b, a],
-        ),
-        (
-            Op::Binary {
-                op: Binary::Add,
-                left: a,
-                right: a,
-            },
-            &[a, a],
-        ),
-        (
-            Op::Store {
-                width: Width::Word,
-                address: a,
-                offset: Offset::Bytes(0),
-                value: b,
-            },
-            &[a, b],
-        ),
-        (
-            Op::Call {
-                function: main,
-                args,
-            },
-            &[b, a, b],
-        ),
-        (
-            Op::Call {
-                function: main,
-                args: Range::EMPTY,
-            },
-            &[],
-        ),
+        (Op::Binary { op: Binary::Add, left: b, right: a }, &[b, a]),
+        (Op::Binary { op: Binary::Add, left: a, right: a }, &[a, a]),
+        (Op::Store { width: Width::Word, address: a, offset: Offset::Bytes(0), value: b }, &[a, b]),
+        (Op::Call { function: main, args }, &[b, a, b]),
+        (Op::Call { function: main, args: Range::EMPTY }, &[]),
     ];
     for (op, expected) in cases {
         assert_eq!(p.operands(op).collect::<Vec<_>>(), *expected, "{op:?}");

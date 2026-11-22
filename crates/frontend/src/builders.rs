@@ -50,26 +50,20 @@ pub(crate) fn desugar(
 
 /// The functions whose signatures pair two values of one shape.
 fn pairings(modules: &[h::Module]) -> HashSet<Symbol> {
-    let signatures = modules
-        .iter()
-        .flat_map(|module| &module.items)
-        .flat_map(|item| {
-            let own: Box<dyn Iterator<Item = &h::SignatureDecl>> = match item {
-                h::Item::Signature(signature) => Box::new(std::iter::once(signature)),
-                h::Item::Data(data) => {
-                    Box::new(data.methods.iter().filter_map(|method| match method {
-                        h::MethodItem::Signature(signature) => Some(signature),
-                        h::MethodItem::Clause(_) => None,
-                    }))
-                }
-                h::Item::Clause(_) => Box::new(std::iter::empty()),
-            };
-            own
-        });
-    signatures
-        .filter(|signature| pairs(signature))
-        .map(|signature| signature.name)
-        .collect()
+    let signatures = modules.iter().flat_map(|module| &module.items).flat_map(|item| {
+        let own: Box<dyn Iterator<Item = &h::SignatureDecl>> = match item {
+            h::Item::Signature(signature) => Box::new(std::iter::once(signature)),
+            h::Item::Data(data) => {
+                Box::new(data.methods.iter().filter_map(|method| match method {
+                    h::MethodItem::Signature(signature) => Some(signature),
+                    h::MethodItem::Clause(_) => None,
+                }))
+            }
+            h::Item::Clause(_) => Box::new(std::iter::empty()),
+        };
+        own
+    });
+    signatures.filter(|signature| pairs(signature)).map(|signature| signature.name).collect()
 }
 
 /// Whether `signature` is `(F(a, e), F(b, e), (a, b) -> c) -> F(c, e)`.
@@ -89,11 +83,7 @@ fn pairs(signature: &h::SignatureDecl) -> bool {
         Some((h::Type::Variable(a), rest)),
         Some((h::Type::Variable(b), other_rest)),
         Some((h::Type::Variable(c), result_rest)),
-    ) = (
-        first.split_first(),
-        second.split_first(),
-        produced.split_first(),
-    )
+    ) = (first.split_first(), second.split_first(), produced.split_first())
     else {
         return false;
     };
@@ -107,11 +97,7 @@ fn pairs(signature: &h::SignatureDecl) -> bool {
 }
 
 fn clause_builders(clause: &mut h::Clause, pairings: &HashSet<Symbol>, sites: &mut h::Sites) {
-    let mut builder = Builder {
-        pairings,
-        sites,
-        next: clause.locals,
-    };
+    let mut builder = Builder { pairings, sites, next: clause.locals };
     if let Some(guard) = &mut clause.guard {
         builder.expr(guard);
     }
@@ -156,13 +142,7 @@ impl Builder<'_> {
         let h::ExprKind::Global(function) = head.kind else {
             return None;
         };
-        let [
-            h::Expr {
-                kind: h::ExprKind::Record(fields),
-                ..
-            },
-        ] = arguments
-        else {
+        let [h::Expr { kind: h::ExprKind::Record(fields), .. }] = arguments else {
             return None;
         };
         if !self.pairings.contains(&function) || fields.len() < 2 {
@@ -210,11 +190,7 @@ impl Builder<'_> {
         let mut rebuilt = Vec::with_capacity(earlier.len() + 1);
         for &name in earlier {
             let read = self.sites.expr(span, h::ExprKind::Local(so_far));
-            rebuilt.push((
-                name,
-                self.sites
-                    .expr(span, h::ExprKind::Member(Box::new(read), name)),
-            ));
+            rebuilt.push((name, self.sites.expr(span, h::ExprKind::Member(Box::new(read), name))));
         }
         rebuilt.push((added, self.sites.expr(span, h::ExprKind::Local(value))));
         let record = self.sites.expr(span, h::ExprKind::Record(rebuilt));

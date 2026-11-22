@@ -141,19 +141,11 @@ fn compiled(
                     Definition::Body(Box::new(planning.plan(&rows, &subjects, &mut next)?))
                 }
             };
-            Ok(Function {
-                key: function.key,
-                definition,
-            })
+            Ok(Function { key: function.key, definition })
         })
         .collect::<Result<_, Refusal>>()?;
     functions.extend(joins.functions.into_inner());
-    Ok(Program {
-        entry: program.entry,
-        functions,
-        data: program.data,
-        written: program.written,
-    })
+    Ok(Program { entry: program.entry, functions, data: program.data, written: program.written })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -232,7 +224,10 @@ pub(crate) enum Decision {
     },
     /// A way no value takes, below a split of `subject`, of type `ty`; see
     /// [`RunOut::Unreachable`].
-    Unreachable { subject: Value, ty: Type },
+    Unreachable {
+        subject: Value,
+        ty: Type,
+    },
 }
 
 impl Decision {
@@ -247,15 +242,10 @@ impl Decision {
             Self::Record { decision, .. } | Self::Split { decision, .. } => {
                 decision.tests_numerals()
             }
-            Self::Let {
-                subject, decision, ..
-            } => subject.tests_numerals() || decision.tests_numerals(),
-            Self::Guard {
-                condition,
-                otherwise,
-                answer,
-                ..
-            } => {
+            Self::Let { subject, decision, .. } => {
+                subject.tests_numerals() || decision.tests_numerals()
+            }
+            Self::Guard { condition, otherwise, answer, .. } => {
                 condition.tests_numerals() || otherwise.tests_numerals() || answer.tests_numerals()
             }
         }
@@ -310,10 +300,7 @@ struct Clauses {
 
 impl Clauses {
     fn of(function: &FunctionKey) -> Self {
-        Self {
-            function: function.clone(),
-            types: RefCell::new(HashMap::default()),
-        }
+        Self { function: function.clone(), types: RefCell::new(HashMap::default()) }
     }
 }
 
@@ -382,10 +369,7 @@ impl Compiler<'_> {
         self.joins.made.set(made + 1);
         FunctionKey {
             name: key.name,
-            signature: Signature {
-                parameters,
-                result: key.signature.result.clone(),
-            },
+            signature: Signature { parameters, result: key.signature.result.clone() },
             instance: Instance::Join(made),
         }
     }
@@ -397,18 +381,12 @@ impl Compiler<'_> {
     /// on calls; a branch leaving answers the function itself. The same is
     /// made of each branch, and of the join point, in turn.
     fn joined(&self, mut body: d::Body, key: &FunctionKey) -> Result<d::Body, Refusal> {
-        let Some(at) = body
-            .bindings
-            .iter()
-            .position(|binding| branches_leave(&binding.value))
+        let Some(at) = body.bindings.iter().position(|binding| branches_leave(&binding.value))
         else {
             return Ok(body);
         };
         let answer = key.signature.result.as_ref().clone();
-        let rest = d::Body {
-            bindings: body.bindings.split_off(at + 1),
-            result: body.result,
-        };
+        let rest = d::Body { bindings: body.bindings.split_off(at + 1), result: body.result };
         let construct = body.bindings.pop().expect("the binding found");
         let Pattern::Bind(local) = construct.pattern else {
             unreachable!("hoisting binds each `if` and arms to a local of its own")
@@ -425,10 +403,7 @@ impl Compiler<'_> {
             self.joins.made.set(made + 1);
             let join = FunctionKey {
                 name: key.name,
-                signature: Signature {
-                    parameters,
-                    result: Box::new(answer.clone()),
-                },
+                signature: Signature { parameters, result: Box::new(answer.clone()) },
                 instance: Instance::Join(made),
             };
             let rest = self.joined(rest, key)?;
@@ -446,16 +421,8 @@ impl Compiler<'_> {
         };
         let (module, span) = (construct.value.module, construct.value.span);
         let value = self.answering(construct.value, &answer, join.as_ref(), key)?;
-        body.bindings.push(d::Binding {
-            pattern: Pattern::Bind(local),
-            value,
-        });
-        body.result = Expr {
-            module,
-            span,
-            ty: answer,
-            kind: ExprKind::Local(local),
-        };
+        body.bindings.push(d::Binding { pattern: Pattern::Bind(local), value });
+        body.result = Expr { module, span, ty: answer, kind: ExprKind::Local(local) };
         Ok(body)
     }
 
@@ -477,10 +444,7 @@ impl Compiler<'_> {
             body.result = match body.result.kind {
                 ExprKind::Return(value) => *value,
                 kind => {
-                    let result = Expr {
-                        kind,
-                        ..body.result
-                    };
+                    let result = Expr { kind, ..body.result };
                     match join {
                         Some((join, live)) => {
                             let mut arguments = vec![result];
@@ -515,22 +479,12 @@ impl Compiler<'_> {
             ExprKind::Match(subject, arms) => ExprKind::Match(
                 subject,
                 arms.into_iter()
-                    .map(|arm| {
-                        Ok(d::Arm {
-                            rows: arm.rows,
-                            body: branch(arm.body)?,
-                        })
-                    })
+                    .map(|arm| Ok(d::Arm { rows: arm.rows, body: branch(arm.body)? }))
                     .collect::<Result<_, Refusal>>()?,
             ),
             _ => unreachable!("only an `if` or arms has branches that leave"),
         };
-        Ok(Expr {
-            module: construct.module,
-            span: construct.span,
-            ty: answer.clone(),
-            kind,
-        })
+        Ok(Expr { module: construct.module, span: construct.span, ty: answer.clone(), kind })
     }
 
     fn body(&self, body: d::Body) -> Result<Body, Refusal> {
@@ -558,10 +512,7 @@ impl Compiler<'_> {
         yes: d::Body,
         no: d::Body,
     ) -> Result<Bound, Refusal> {
-        let subjects = [Subject {
-            value: Value(0),
-            ty: subject.ty.clone(),
-        }];
+        let subjects = [Subject { value: Value(0), ty: subject.ty.clone() }];
         let yes = self.compiled(yes)?;
         let mut rows: Vec<Row> = alternatives
             .into_iter()
@@ -579,20 +530,14 @@ impl Compiler<'_> {
             locals: HashMap::default(),
         });
         let decision = self.plan(&rows, &subjects, &mut 1)?;
-        Ok(Bound::Match {
-            subject,
-            decision: Box::new(decision),
-        })
+        Ok(Bound::Match { subject, decision: Box::new(decision) })
     }
 
     /// `subject is ( arms )`, as a decision on the subject: a row for each
     /// alternative of each arm, in order, each answering its arm's body.
     /// Checking found the arms cover every value.
     fn arms(&self, subject: Expr, arms: Vec<d::Arm>) -> Result<Bound, Refusal> {
-        let subjects = [Subject {
-            value: Value(0),
-            ty: subject.ty.clone(),
-        }];
+        let subjects = [Subject { value: Value(0), ty: subject.ty.clone() }];
         let mut rows = Vec::new();
         for arm in arms {
             let ExprKind::Block(body) = arm.body.kind else {
@@ -609,10 +554,7 @@ impl Compiler<'_> {
             }
         }
         let decision = self.plan(&rows, &subjects, &mut 1)?;
-        Ok(Bound::Match {
-            subject,
-            decision: Box::new(decision),
-        })
+        Ok(Bound::Match { subject, decision: Box::new(decision) })
     }
 
     /// A body [`hoisted`] already, whose `if`s each stand alone on a line,
@@ -623,11 +565,10 @@ impl Compiler<'_> {
             .into_iter()
             .map(|binding| {
                 let unpack =
-                    self.unpack(binding.pattern, &binding.value.ty)
-                        .map_err(|mut error| {
-                            error.at = Some((binding.value.module, binding.value.span));
-                            error
-                        })?;
+                    self.unpack(binding.pattern, &binding.value.ty).map_err(|mut error| {
+                        error.at = Some((binding.value.module, binding.value.span));
+                        error
+                    })?;
                 let value = match binding.value.kind {
                     ExprKind::If(condition, yes, no) => {
                         let (ExprKind::Block(yes), ExprKind::Block(no)) = (yes.kind, no.kind)
@@ -651,10 +592,7 @@ impl Compiler<'_> {
                 Ok(Binding { unpack, value })
             })
             .collect::<Result<_, Refusal>>()?;
-        Ok(Body {
-            bindings,
-            result: body.result,
-        })
+        Ok(Body { bindings, result: body.result })
     }
 
     fn unpack(&self, pattern: Pattern, ty: &Type) -> Result<Unpack, Refusal> {
@@ -698,10 +636,7 @@ impl Compiler<'_> {
                 ));
             }
         };
-        Ok(Unpack::Fields {
-            owner: ty.clone(),
-            fields,
-        })
+        Ok(Unpack::Fields { owner: ty.clone(), fields })
     }
 
     fn plan(
@@ -713,26 +648,22 @@ impl Compiler<'_> {
         if let Some(clauses) = &self.clauses {
             let mut types = clauses.types.borrow_mut();
             for subject in subjects {
-                types
-                    .entry(subject.value)
-                    .or_insert_with(|| subject.ty.clone());
+                types.entry(subject.value).or_insert_with(|| subject.ty.clone());
             }
         }
-        if rows.iter().any(|row| {
-            row.patterns
-                .iter()
-                .any(|pattern| matches!(pattern, Pattern::As(..)))
-        }) {
+        if rows
+            .iter()
+            .any(|row| row.patterns.iter().any(|pattern| matches!(pattern, Pattern::As(..))))
+        {
             let peeled: Vec<Row> = rows.iter().map(|row| named_whole(row, subjects)).collect();
             return self.plan(&peeled, subjects, next);
         }
         let Some(first) = rows.first() else {
             return match &self.run_out {
                 RunOut::Refused => Err(error("function clauses are not exhaustive")),
-                RunOut::Unreachable(subject) => Ok(Decision::Unreachable {
-                    subject: subject.value,
-                    ty: subject.ty.clone(),
-                }),
+                RunOut::Unreachable(subject) => {
+                    Ok(Decision::Unreachable { subject: subject.value, ty: subject.ty.clone() })
+                }
             };
         };
         let mut first = first.clone();
@@ -743,10 +674,7 @@ impl Compiler<'_> {
                 }
             }
             if first.guard.is_empty() {
-                return Ok(Decision::Body {
-                    body: first.body,
-                    locals: first.locals,
-                });
+                return Ok(Decision::Body { body: first.body, locals: first.locals });
             }
             let condition = first.guard.remove(0);
             if let ExprKind::Is(subject, alternatives) = condition.kind {
@@ -763,10 +691,8 @@ impl Compiler<'_> {
                 let mut either = Vec::with_capacity(rows.len() + 1);
                 for side in [*left, *right] {
                     let mut row = first.clone();
-                    row.guard = asked(side)
-                        .into_iter()
-                        .chain(first.guard.iter().cloned())
-                        .collect();
+                    row.guard =
+                        asked(side).into_iter().chain(first.guard.iter().cloned()).collect();
                     either.push(row);
                 }
                 either.extend(self.rest(&rows[1..], subjects)?);
@@ -782,21 +708,12 @@ impl Compiler<'_> {
                 .constructors(self.data, self.symbols)?;
             if booleans.len() != 2
                 || booleans.iter().any(|(_, fields)| !fields.is_empty())
-                || !booleans
-                    .iter()
-                    .any(|(name, _)| *name == self.prelude.bool_false)
-                || !booleans
-                    .iter()
-                    .any(|(name, _)| *name == self.prelude.bool_true)
+                || !booleans.iter().any(|(name, _)| *name == self.prelude.bool_false)
+                || !booleans.iter().any(|(name, _)| *name == self.prelude.bool_true)
             {
-                return Err(error(
-                    "Bool must have fieldless False and True constructors",
-                ));
+                return Err(error("Bool must have fieldless False and True constructors"));
             }
-            let condition = self.body(d::Body {
-                bindings: Vec::new(),
-                result: condition,
-            })?;
+            let condition = self.body(d::Body { bindings: Vec::new(), result: condition })?;
             return Ok(Decision::Guard {
                 condition,
                 locals,
@@ -847,11 +764,7 @@ impl Compiler<'_> {
             let mut nested_subjects = subjects.to_vec();
             nested_subjects.splice(
                 column..=column,
-                fields
-                    .iter()
-                    .copied()
-                    .zip(member_types)
-                    .map(|(value, ty)| Subject { value, ty }),
+                fields.iter().copied().zip(member_types).map(|(value, ty)| Subject { value, ty }),
             );
             return Ok(Decision::Record {
                 subject: subject.value,
@@ -881,14 +794,10 @@ impl Compiler<'_> {
             // not known to them: a way taking `0` apart, past a test that
             // it is not `0`, is one no value goes, as the clauses were found
             // to cover every value.
-            let taken_apart = rows
-                .iter()
-                .any(|row| matches!(row.patterns[column], Pattern::Constructor(..)));
+            let taken_apart =
+                rows.iter().any(|row| matches!(row.patterns[column], Pattern::Constructor(..)));
             let below = if taken_apart {
-                Self {
-                    run_out: RunOut::Unreachable(subject.clone()),
-                    ..self.clone()
-                }
+                Self { run_out: RunOut::Unreachable(subject.clone()), ..self.clone() }
             } else {
                 self.clone()
             };
@@ -933,11 +842,7 @@ impl Compiler<'_> {
             let mut arm_subjects = subjects.to_vec();
             arm_subjects.splice(
                 column..=column,
-                fields
-                    .iter()
-                    .copied()
-                    .zip(field_types)
-                    .map(|(value, ty)| Subject { value, ty }),
+                fields.iter().copied().zip(field_types).map(|(value, ty)| Subject { value, ty }),
             );
             arms.push(DecisionArm {
                 constructor,
@@ -945,11 +850,7 @@ impl Compiler<'_> {
                 decision: Box::new(self.plan(&specialized, &arm_subjects, next)?),
             });
         }
-        Ok(Decision::Match {
-            subject: subject.value,
-            owner: subject.ty.clone(),
-            arms,
-        })
+        Ok(Decision::Match { subject: subject.value, owner: subject.ty.clone(), arms })
     }
 
     /// The rows with `first`'s guard asking `subject is alternatives`
@@ -968,28 +869,19 @@ impl Compiler<'_> {
         let value = Value(*next);
         *next = next.checked_add(1).expect("fewer than 2^32 plan values");
         let mut tested = subjects.to_vec();
-        tested.push(Subject {
-            value,
-            ty: subject.ty.clone(),
-        });
+        tested.push(Subject { value, ty: subject.ty.clone() });
         let mut below = Vec::with_capacity(alternatives.len() + rows.len());
         for (pattern, guard) in alternatives {
             let mut row = first.clone();
             row.patterns.push(pattern);
-            row.guard = guard
-                .into_iter()
-                .chain(first.guard.iter().cloned())
-                .collect();
+            row.guard = guard.into_iter().chain(first.guard.iter().cloned()).collect();
             below.push(row);
         }
         for mut row in self.rest(&rows[1..], subjects)? {
             row.patterns.push(Pattern::Wild);
             below.push(row);
         }
-        let subject = self.body(d::Body {
-            bindings: Vec::new(),
-            result: subject,
-        })?;
+        let subject = self.body(d::Body { bindings: Vec::new(), result: subject })?;
         Ok(Decision::Let {
             value,
             subject,
@@ -1013,10 +905,8 @@ impl Compiler<'_> {
         if rest.is_empty() || matches!(rest, [only] if plain(only)) {
             return Ok(rest.to_vec());
         }
-        let mut handed: Vec<(Value, Type)> = subjects
-            .iter()
-            .map(|subject| (subject.value, subject.ty.clone()))
-            .collect();
+        let mut handed: Vec<(Value, Type)> =
+            subjects.iter().map(|subject| (subject.value, subject.ty.clone())).collect();
         let mut bound: Vec<Value> = rest
             .iter()
             .flat_map(|row| row.locals.values().copied())
@@ -1041,10 +931,7 @@ impl Compiler<'_> {
             .collect();
         let join_subjects: Vec<Subject> = subjects
             .iter()
-            .map(|subject| Subject {
-                value: renumbered[&subject.value],
-                ty: subject.ty.clone(),
-            })
+            .map(|subject| Subject { value: renumbered[&subject.value], ty: subject.ty.clone() })
             .collect();
         let join_rows: Vec<Row> = rest
             .iter()
@@ -1057,34 +944,26 @@ impl Compiler<'_> {
                 ..row.clone()
             })
             .collect();
-        let key = self.made_key(
-            &clauses.function,
-            handed.iter().map(|(_, ty)| ty.clone()).collect(),
-        );
+        let key =
+            self.made_key(&clauses.function, handed.iter().map(|(_, ty)| ty.clone()).collect());
         // The rows are tried only where the rows above failed, which this
         // plan does not know: a way it leaves for no row is one the rows
         // above took, as the clauses were found to cover every value.
-        let run_out = join_subjects.first().map_or_else(
-            || self.run_out.clone(),
-            |subject| RunOut::Unreachable(subject.clone()),
-        );
+        let run_out = join_subjects
+            .first()
+            .map_or_else(|| self.run_out.clone(), |subject| RunOut::Unreachable(subject.clone()));
         let joined = Clauses::of(&clauses.function);
-        joined.types.borrow_mut().extend(
-            handed
-                .iter()
-                .map(|(value, ty)| (renumbered[value], ty.clone())),
-        );
-        let planning = Self {
-            clauses: Some(Rc::new(joined)),
-            run_out,
-            ..self.clone()
-        };
+        joined
+            .types
+            .borrow_mut()
+            .extend(handed.iter().map(|(value, ty)| (renumbered[value], ty.clone())));
+        let planning = Self { clauses: Some(Rc::new(joined)), run_out, ..self.clone() };
         let mut next = u32::try_from(handed.len()).expect("a sane arity");
         let decision = planning.plan(&join_rows, &join_subjects, &mut next)?;
-        self.joins.functions.borrow_mut().push(Function {
-            key: key.clone(),
-            definition: Definition::Body(Box::new(decision)),
-        });
+        self.joins
+            .functions
+            .borrow_mut()
+            .push(Function { key: key.clone(), definition: Definition::Body(Box::new(decision)) });
         let (module, span) = (rest[0].body.result.module, rest[0].body.result.span);
         let mut locals = HashMap::default();
         let arguments = handed
@@ -1092,12 +971,7 @@ impl Compiler<'_> {
             .map(|(value, ty)| {
                 let local = self.minted_local();
                 locals.insert(local, *value);
-                Expr {
-                    module,
-                    span,
-                    ty: ty.clone(),
-                    kind: ExprKind::Local(local),
-                }
+                Expr { module, span, ty: ty.clone(), kind: ExprKind::Local(local) }
             })
             .collect();
         let call = Expr {
@@ -1109,10 +983,7 @@ impl Compiler<'_> {
         Ok(vec![Row {
             patterns: vec![Pattern::Wild; subjects.len()],
             guard: Vec::new(),
-            body: Body {
-                bindings: Vec::new(),
-                result: call,
-            },
+            body: Body { bindings: Vec::new(), result: call },
             locals,
         }])
     }
@@ -1166,14 +1037,8 @@ impl Compiler<'_> {
             specialized.push(row);
         }
         let mut split_subjects = subjects.to_vec();
-        split_subjects.extend([front, back].map(|value| Subject {
-            value,
-            ty: subject.ty.clone(),
-        }));
-        let below = Self {
-            run_out: RunOut::Unreachable(subject.clone()),
-            ..self.clone()
-        };
+        split_subjects.extend([front, back].map(|value| Subject { value, ty: subject.ty.clone() }));
+        let below = Self { run_out: RunOut::Unreachable(subject.clone()), ..self.clone() };
         Ok(Decision::Split {
             subject: subject.value,
             count,
@@ -1213,10 +1078,7 @@ impl Compiler<'_> {
         let mut peeled = PEELED_NUMERALS;
         for row in rows {
             match &row.patterns[column] {
-                Pattern::Number {
-                    magnitude,
-                    negative: false,
-                } => {
+                Pattern::Number { magnitude, negative: false } => {
                     first.get_or_insert_with(|| magnitude.clone());
                     largest = largest.max(magnitude.clone());
                 }
@@ -1230,22 +1092,19 @@ impl Compiler<'_> {
 
     fn normalize_pattern(&self, pattern: Pattern, expected: &Type) -> Result<Pattern, Refusal> {
         match pattern {
-            Pattern::Number {
-                magnitude,
-                negative,
-            } => self.number_pattern(magnitude, negative, expected),
-            Pattern::Range => Err(error(
-                "a range pattern is a test, which only a clause's guard makes",
-            )),
-            Pattern::String => Err(error(
-                "a string pattern is a test, which only a clause's guard makes",
-            )),
+            Pattern::Number { magnitude, negative } => {
+                self.number_pattern(magnitude, negative, expected)
+            }
+            Pattern::Range => {
+                Err(error("a range pattern is a test, which only a clause's guard makes"))
+            }
+            Pattern::String => {
+                Err(error("a string pattern is a test, which only a clause's guard makes"))
+            }
             Pattern::Ending => Err(error("a list's end is taken apart only by a clause")),
             Pattern::List(elements, rest) => {
-                let mut tail = rest.map_or(
-                    Pattern::Constructor(self.prelude.list_nil, Vec::new()),
-                    |rest| *rest,
-                );
+                let mut tail = rest
+                    .map_or(Pattern::Constructor(self.prelude.list_nil, Vec::new()), |rest| *rest);
                 for element in elements.into_iter().rev() {
                     tail = Pattern::Constructor(self.prelude.list_cons, vec![element, tail]);
                 }
@@ -1308,18 +1167,12 @@ impl Compiler<'_> {
                 let predecessor = magnitude - 1u8;
                 return Ok(Pattern::Constructor(
                     constructors[1].name,
-                    vec![Pattern::Number {
-                        magnitude: predecessor,
-                        negative: false,
-                    }],
+                    vec![Pattern::Number { magnitude: predecessor, negative: false }],
                 ));
             }
             return Ok(Pattern::Constructor(
                 constructors[0].name,
-                vec![Pattern::Number {
-                    magnitude,
-                    negative: false,
-                }],
+                vec![Pattern::Number { magnitude, negative: false }],
             ));
         }
         Err(error("a numeric pattern must infer as Nat or Int"))
@@ -1365,10 +1218,7 @@ fn hoisted(body: d::Body, fresh: &mut u32) -> d::Body {
     let mut bindings = Vec::with_capacity(body.bindings.len());
     for binding in body.bindings {
         let value = lifted(binding.value, &mut bindings, fresh);
-        bindings.push(d::Binding {
-            pattern: binding.pattern,
-            value,
-        });
+        bindings.push(d::Binding { pattern: binding.pattern, value });
     }
     let result = lifted(body.result, &mut bindings, fresh);
     d::Body { bindings, result }
@@ -1406,10 +1256,9 @@ fn exported(mut body: d::Body) -> d::Body {
 /// One binding of [`exported`], its value's branches made first.
 fn handed_out(binding: d::Binding, after: &HashSet<LocalId>) -> d::Binding {
     let inner = |branch: Expr| match branch.kind {
-        ExprKind::Block(body) => Expr {
-            kind: ExprKind::Block(Box::new(exported(*body))),
-            ..branch
-        },
+        ExprKind::Block(body) => {
+            Expr { kind: ExprKind::Block(Box::new(exported(*body))), ..branch }
+        }
         kind => Expr { kind, ..branch },
     };
     let value = binding.value;
@@ -1422,26 +1271,17 @@ fn handed_out(binding: d::Binding, after: &HashSet<LocalId>) -> d::Binding {
             kind: ExprKind::Match(
                 subject,
                 arms.into_iter()
-                    .map(|arm| d::Arm {
-                        rows: arm.rows,
-                        body: inner(arm.body),
-                    })
+                    .map(|arm| d::Arm { rows: arm.rows, body: inner(arm.body) })
                     .collect(),
             ),
             ..value
         },
         kind => {
-            return d::Binding {
-                pattern: binding.pattern,
-                value: Expr { kind, ..value },
-            };
+            return d::Binding { pattern: binding.pattern, value: Expr { kind, ..value } };
         }
     };
     if branches_leave(&value) {
-        return d::Binding {
-            pattern: binding.pattern,
-            value,
-        };
+        return d::Binding { pattern: binding.pattern, value };
     }
     let branches: Vec<&Expr> = match &value.kind {
         ExprKind::If(_, yes, no) => vec![yes, no],
@@ -1460,20 +1300,15 @@ fn handed_out(binding: d::Binding, after: &HashSet<LocalId>) -> d::Binding {
             })
             .collect()
     };
-    let mut handed: BTreeMap<LocalId, Type> = branches
-        .first()
-        .map(|branch| bound_last(branch))
-        .unwrap_or_default();
+    let mut handed: BTreeMap<LocalId, Type> =
+        branches.first().map(|branch| bound_last(branch)).unwrap_or_default();
     for branch in &branches[1..] {
         let bound = bound_last(branch);
         handed.retain(|local, _| bound.contains_key(local));
     }
     handed.retain(|local, _| after.contains(local));
     if handed.is_empty() {
-        return d::Binding {
-            pattern: binding.pattern,
-            value,
-        };
+        return d::Binding { pattern: binding.pattern, value };
     }
     let mut members = vec![value.ty.clone()];
     members.extend(handed.values().cloned());
@@ -1495,25 +1330,16 @@ fn handed_out(binding: d::Binding, after: &HashSet<LocalId>) -> d::Binding {
             ty: tuple.clone(),
             kind: ExprKind::Tuple(members),
         };
-        Expr {
-            ty: tuple.clone(),
-            kind: ExprKind::Block(body),
-            ..branch
-        }
+        Expr { ty: tuple.clone(), kind: ExprKind::Block(body), ..branch }
     };
     let kind = match value.kind {
-        ExprKind::If(condition, yes, no) => ExprKind::If(
-            condition,
-            Box::new(answering(*yes)),
-            Box::new(answering(*no)),
-        ),
+        ExprKind::If(condition, yes, no) => {
+            ExprKind::If(condition, Box::new(answering(*yes)), Box::new(answering(*no)))
+        }
         ExprKind::Match(subject, arms) => ExprKind::Match(
             subject,
             arms.into_iter()
-                .map(|arm| d::Arm {
-                    rows: arm.rows,
-                    body: answering(arm.body),
-                })
+                .map(|arm| d::Arm { rows: arm.rows, body: answering(arm.body) })
                 .collect(),
         ),
         _ => unreachable!("matched above"),
@@ -1522,11 +1348,7 @@ fn handed_out(binding: d::Binding, after: &HashSet<LocalId>) -> d::Binding {
     parts.extend(handed.keys().map(|local| Pattern::Bind(*local)));
     d::Binding {
         pattern: Pattern::Product(parts),
-        value: Expr {
-            ty: tuple.clone(),
-            kind,
-            ..value
-        },
+        value: Expr { ty: tuple.clone(), kind, ..value },
     }
 }
 
@@ -1575,9 +1397,7 @@ fn free_in(body: &d::Body, own: &HashSet<LocalId>) -> Vec<(LocalId, Type)> {
             });
         });
     }
-    read.into_iter()
-        .filter(|(local, _)| !bound.contains(local))
-        .collect()
+    read.into_iter().filter(|(local, _)| !bound.contains(local)).collect()
 }
 
 /// `expression` with every test the condition of an `if` of its own: an
@@ -1586,17 +1406,8 @@ fn free_in(body: &d::Body, own: &HashSet<LocalId>) -> Vec<(LocalId, Type)> {
 /// rest of the chain and `then`; a test or such a chain standing as a
 /// value is an `if` answering `True` or `False`.
 fn tested(expression: Expr, prelude: &PreludeIds, symbols: &Symbols) -> Expr {
-    let Expr {
-        module,
-        span,
-        ty,
-        kind,
-    } = expression;
-    let each = |list: Vec<Expr>| {
-        list.into_iter()
-            .map(|e| tested(e, prelude, symbols))
-            .collect()
-    };
+    let Expr { module, span, ty, kind } = expression;
+    let each = |list: Vec<Expr>| list.into_iter().map(|e| tested(e, prelude, symbols)).collect();
     let one = |e: Box<Expr>| Box::new(tested(*e, prelude, symbols));
     let kind = match kind {
         ExprKind::If(condition, yes, no) => {
@@ -1605,29 +1416,15 @@ fn tested(expression: Expr, prelude: &PreludeIds, symbols: &Symbols) -> Expr {
             return branched(*condition, yes, no, prelude, symbols);
         }
         kind @ ExprKind::Is(..) => {
-            let condition = Expr {
-                module,
-                span,
-                ty,
-                kind,
-            };
-            let (yes, no) = (
-                boolean(&condition, true, prelude),
-                boolean(&condition, false, prelude),
-            );
+            let condition = Expr { module, span, ty, kind };
+            let (yes, no) =
+                (boolean(&condition, true, prelude), boolean(&condition, false, prelude));
             return branched(condition, yes, no, prelude, symbols);
         }
         kind @ ExprKind::Connective(..) if binds_within(&kind) => {
-            let condition = Expr {
-                module,
-                span,
-                ty,
-                kind,
-            };
-            let (yes, no) = (
-                boolean(&condition, true, prelude),
-                boolean(&condition, false, prelude),
-            );
+            let condition = Expr { module, span, ty, kind };
+            let (yes, no) =
+                (boolean(&condition, true, prelude), boolean(&condition, false, prelude));
             return branched(condition, yes, no, prelude, symbols);
         }
         kind @ (ExprKind::Local(_) | ExprKind::Natural(_) | ExprKind::Bytes(_)) => kind,
@@ -1658,10 +1455,7 @@ fn tested(expression: Expr, prelude: &PreludeIds, symbols: &Symbols) -> Expr {
         ExprKind::Match(value, arms) => ExprKind::Match(
             one(value),
             arms.into_iter()
-                .map(|arm| d::Arm {
-                    rows: arm.rows,
-                    body: tested(arm.body, prelude, symbols),
-                })
+                .map(|arm| d::Arm { rows: arm.rows, body: tested(arm.body, prelude, symbols) })
                 .collect(),
         ),
         ExprKind::Block(body) => ExprKind::Block(Box::new(d::Body {
@@ -1676,12 +1470,7 @@ fn tested(expression: Expr, prelude: &PreludeIds, symbols: &Symbols) -> Expr {
             result: tested(body.result, prelude, symbols),
         })),
     };
-    Expr {
-        module,
-        span,
-        ty,
-        kind,
-    }
+    Expr { module, span, ty, kind }
 }
 
 /// `if condition then yes else no`, `yes` and `no` already [`tested`]:
@@ -1695,19 +1484,10 @@ fn tested(expression: Expr, prelude: &PreludeIds, symbols: &Symbols) -> Expr {
 /// the chains before it have parts.
 fn branched(condition: Expr, yes: Expr, no: Expr, prelude: &PreludeIds, symbols: &Symbols) -> Expr {
     let (module, span, ty) = (yes.module, condition.span, yes.ty.clone());
-    let header = |kind| Expr {
-        module,
-        span,
-        ty: ty.clone(),
-        kind,
-    };
+    let header = |kind| Expr { module, span, ty: ty.clone(), kind };
     if !binds(&condition) {
         let condition = tested(condition, prelude, symbols);
-        return header(ExprKind::If(
-            Box::new(condition),
-            Box::new(yes),
-            Box::new(no),
-        ));
+        return header(ExprKind::If(Box::new(condition), Box::new(yes), Box::new(no)));
     }
     let copied = match &condition.kind {
         ExprKind::Connective(Connective::And, ..) => Some(&no),
@@ -1756,10 +1536,7 @@ fn outcome(condition: Expr, yes: Expr, no: Expr, prelude: &PreludeIds, symbols: 
     });
     let (held, failed) = (prelude.bool_true, prelude.bool_false);
     let ty = Type::row(
-        vec![
-            (held, read.iter().map(|(_, ty)| ty.clone()).collect()),
-            (failed, Vec::new()),
-        ],
+        vec![(held, read.iter().map(|(_, ty)| ty.clone()).collect()), (failed, Vec::new())],
         symbols,
     );
     let tag = |label, fields| Expr {
@@ -1770,24 +1547,10 @@ fn outcome(condition: Expr, yes: Expr, no: Expr, prelude: &PreludeIds, symbols: 
     };
     let reads = read
         .iter()
-        .map(|(local, ty)| Expr {
-            module,
-            span,
-            ty: ty.clone(),
-            kind: ExprKind::Local(*local),
-        })
+        .map(|(local, ty)| Expr { module, span, ty: ty.clone(), kind: ExprKind::Local(*local) })
         .collect();
-    let chosen = branched(
-        condition,
-        tag(held, reads),
-        tag(failed, Vec::new()),
-        prelude,
-        symbols,
-    );
-    let holding = read
-        .iter()
-        .map(|(local, _)| Pattern::Bind(*local))
-        .collect();
+    let chosen = branched(condition, tag(held, reads), tag(failed, Vec::new()), prelude, symbols);
+    let holding = read.iter().map(|(local, _)| Pattern::Bind(*local)).collect();
     Expr {
         module: yes.module,
         span,
@@ -1795,14 +1558,8 @@ fn outcome(condition: Expr, yes: Expr, no: Expr, prelude: &PreludeIds, symbols: 
         kind: ExprKind::Match(
             Box::new(chosen),
             vec![
-                d::Arm {
-                    rows: vec![(Pattern::Constructor(held, holding), None)],
-                    body: yes,
-                },
-                d::Arm {
-                    rows: vec![(Pattern::Constructor(failed, Vec::new()), None)],
-                    body: no,
-                },
+                d::Arm { rows: vec![(Pattern::Constructor(held, holding), None)], body: yes },
+                d::Arm { rows: vec![(Pattern::Constructor(failed, Vec::new()), None)], body: no },
             ],
         ),
     }
@@ -1813,10 +1570,7 @@ fn outcome(condition: Expr, yes: Expr, no: Expr, prelude: &PreludeIds, symbols: 
 fn branches(expression: &Expr) -> bool {
     let mut found = false;
     expression.for_each_within(&mut |part| {
-        found |= matches!(
-            part.kind,
-            ExprKind::If(..) | ExprKind::Match(..) | ExprKind::Block(..)
-        );
+        found |= matches!(part.kind, ExprKind::If(..) | ExprKind::Match(..) | ExprKind::Block(..));
     });
     found
 }
@@ -1851,8 +1605,7 @@ fn bound_by(condition: &Expr) -> HashSet<LocalId> {
 }
 
 fn intersection(sets: impl Iterator<Item = HashSet<LocalId>>) -> HashSet<LocalId> {
-    sets.reduce(|all, next| all.intersection(&next).copied().collect())
-        .unwrap_or_default()
+    sets.reduce(|all, next| all.intersection(&next).copied().collect()).unwrap_or_default()
 }
 
 /// What a guard asks, in turn: the parts of a chain of `&` holding a test,
@@ -1896,11 +1649,7 @@ fn conjuncts(expression: Expr, parts: &mut Vec<Expr>) {
 
 /// `True` or `False`, written where `like` is.
 const fn boolean(like: &Expr, value: bool, prelude: &PreludeIds) -> Expr {
-    let constructor = if value {
-        prelude.bool_true
-    } else {
-        prelude.bool_false
-    };
+    let constructor = if value { prelude.bool_true } else { prelude.bool_false };
     Expr {
         module: like.module,
         span: like.span,
@@ -1915,10 +1664,7 @@ fn lifted(expression: Expr, bindings: &mut Vec<d::Binding>, fresh: &mut u32) -> 
     if let ExprKind::Block(block) = expression.kind {
         for binding in block.bindings {
             let value = lifted(binding.value, bindings, fresh);
-            bindings.push(d::Binding {
-                pattern: binding.pattern,
-                value,
-            });
+            bindings.push(d::Binding { pattern: binding.pattern, value });
         }
         return lifted(block.result, bindings, fresh);
     }
@@ -1931,21 +1677,15 @@ fn lifted(expression: Expr, bindings: &mut Vec<d::Binding>, fresh: &mut u32) -> 
         ExprKind::Construct(constructor, fields) => {
             ExprKind::Construct(constructor, fields.into_iter().map(&mut lift).collect())
         }
-        ExprKind::Record(fields) => ExprKind::Record(
-            fields
-                .into_iter()
-                .map(|(name, field)| (name, lift(field)))
-                .collect(),
-        ),
+        ExprKind::Record(fields) => {
+            ExprKind::Record(fields.into_iter().map(|(name, field)| (name, lift(field))).collect())
+        }
         ExprKind::Tuple(members) => ExprKind::Tuple(members.into_iter().map(&mut lift).collect()),
         ExprKind::Update(base, fields) => {
             let base = lift(*base);
             ExprKind::Update(
                 Box::new(base),
-                fields
-                    .into_iter()
-                    .map(|(name, field)| (name, lift(field)))
-                    .collect(),
+                fields.into_iter().map(|(name, field)| (name, lift(field))).collect(),
             )
         }
         ExprKind::Project(receiver, field) => ExprKind::Project(Box::new(lift(*receiver)), field),
@@ -1964,14 +1704,8 @@ fn lifted(expression: Expr, bindings: &mut Vec<d::Binding>, fresh: &mut u32) -> 
             } else {
                 let decided = LocalId(u32::MAX - *fresh);
                 *fresh += 1;
-                let read = Expr {
-                    kind: ExprKind::Local(decided),
-                    ..asked.clone()
-                };
-                bindings.push(d::Binding {
-                    pattern: Pattern::Bind(decided),
-                    value: asked,
-                });
+                let read = Expr { kind: ExprKind::Local(decided), ..asked.clone() };
+                bindings.push(d::Binding { pattern: Pattern::Bind(decided), value: asked });
                 let block = |bindings, result: Expr| Expr {
                     module: result.module,
                     span: result.span,
@@ -2006,24 +1740,13 @@ fn lifted(expression: Expr, bindings: &mut Vec<d::Binding>, fresh: &mut u32) -> 
             // A test's value is worked out ahead; its pattern is asked by
             // the decision the `if` becomes.
             let condition = match *condition {
-                Expr {
-                    module,
-                    span,
-                    ty,
-                    kind: ExprKind::Is(value, pattern),
-                } => Expr {
-                    module,
-                    span,
-                    ty,
-                    kind: ExprKind::Is(Box::new(lift(*value)), pattern),
-                },
+                Expr { module, span, ty, kind: ExprKind::Is(value, pattern) } => {
+                    Expr { module, span, ty, kind: ExprKind::Is(Box::new(lift(*value)), pattern) }
+                }
                 condition => lift(condition),
             };
             let branch = |branch: Expr, fresh: &mut u32| {
-                let body = d::Body {
-                    bindings: Vec::new(),
-                    result: branch,
-                };
+                let body = d::Body { bindings: Vec::new(), result: branch };
                 Expr {
                     module: expression.module,
                     span: expression.span,
@@ -2053,10 +1776,7 @@ fn lifted(expression: Expr, bindings: &mut Vec<d::Binding>, fresh: &mut u32) -> 
             let arms = arms
                 .into_iter()
                 .map(|arm| {
-                    let body = d::Body {
-                        bindings: Vec::new(),
-                        result: arm.body,
-                    };
+                    let body = d::Body { bindings: Vec::new(), result: arm.body };
                     d::Arm {
                         rows: arm.rows,
                         body: Expr {
@@ -2098,12 +1818,7 @@ fn lifted(expression: Expr, bindings: &mut Vec<d::Binding>, fresh: &mut u32) -> 
             ExprKind::Local(local)
         }
     };
-    Expr {
-        module: expression.module,
-        span: expression.span,
-        ty: expression.ty,
-        kind,
-    }
+    Expr { module: expression.module, span: expression.span, ty: expression.ty, kind }
 }
 
 /// The list's end `pattern` takes apart, where it is one: alone, or as the
@@ -2177,19 +1892,10 @@ mod tests {
             joins: &Joins::default(),
             clauses: None,
         };
-        let subjects = [Subject {
-            value: Value(0),
-            ty: Type::Named(prelude.nat, Vec::new()),
-        }];
+        let subjects = [Subject { value: Value(0), ty: Type::Named(prelude.nat, Vec::new()) }];
         for (number, tested) in [(8u32, false), (9, true)] {
             let rows = [
-                row(
-                    Pattern::Number {
-                        magnitude: number.into(),
-                        negative: false,
-                    },
-                    &checked,
-                ),
+                row(Pattern::Number { magnitude: number.into(), negative: false }, &checked),
                 row(Pattern::Wild, &checked),
             ];
             let plan = compiler.plan(&rows, &subjects, &mut 1).unwrap();
@@ -2202,13 +1908,9 @@ mod tests {
             kind: ExprKind::Construct(prelude.bool_false, Vec::new()),
             ..guarded.body.result.clone()
         }];
-        let plan = compiler
-            .plan(&[guarded, row(Pattern::Wild, &checked)], &subjects, &mut 1)
-            .unwrap();
-        let Decision::Guard {
-            answer, otherwise, ..
-        } = plan
-        else {
+        let plan =
+            compiler.plan(&[guarded, row(Pattern::Wild, &checked)], &subjects, &mut 1).unwrap();
+        let Decision::Guard { answer, otherwise, .. } = plan else {
             panic!("a guard must retain both continuations")
         };
         assert!(matches!(*answer, Decision::Body { .. }));
@@ -2232,18 +1934,10 @@ mod tests {
         let nat = Type::Named(prelude.nat, Vec::new());
         let record = Type::Record(vec![(a, nat.clone()), (b, nat)]);
         let unpack = compiler
-            .unpack(
-                Pattern::Record(vec![(b, Pattern::Bind(LocalId(3)))]),
-                &record,
-            )
+            .unpack(Pattern::Record(vec![(b, Pattern::Bind(LocalId(3)))]), &record)
             .unwrap();
-        let Unpack::Fields { fields, .. } = unpack else {
-            panic!("a record becomes an unpack")
-        };
-        assert!(matches!(
-            fields.as_slice(),
-            [Unpack::Ignore, Unpack::Bind(LocalId(3))]
-        ));
+        let Unpack::Fields { fields, .. } = unpack else { panic!("a record becomes an unpack") };
+        assert!(matches!(fields.as_slice(), [Unpack::Ignore, Unpack::Bind(LocalId(3))]));
         let value = row(Pattern::Wild, &checked).body.result;
         let constructor = compiler.data[&prelude.nat].constructors[0].name;
         let failure = compiler

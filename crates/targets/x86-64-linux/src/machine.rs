@@ -366,27 +366,18 @@ impl Inst {
             Self::FloatCompare { left, right, bits } => {
                 left.is_xmm() && right.is_xmm() && matches!(bits, 32 | 64)
             }
-            Self::Float {
-                float,
-                dst,
-                left,
-                right,
-            } => {
+            Self::Float { float, dst, left, right } => {
                 dst.is_xmm()
                     && left.is_xmm()
                     && right.is_none_or(Reg::is_xmm)
                     && (float.operation.arity() == 2) == right.is_some()
                     && (right.is_none() || dst == left)
             }
-            Self::Load {
-                width, dst, base, ..
-            } => {
+            Self::Load { width, dst, base, .. } => {
                 !base.is_xmm()
                     && (!dst.is_xmm() || matches!(width, MemoryWidth::Bits32 | MemoryWidth::Word))
             }
-            Self::Store {
-                width, src, base, ..
-            } => {
+            Self::Store { width, src, base, .. } => {
                 !base.is_xmm()
                     && (!src.is_xmm() || matches!(width, MemoryWidth::Bits32 | MemoryWidth::Word))
             }
@@ -439,9 +430,7 @@ impl Allocated {
     /// Each function and the instruction its code starts at, in the order
     /// laid out.
     pub(super) fn functions(&self) -> impl Iterator<Item = (FunctionId, usize)> + '_ {
-        self.functions
-            .iter()
-            .map(|&(function, label)| (function, self.label_position(label)))
+        self.functions.iter().map(|&(function, label)| (function, self.label_position(label)))
     }
 
     pub(super) fn instructions(&self) -> &[Inst] {
@@ -449,9 +438,7 @@ impl Allocated {
     }
 
     pub(super) fn label_position(&self, label: Label) -> usize {
-        self.code
-            .position(label)
-            .expect("finishing checked every label is bound")
+        self.code.position(label).expect("finishing checked every label is bound")
     }
 
     #[expect(
@@ -488,9 +475,7 @@ impl Allocated {
                     ));
                 }
                 Inst::OpenFrame { slots } | Inst::CloseFrame { slots } if slots == 0 => {
-                    return Err(format!(
-                        "x86 instruction {at} has an empty frame adjustment"
-                    ));
+                    return Err(format!("x86 instruction {at} has an empty frame adjustment"));
                 }
                 Inst::OpenFrame { slots } | Inst::CloseFrame { slots }
                     if slots.checked_mul(8).is_none() =>
@@ -500,9 +485,7 @@ impl Allocated {
                 Inst::LoadFrame { slot, .. } | Inst::StoreFrame { slot, .. }
                     if slot.checked_offset().is_none() =>
                 {
-                    return Err(format!(
-                        "x86 instruction {at} refers past the 4 GiB frame limit"
-                    ));
+                    return Err(format!("x86 instruction {at} refers past the 4 GiB frame limit"));
                 }
                 _ => {}
             }
@@ -540,10 +523,7 @@ impl AllocatedBuilder {
         }
         let mut code = self.code;
         crate::jumps::thread(&mut code);
-        let program = Allocated {
-            code,
-            functions: self.functions,
-        };
+        let program = Allocated { code, functions: self.functions };
         program.verify()?;
         Ok(program)
     }
@@ -585,50 +565,30 @@ impl AllocatedBuilder {
     }
 
     pub(crate) fn load(&mut self, width: MemoryWidth, dst: Reg, base: Reg, displacement: i32) {
-        self.push(Inst::Load {
-            width,
-            dst,
-            base,
-            displacement,
-        });
+        self.push(Inst::Load { width, dst, base, displacement });
     }
 
     pub(crate) fn store(&mut self, width: MemoryWidth, src: Reg, base: Reg, displacement: i32) {
-        self.push(Inst::Store {
-            width,
-            src,
-            base,
-            displacement,
-        });
+        self.push(Inst::Store { width, src, base, displacement });
     }
 
     pub(crate) fn narrow(&mut self, dst: Reg, bits: u16) {
         let len = self.code.insts().len();
         if matches!(bits, 8 | 16)
             && !self.code.labelled_from(len)
-            && let Some(Inst::LoadStack {
-                dst: loaded,
-                displacement,
-            }) = self.code.insts().last().copied()
+            && let Some(Inst::LoadStack { dst: loaded, displacement }) =
+                self.code.insts().last().copied()
             && loaded == dst
         {
-            *self.code.insts_mut().last_mut().expect("the matched load") = Inst::LoadStackNarrow {
-                dst,
-                displacement,
-                bits,
-            };
+            *self.code.insts_mut().last_mut().expect("the matched load") =
+                Inst::LoadStackNarrow { dst, displacement, bits };
             return;
         }
         self.push(Inst::Narrow { dst, bits });
     }
 
     pub(crate) fn shift(&mut self, direction: ShiftDirection, dst: Reg, by: u8, bits: u16) {
-        self.push(Inst::Shift {
-            direction,
-            dst,
-            by,
-            bits,
-        });
+        self.push(Inst::Shift { direction, dst, by, bits });
     }
 
     pub(crate) fn rotate_left(&mut self, dst: Reg, bits: u16, by: Option<u8>) {
@@ -664,12 +624,7 @@ impl AllocatedBuilder {
                 plus: 0,
                 bits,
             },
-            _ => Inst::MultiplyImmediate {
-                dst,
-                src: dst,
-                immediate,
-                bits,
-            },
+            _ => Inst::MultiplyImmediate { dst, src: dst, immediate, bits },
         });
         true
     }
@@ -689,12 +644,7 @@ impl AllocatedBuilder {
         left: Reg,
         right: Option<Reg>,
     ) {
-        self.push(Inst::Float {
-            float,
-            dst,
-            left,
-            right,
-        });
+        self.push(Inst::Float { float, dst, left, right });
     }
 
     pub(crate) fn syscall(&mut self) {
@@ -713,15 +663,8 @@ impl AllocatedBuilder {
         match self.code.insts().get(len.saturating_sub(2)..) {
             Some(
                 [
-                    Inst::Narrow {
-                        dst: narrowed,
-                        bits,
-                    },
-                    Inst::Move {
-                        dst: Reg::Rdi,
-                        src,
-                        width: RegisterWidth::Word,
-                    },
+                    Inst::Narrow { dst: narrowed, bits },
+                    Inst::Move { dst: Reg::Rdi, src, width: RegisterWidth::Word },
                 ],
             ) if narrowed == src && *bits == 8 => {
                 self.code.remove(len - 2);
@@ -732,10 +675,7 @@ impl AllocatedBuilder {
             }
             _ if matches!(
                 self.code.insts().last(),
-                Some(Inst::Narrow {
-                    dst: Reg::Rdi,
-                    bits: 8
-                })
+                Some(Inst::Narrow { dst: Reg::Rdi, bits: 8 })
             ) =>
             {
                 self.code.remove(len - 1);
@@ -769,12 +709,7 @@ impl AllocatedBuilder {
     }
 
     pub(crate) fn alu_immediate(&mut self, op: Alu, dst: Reg, immediate: i32, bits: u16) {
-        self.push(Inst::AluImmediate {
-            op,
-            dst,
-            immediate,
-            bits,
-        });
+        self.push(Inst::AluImmediate { op, dst, immediate, bits });
     }
 
     /// Comparing an unsigned word to its high bit alone tests whether its sign bit is clear.
@@ -811,12 +746,7 @@ impl AllocatedBuilder {
             && materialized == src
         {
             self.code.remove(len - 1);
-            self.push(Inst::Alu {
-                op: Alu::Test,
-                dst,
-                src: dst,
-                bits,
-            });
+            self.push(Inst::Alu { op: Alu::Test, dst, src: dst, bits });
             return true;
         }
         if self.code.labelled_from(len.saturating_sub(1)) {
@@ -831,12 +761,7 @@ impl AllocatedBuilder {
         if op == Alu::Add && self.displace_scale(dst, immediate, bits) {
             return true;
         }
-        self.push(Inst::AluImmediate {
-            op,
-            dst,
-            immediate,
-            bits,
-        });
+        self.push(Inst::AluImmediate { op, dst, immediate, bits });
         true
     }
 
@@ -848,12 +773,8 @@ impl AllocatedBuilder {
         if len == 0 || self.code.labelled_from(len) {
             return false;
         }
-        let Some(Inst::Scale {
-            dst: held,
-            plus,
-            bits: scaled,
-            ..
-        }) = self.code.insts_mut().last_mut()
+        let Some(Inst::Scale { dst: held, plus, bits: scaled, .. }) =
+            self.code.insts_mut().last_mut()
         else {
             return false;
         };
@@ -901,17 +822,11 @@ impl AllocatedBuilder {
     }
 
     pub(crate) fn jump(&mut self, target: Label) {
-        self.push(Inst::Jump {
-            condition: None,
-            target,
-        });
+        self.push(Inst::Jump { condition: None, target });
     }
 
     pub(crate) fn jump_if(&mut self, condition: Condition, target: Label) {
-        self.push(Inst::Jump {
-            condition: Some(condition),
-            target,
-        });
+        self.push(Inst::Jump { condition: Some(condition), target });
     }
 }
 
@@ -921,25 +836,19 @@ impl AllocatedBuilder {
 /// what the move left.
 fn written_constant(insts: &[Inst], src: Reg, bits: u16) -> Option<(usize, i32)> {
     match insts {
-        [
-            ..,
-            Inst::PushImmediate(immediate),
-            Inst::Pop { dst: materialized },
-        ] if *materialized == src => Some((2, i32::from(*immediate))),
-        [
-            ..,
-            Inst::MoveSignExtendedImmediate32 {
-                dst: materialized,
-                value,
-            },
-        ] if *materialized == src => Some((1, *value)),
-        [
-            ..,
-            Inst::MoveImmediate32 {
-                dst: materialized,
-                value,
-            },
-        ] if *materialized == src && (bits <= 32 || i32::try_from(*value).is_ok()) => {
+        [.., Inst::PushImmediate(immediate), Inst::Pop { dst: materialized }]
+            if *materialized == src =>
+        {
+            Some((2, i32::from(*immediate)))
+        }
+        [.., Inst::MoveSignExtendedImmediate32 { dst: materialized, value }]
+            if *materialized == src =>
+        {
+            Some((1, *value))
+        }
+        [.., Inst::MoveImmediate32 { dst: materialized, value }]
+            if *materialized == src && (bits <= 32 || i32::try_from(*value).is_ok()) =>
+        {
             Some((1, value.cast_signed()))
         }
         _ => None,
@@ -965,13 +874,7 @@ mod tests {
         let slot = FrameSlot::at(3);
         builder.load_slot(Reg::Rax, slot);
         let program = builder.finish().unwrap();
-        assert_eq!(
-            program.instructions(),
-            &[Inst::LoadFrame {
-                dst: Reg::Rax,
-                slot
-            }]
-        );
+        assert_eq!(program.instructions(), &[Inst::LoadFrame { dst: Reg::Rax, slot }]);
     }
 
     #[test]
@@ -983,11 +886,7 @@ mod tests {
         let program = builder.finish().unwrap();
         assert_eq!(
             program.instructions(),
-            &[Inst::Move {
-                dst: Reg::Rdi,
-                src: Reg::Rax,
-                width: RegisterWidth::Low32
-            }]
+            &[Inst::Move { dst: Reg::Rdi, src: Reg::Rax, width: RegisterWidth::Low32 }]
         );
     }
 
@@ -1005,16 +904,8 @@ mod tests {
         assert!(matches!(
             program.instructions(),
             [
-                Inst::AluImmediate {
-                    immediate: -4095,
-                    bits: 64,
-                    ..
-                },
-                Inst::AluImmediate {
-                    immediate: -1,
-                    bits: 32,
-                    ..
-                },
+                Inst::AluImmediate { immediate: -4095, bits: 64, .. },
+                Inst::AluImmediate { immediate: -1, bits: 32, .. },
             ]
         ));
     }
@@ -1027,10 +918,7 @@ mod tests {
         let compare = builder.label();
         builder.bind(compare);
         assert!(!builder.fold_below_sign_bit(Reg::Rax, Reg::Rcx, 32));
-        assert!(matches!(
-            builder.finish().unwrap().instructions(),
-            [Inst::MoveImmediate32 { .. }]
-        ));
+        assert!(matches!(builder.finish().unwrap().instructions(), [Inst::MoveImmediate32 { .. }]));
     }
 
     #[test]

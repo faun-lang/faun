@@ -104,12 +104,7 @@ fn independent_regions_survive_loop_allocations_and_an_early_return() {
         });
     });
     let prepared = TARGET.prepare(&p).unwrap();
-    assert!(
-        prepared
-            .functions()
-            .iter()
-            .any(|f| prepared.name(f.name) == "region.bump")
-    );
+    assert!(prepared.functions().iter().any(|f| prepared.name(f.name) == "region.bump"));
     assert_eq!(shared::status(&prepared), (512 + 7 + 6 * (190 + 29)) % 256);
 }
 
@@ -130,12 +125,7 @@ fn returning_a_child_preserves_its_claim_across_another_construction() {
         b.ret(&[result]);
     });
     let prepared = TARGET.prepare(&p).unwrap();
-    assert!(
-        !prepared
-            .functions()
-            .iter()
-            .any(|f| prepared.name(f.name) == "region.bump")
-    );
+    assert!(!prepared.functions().iter().any(|f| prepared.name(f.name) == "region.bump"));
     assert_eq!(shared::status(&prepared), (209 + 3 + 210 + 31) % 256);
 }
 
@@ -201,10 +191,8 @@ fn nullable_regions_preserve_tags_and_project_fields_across_chunks() {
             let bare = b.call_one(read, &[leaf]);
             let sum = b.call_one(read, &[deep]);
             let total = b.binary(Binary::Add, sum, bare);
-            let expected = b.constant(
-                W,
-                600 * 601 / 2 + 600 * u64::from(link) + 2 * u64::from(empty),
-            );
+            let expected =
+                b.constant(W, 600 * 601 / 2 + 600 * u64::from(link) + 2 * u64::from(empty));
             let pass = b.compare(ir::Relation::Equal, total, expected);
             b.ret(&[pass]);
         });

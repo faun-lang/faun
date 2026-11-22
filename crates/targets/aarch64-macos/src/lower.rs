@@ -26,11 +26,7 @@ impl Source {
 }
 
 const fn mask(bits: u16) -> u64 {
-    if bits == 0 {
-        0
-    } else {
-        u64::MAX >> (64 - bits)
-    }
+    if bits == 0 { 0 } else { u64::MAX >> (64 - bits) }
 }
 
 pub(crate) fn lower(p: &Program) -> Result<Code, String> {
@@ -39,19 +35,14 @@ pub(crate) fn lower(p: &Program) -> Result<Code, String> {
     }
     let entry = p.entry();
     let body = p.function(entry).body().expect("validated entry");
-    let mut state = Lowering {
-        program: p,
-        sources: vec![None; p.values_count()],
-        encoder: Encoder::default(),
-    };
+    let mut state =
+        Lowering { program: p, sources: vec![None; p.values_count()], encoder: Encoder::default() };
     for (i, name) in p.parameter_names(entry).enumerate() {
         let (saved, incoming, source) = match (i, name) {
             (0, "argc") => (Reg::X19, Reg::X0, Source::Argc(64)),
             (1, "argv") => (Reg::X20, Reg::X1, Source::Argv),
             _ => {
-                return Err(format!(
-                    "aarch64-macos cannot supply entry parameter {i} `{name}`"
-                ));
+                return Err(format!("aarch64-macos cannot supply entry parameter {i} `{name}`"));
             }
         };
         state.encoder.mov_reg(saved, incoming);
@@ -94,9 +85,9 @@ impl Lowering<'_> {
             Op::AddressOf(data) if self.program.datum(data).origin == Origin::Data => {
                 Source::Address(data)
             }
-            Op::Convert { value } => self
-                .source(value)?
-                .narrowed(self.program.class(results[0]).bits(64))?,
+            Op::Convert { value } => {
+                self.source(value)?.narrowed(self.program.class(results[0]).bits(64))?
+            }
             Op::Call { function, args } => {
                 let f = self.program.function(function);
                 let name = self.program.name(f.name);

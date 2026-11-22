@@ -108,11 +108,7 @@ impl Library {
         let mod_step = p.declare("mod_step", &[bool_, nat], nat);
         p.define(mod_step, |b, args| {
             b.match_(args[0], bool_, |b, ctor, _| {
-                if ctor == true_ {
-                    b.con(zero, &[])
-                } else {
-                    b.con(succ, &[args[1]])
-                }
+                if ctor == true_ { b.con(zero, &[]) } else { b.con(succ, &[args[1]]) }
             })
         });
         let modulo = p.declare("mod", &two, nat);
@@ -141,13 +137,13 @@ impl Library {
         // div_step(False, q) -> q
         let div_step = p.declare("div_step", &[bool_, nat], nat);
         p.define(div_step, |b, args| {
-            b.match_(args[0], bool_, |b, ctor, _| {
-                if ctor == true_ {
-                    b.con(succ, &[args[1]])
-                } else {
-                    args[1]
-                }
-            })
+            b.match_(
+                args[0],
+                bool_,
+                |b, ctor, _| {
+                    if ctor == true_ { b.con(succ, &[args[1]]) } else { args[1] }
+                },
+            )
         });
         let div = p.declare("div", &two, nat);
         p.define(div, |b, args| {
@@ -193,9 +189,7 @@ impl Library {
     ///
     /// If the program's `Nat` is no longer the natural shape it declared.
     pub fn number(&mut self, n: u64) -> ConstId {
-        self.program
-            .intern_number(self.nat, n)
-            .expect("the library's natural shape")
+        self.program.intern_number(self.nat, n).expect("the library's natural shape")
     }
 }
 
@@ -207,13 +201,11 @@ fn compare(p: &mut Program, id: FnId, (nat, zero): (TypeId, CtorId), answers: [C
     p.define(id, |b, args| {
         b.match_(args[0], nat, |b, ctor, left| {
             let left_zero = ctor == zero;
-            b.match_(args[1], nat, |b, ctor, right| {
-                match (left_zero, ctor == zero) {
-                    (true, true) => b.con(both, &[]),
-                    (true, false) => b.con(below, &[]),
-                    (false, true) => b.con(above, &[]),
-                    (false, false) => b.call(id, &[left[0], right[0]]),
-                }
+            b.match_(args[1], nat, |b, ctor, right| match (left_zero, ctor == zero) {
+                (true, true) => b.con(both, &[]),
+                (true, false) => b.con(below, &[]),
+                (false, true) => b.con(above, &[]),
+                (false, false) => b.call(id, &[left[0], right[0]]),
             })
         })
     });
@@ -226,17 +218,11 @@ fn compare(p: &mut Program, id: FnId, (nat, zero): (TypeId, CtorId), answers: [C
 /// program with one entry, as every program is, and nothing it checks is
 /// unreachable.
 pub fn enter(program: &mut Program, roots: &[FnId]) -> FnId {
-    let results: Vec<TypeId> = roots
-        .iter()
-        .map(|&id| program.function(id).result)
-        .collect();
+    let results: Vec<TypeId> = roots.iter().map(|&id| program.function(id).result).collect();
     let answers = program.declare_type("Entered");
     program.define_type(answers, &[("Entered", &results)]);
     let answer = program.ctor_at(answers, 0);
-    let params: Vec<TypeId> = roots
-        .iter()
-        .flat_map(|&id| program.params(id).to_vec())
-        .collect();
+    let params: Vec<TypeId> = roots.iter().flat_map(|&id| program.params(id).to_vec()).collect();
     let counts: Vec<usize> = roots.iter().map(|&id| program.params(id).len()).collect();
     let entry = program.declare("enter", &params, answers);
     let roots = roots.to_vec();
@@ -285,14 +271,8 @@ mod tests {
         ] {
             assert_eq!(facts.operation(id), Some(expected));
         }
-        assert!(matches!(
-            facts.operation(library.equals),
-            Some(Operation::Equals { .. })
-        ));
-        assert!(matches!(
-            facts.operation(library.less_than),
-            Some(Operation::LessThan { .. })
-        ));
+        assert!(matches!(facts.operation(library.equals), Some(Operation::Equals { .. })));
+        assert!(matches!(facts.operation(library.less_than), Some(Operation::LessThan { .. })));
     }
 
     /// A program built on the library folds to what its arithmetic says.

@@ -88,10 +88,7 @@ struct Rules {
 /// and two ways of writing one equation that differ only in aliases, record
 /// reads or decided matches are recognized alike.
 pub(crate) fn canonical(program: &mut Program) {
-    let rules = Rules {
-        blind: true,
-        ..Rules::default()
-    };
+    let rules = Rules { blind: true, ..Rules::default() };
     rewrite(program, None, rules, FoldLimits::default(), None);
     program.redefined();
 }
@@ -105,10 +102,7 @@ pub(crate) fn structural(program: &mut Program) {
 /// what it decides: see [`Rewrite::identity`].
 #[cfg(test)]
 pub(super) fn identities(program: &mut Program) {
-    let rules = Rules {
-        identities: true,
-        ..Rules::default()
-    };
+    let rules = Rules { identities: true, ..Rules::default() };
     rewrite(program, None, rules, FoldLimits::default(), None);
 }
 
@@ -117,24 +111,14 @@ pub(super) fn identities(program: &mut Program) {
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn normalize_with_limits(program: &mut Program, limits: InlineLimits) {
     let inlining = Inlining::new(program, limits);
-    rewrite(
-        program,
-        inlining,
-        Rules::default(),
-        FoldLimits::default(),
-        None,
-    );
+    rewrite(program, inlining, Rules::default(), FoldLimits::default(), None);
 }
 
 /// Inline as [`normalize_with_limits`] does, and apply the identities as
 /// [`identities`] does, in one walk.
 pub(super) fn inline_with_identities(program: &mut Program, limits: InlineLimits) {
     let inlining = Inlining::new(program, limits);
-    let rules = Rules {
-        identities: true,
-        share: true,
-        ..Rules::default()
-    };
+    let rules = Rules { identities: true, share: true, ..Rules::default() };
     rewrite(program, inlining, rules, FoldLimits::default(), None);
 }
 
@@ -145,18 +129,8 @@ pub(super) fn reinline(program: &mut Program, changed: &[FnId]) {
         return;
     }
     let inlining = Inlining::new(program, InlineLimits::default());
-    let rules = Rules {
-        identities: true,
-        share: true,
-        ..Rules::default()
-    };
-    rewrite(
-        program,
-        inlining,
-        rules,
-        FoldLimits::default(),
-        Some(changed),
-    );
+    let rules = Rules { identities: true, share: true, ..Rules::default() };
+    rewrite(program, inlining, rules, FoldLimits::default(), Some(changed));
 }
 
 /// Inline the definitions that keep a round of calls apart, and nothing
@@ -167,13 +141,7 @@ pub(super) fn reinline(program: &mut Program, changed: &[FnId]) {
 /// below once one is copied into the other.
 pub(super) fn join_rounds(program: &mut Program) {
     let inlining = Inlining::joining(program, InlineLimits::default());
-    rewrite(
-        program,
-        inlining,
-        Rules::default(),
-        FoldLimits::default(),
-        None,
-    );
+    rewrite(program, inlining, Rules::default(), FoldLimits::default(), None);
 }
 
 /// Constant folding alone: the walk evaluating what it can, without the
@@ -190,10 +158,7 @@ pub(crate) fn fold_with_limits(program: &mut Program, limits: FoldLimits) {
     if limits.work == 0 || limits.work_per_function == 0 {
         return;
     }
-    let rules = Rules {
-        evaluate: true,
-        ..Rules::default()
-    };
+    let rules = Rules { evaluate: true, ..Rules::default() };
     rewrite(program, None, rules, limits, None);
 }
 
@@ -218,22 +183,11 @@ pub(super) fn resimplify(program: &mut Program, changed: &[FnId]) {
     if changed.is_empty() {
         return;
     }
-    rewrite(
-        program,
-        None,
-        SIMPLIFY,
-        FoldLimits::default(),
-        Some(changed),
-    );
+    rewrite(program, None, SIMPLIFY, FoldLimits::default(), Some(changed));
 }
 
-const SIMPLIFY: Rules = Rules {
-    identities: true,
-    algebra: true,
-    evaluate: true,
-    share: true,
-    blind: false,
-};
+const SIMPLIFY: Rules =
+    Rules { identities: true, algebra: true, evaluate: true, share: true, blind: false };
 
 /// Whether every arm puts back the constructor it took apart, out of that
 /// constructor's own fields and nothing else.
@@ -289,10 +243,7 @@ fn rewrite(
             inlining.begin_function();
         }
         let allowance = remaining.min(limits.work_per_function);
-        rewrite.budget = Budget::new(FoldLimits {
-            work: allowance,
-            ..limits
-        });
+        rewrite.budget = Budget::new(FoldLimits { work: allowance, ..limits });
         let count = rewrite.program.params(id).len();
         let locals: Vec<_> = (0..count).map(|at| Atom(Local::at(at))).collect();
         rewrite.written.clear();
@@ -315,10 +266,9 @@ fn rewrite(
 fn order(program: &Program, rules: Rules, only: Option<&[FnId]>) -> Vec<FnId> {
     match only {
         Some(&[id]) => vec![id],
-        Some(ids) => super::calls::callees_first(program)
-            .into_iter()
-            .filter(|id| ids.contains(id))
-            .collect(),
+        Some(ids) => {
+            super::calls::callees_first(program).into_iter().filter(|id| ids.contains(id)).collect()
+        }
         None if rules.evaluate => super::calls::callees_first(program),
         None => (0..program.functions().len()).map(FnId::at).collect(),
     }
@@ -337,9 +287,7 @@ enum Tags {
 
 /// What `map` turns `tag` into, where it turns it.
 fn turned(map: &[(super::CtorId, super::CtorId)], tag: super::CtorId) -> Option<super::CtorId> {
-    map.iter()
-        .find(|&&(ctor, _)| ctor == tag)
-        .map(|&(_, answer)| answer)
+    map.iter().find(|&&(ctor, _)| ctor == tag).map(|&(_, answer)| answer)
 }
 
 impl Tags {
@@ -350,10 +298,7 @@ impl Tags {
             Self::Same(atom) => Self::Same(locals[atom.0.index()]),
             Self::Split(on, branches) => Self::Split(
                 locals[on.0.index()],
-                branches
-                    .iter()
-                    .map(|(ctor, tree)| (*ctor, tree.renamed(locals)))
-                    .collect(),
+                branches.iter().map(|(ctor, tree)| (*ctor, tree.renamed(locals))).collect(),
             ),
         }
     }
@@ -379,10 +324,8 @@ impl Tags {
         let Self::Split(on, branches) = self else {
             return self;
         };
-        let branches: Vec<_> = branches
-            .into_iter()
-            .map(|(ctor, tree)| (ctor, tree.collapsed()))
-            .collect();
+        let branches: Vec<_> =
+            branches.into_iter().map(|(ctor, tree)| (ctor, tree.collapsed())).collect();
         let leaf = |tree: &Self| match tree {
             Self::Leaf(tag) => Some(*tag),
             _ => None,
@@ -392,10 +335,7 @@ impl Tags {
             if tags.iter().all(|&tag| tag == tags[0]) {
                 return Self::Leaf(tags[0]);
             }
-            if branches
-                .iter()
-                .all(|&(ctor, ref tree)| leaf(tree) == Some(ctor))
-            {
+            if branches.iter().all(|&(ctor, ref tree)| leaf(tree) == Some(ctor)) {
                 return Self::Same(on);
             }
         }
@@ -502,11 +442,7 @@ impl Rewrite<'_> {
     ) -> Body {
         self.written.truncate(level);
         self.written.resize(level, None);
-        let mut scope = Scope {
-            bindings: vec![],
-            level,
-            base: level,
-        };
+        let mut scope = Scope { bindings: vec![], level, base: level };
         let answer = write(self, &mut scope);
         let tail = if answer.0.index() + 1 == scope.level && !scope.bindings.is_empty() {
             scope.bindings.pop().expect("the last binding")
@@ -569,13 +505,9 @@ impl Rewrite<'_> {
     /// Whether a local was written as a constructor or a known value, so
     /// that a match on it takes one arm: see [`Self::selected`].
     fn decided(&self, atom: Atom) -> bool {
-        self.written
-            .get(atom.0.index())
-            .copied()
-            .flatten()
-            .is_some_and(|wrote| {
-                matches!(self.program.expr(wrote), Expr::Con(..) | Expr::Static(..))
-            })
+        self.written.get(atom.0.index()).copied().flatten().is_some_and(|wrote| {
+            matches!(self.program.expr(wrote), Expr::Con(..) | Expr::Static(..))
+        })
     }
 
     /// A match of one arm, which cannot but take it, taking apart a value
@@ -602,9 +534,7 @@ impl Rewrite<'_> {
         };
         let scrutinee = locals[value.0.index()];
         let fields = self.program.fields(arm.ctor).len();
-        let taken: Vec<_> = (0..fields)
-            .map(|at| Atom(Local::at(scope.level + at)))
-            .collect();
+        let taken: Vec<_> = (0..fields).map(|at| Atom(Local::at(scope.level + at))).collect();
         self.written.truncate(scope.level);
         let rest = self.known_as(scrutinee, arm.ctor, &taken, |rewrite| {
             rewrite.body_with(scope.level + fields, |rewrite, arm_scope| {
@@ -616,10 +546,7 @@ impl Rewrite<'_> {
             })
         });
         self.written.truncate(scope.level);
-        let arms = self.program.terms.hold_arms(&[Arm {
-            ctor: arm.ctor,
-            body: rest,
-        }]);
+        let arms = self.program.terms.hold_arms(&[Arm { ctor: arm.ctor, body: rest }]);
         self.push(Expr::Match(scrutinee, arms), scope)
     }
 
@@ -646,21 +573,14 @@ impl Rewrite<'_> {
             let Expr::Con(ctor, _) = self.program.expr(arm.body.tail) else {
                 return None;
             };
-            let at = self
-                .program
-                .arms(second)
-                .iter()
-                .position(|arm| arm.ctor == ctor)?;
+            let at = self.program.arms(second).iter().position(|arm| arm.ctor == ctor)?;
             if std::mem::replace(&mut taken[at], true) {
                 return None;
             }
         }
         let read = self.program.arms(second).iter().any(|arm| {
-            super::walk::reads(
-                self.program,
-                super::walk::within(self.program, arm.body),
-                answer,
-            ) > 0
+            super::walk::reads(self.program, super::walk::within(self.program, arm.body), answer)
+                > 0
         });
         (!read).then_some((scrutinee, first, second))
     }
@@ -704,10 +624,7 @@ impl Rewrite<'_> {
                 going.extend(built);
                 rewrite.into(next.body, going, arm_scope)
             });
-            found.push(Arm {
-                ctor: arm.ctor,
-                body,
-            });
+            found.push(Arm { ctor: arm.ctor, body });
         }
         self.written.truncate(scope.level);
         let arms = self.program.terms.hold_arms(&found);
@@ -746,9 +663,8 @@ impl Rewrite<'_> {
                     return held;
                 }
                 if self.rules.identities
-                    && let Some(held) = self
-                        .one_less(called, &args)
-                        .or_else(|| self.identity(called, &args, scope))
+                    && let Some(held) =
+                        self.one_less(called, &args).or_else(|| self.identity(called, &args, scope))
                 {
                     return held;
                 }
@@ -826,12 +742,7 @@ impl Rewrite<'_> {
             Expr::Static(value) => self.opened(value, scope)?,
             Expr::Atom(_) | Expr::Call(..) | Expr::Match(..) => return None,
         };
-        let arm = self
-            .program
-            .arms(arms)
-            .iter()
-            .find(|arm| arm.ctor == ctor)
-            .copied()?;
+        let arm = self.program.arms(arms).iter().find(|arm| arm.ctor == ctor).copied()?;
         let mut inner = locals.to_vec();
         inner.extend(fields);
         Some(self.into(arm.body, inner, scope))
@@ -889,10 +800,7 @@ impl Rewrite<'_> {
                 }
                 rewrite.emit_tags(tree.renamed(&locals).collapsed(), arm_scope)
             });
-            found.push(Arm {
-                ctor: arm.ctor,
-                body,
-            });
+            found.push(Arm { ctor: arm.ctor, body });
         }
         self.written.truncate(scope.level);
         let arms = self.program.terms.hold_arms(&found);
@@ -910,19 +818,10 @@ impl Rewrite<'_> {
         let Some((less, a, b)) = self.asked(on) else {
             return tags;
         };
-        let Operation::LessThan {
-            yes: lt_yes,
-            no: lt_no,
-        } = less
-        else {
+        let Operation::LessThan { yes: lt_yes, no: lt_no } = less else {
             return tags;
         };
-        let branch = |ctor| {
-            branches
-                .iter()
-                .find(|&&(tag, _)| tag == ctor)
-                .map(|(_, tree)| tree)
-        };
+        let branch = |ctor| branches.iter().find(|&&(tag, _)| tag == ctor).map(|(_, tree)| tree);
         let (Some(Tags::Leaf(below)), Some(rest)) = (branch(lt_yes), branch(lt_no)) else {
             return tags;
         };
@@ -993,11 +892,7 @@ impl Rewrite<'_> {
             .arms(arms)
             .iter()
             .map(|arm| {
-                let tag = arm
-                    .body
-                    .bindings
-                    .is_empty()
-                    .then(|| self.tag(arm.body.tail))??;
+                let tag = arm.body.bindings.is_empty().then(|| self.tag(arm.body.tail))??;
                 Some((arm.ctor, tag))
             })
             .collect()
@@ -1117,10 +1012,7 @@ impl Rewrite<'_> {
             }
             super::ConstantView::Spine(_) => return None,
         };
-        let atoms = fields
-            .into_iter()
-            .map(|field| self.push(Expr::Static(field), scope))
-            .collect();
+        let atoms = fields.into_iter().map(|field| self.push(Expr::Static(field), scope)).collect();
         Some((ctor, atoms))
     }
 
@@ -1177,9 +1069,7 @@ impl Rewrite<'_> {
         for at in arms.range() {
             let arm = self.program.terms.arm(at);
             let fields = self.program.fields(arm.ctor).len();
-            let taken: Vec<_> = (0..fields)
-                .map(|at| Atom(Local::at(scope.level + at)))
-                .collect();
+            let taken: Vec<_> = (0..fields).map(|at| Atom(Local::at(scope.level + at))).collect();
             let mut inner = locals.to_vec();
             inner.extend(&taken);
             // A sibling arm's bindings may have taken this arm's fields'
@@ -1188,10 +1078,7 @@ impl Rewrite<'_> {
             let body = self.known_as(scrutinee, arm.ctor, &taken, |rewrite| {
                 rewrite.body(arm.body, inner, scope.level + fields)
             });
-            found.push(Arm {
-                ctor: arm.ctor,
-                body,
-            });
+            found.push(Arm { ctor: arm.ctor, body });
         }
         self.written.truncate(scope.level);
         if rebuilt(self.program, &found, scope.level) {
@@ -1212,10 +1099,7 @@ impl Rewrite<'_> {
     /// Whether two bodies say the same thing, term for term. Known values
     /// are compared by what they are, since equal ones are held apart.
     fn same_body(&self, a: Body, b: Body) -> bool {
-        let (left, right) = (
-            self.program.bindings(a.bindings),
-            self.program.bindings(b.bindings),
-        );
+        let (left, right) = (self.program.bindings(a.bindings), self.program.bindings(b.bindings));
         left.len() == right.len()
             && left.iter().zip(right).all(|(&x, &y)| self.same_expr(x, y))
             && self.same_expr(a.tail, b.tail)
@@ -1262,10 +1146,8 @@ impl Rewrite<'_> {
         let (x, y) = (self.small(a), self.small(b));
         let zero = |rewrite: &mut Self, scope: &mut Scope| {
             let result = rewrite.program.function(called).result;
-            let zero = rewrite
-                .program
-                .intern_number(result, 0)
-                .expect("a recognized natural result");
+            let zero =
+                rewrite.program.intern_number(result, 0).expect("a recognized natural result");
             rewrite.push(Expr::Static(zero), scope)
         };
         Some(match op {
@@ -1319,10 +1201,7 @@ impl Rewrite<'_> {
             }
             SequenceOperation::Length if empty(0) => {
                 let result = self.program.function(called).result;
-                let zero = self
-                    .program
-                    .intern_number(result, 0)
-                    .expect("a length is a natural");
+                let zero = self.program.intern_number(result, 0).expect("a length is a natural");
                 self.push(Expr::Static(zero), scope)
             }
             _ => return None,
@@ -1454,14 +1333,12 @@ impl Rewrite<'_> {
         let [left, right] = *args else {
             return None;
         };
-        let (outer_constant, inner, swap) = match (
-            self.constant(scope, left).is_some(),
-            self.constant(scope, right).is_some(),
-        ) {
-            (true, false) => (left, right, true),
-            (false, true) => (right, left, false),
-            _ => return None,
-        };
+        let (outer_constant, inner, swap) =
+            match (self.constant(scope, left).is_some(), self.constant(scope, right).is_some()) {
+                (true, false) => (left, right, true),
+                (false, true) => (right, left, false),
+                _ => return None,
+            };
         let Some(inner_expr) = scope.wrote(inner) else {
             return self.commuted(called, inner, outer_constant, swap, scope);
         };
@@ -1517,17 +1394,9 @@ impl Rewrite<'_> {
         let budget = &mut self.budget;
         let left = self.program.constant(left).to_owned(budget).ok()?;
         let right = self.program.constant(right).to_owned(budget).ok()?;
-        let value = Evaluator {
-            program: self.program,
-            operations: &self.recognised.operations,
-        }
-        .arithmetic(
-            op,
-            self.program.function(called).result,
-            &[left, right],
-            budget,
-        )
-        .ok()?;
+        let value = Evaluator { program: self.program, operations: &self.recognised.operations }
+            .arithmetic(op, self.program.function(called).result, &[left, right], budget)
+            .ok()?;
         let value = self.program.intern_held(&value);
         Some(self.push(Expr::Static(value), scope))
     }
@@ -1545,20 +1414,15 @@ impl Rewrite<'_> {
         if !self.rules.evaluate || self.budget.remaining == 0 {
             return None;
         }
-        let known = args
-            .iter()
-            .map(|&atom| self.known(atom))
-            .collect::<Option<Vec<_>>>()?;
+        let known = args.iter().map(|&atom| self.known(atom)).collect::<Option<Vec<_>>>()?;
         let budget = &mut self.budget;
         let values = known
             .into_iter()
             .map(|value| self.program.constant(value).to_owned(budget))
             .collect::<Result<Vec<_>, _>>()
             .ok()?;
-        let evaluator = Evaluator {
-            program: self.program,
-            operations: &self.recognised.operations,
-        };
+        let evaluator =
+            Evaluator { program: self.program, operations: &self.recognised.operations };
         let value = evaluate(&evaluator, values, budget).ok()?;
         let value = self.program.intern_held(&value);
         Some(self.push(Expr::Static(value), scope))
@@ -1602,10 +1466,8 @@ impl Rewrite<'_> {
             };
             env.push(held);
         }
-        let evaluator = Evaluator {
-            program: self.program,
-            operations: &self.recognised.operations,
-        };
+        let evaluator =
+            Evaluator { program: self.program, operations: &self.recognised.operations };
         let value = evaluator.expr(id, &mut env, budget).ok()?;
         let value = self.program.intern_held(&value);
         Some(self.push(Expr::Static(value), scope))
@@ -1720,10 +1582,7 @@ impl Rewrite<'_> {
         // A side already within the modulus is left alone, and where both
         // are there is nothing to do: saying it twice says no more, and
         // this walk happens more than once.
-        let done = (
-            self.within(scope, left, modulus),
-            self.within(scope, right, modulus),
-        );
+        let done = (self.within(scope, left, modulus), self.within(scope, right, modulus));
         if done.0 && done.1 {
             return None;
         }
@@ -1827,16 +1686,10 @@ impl Rewrite<'_> {
         if self.recognised.answered(called) {
             return None;
         }
-        self.inlining
-            .as_mut()?
-            .callee(self.program, called, self.inline_depth)
+        self.inlining.as_mut()?.callee(self.program, called, self.inline_depth)
     }
 
     fn args(&self, args: Range, locals: &[Atom]) -> Vec<Atom> {
-        self.program
-            .atoms(args)
-            .iter()
-            .map(|a| locals[a.0.index()])
-            .collect()
+        self.program.atoms(args).iter().map(|a| locals[a.0.index()]).collect()
     }
 }

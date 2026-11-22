@@ -39,13 +39,7 @@ fn in_clause(module: ModuleId, clause: &h::Clause, symbols: &Symbols) -> Result<
     for binding in &clause.body.bindings {
         expr(module, &binding.value, effectful, Standing::Alone, symbols)?;
     }
-    expr(
-        module,
-        &clause.body.result,
-        effectful,
-        Standing::Alone,
-        symbols,
-    )
+    expr(module, &clause.body.result, effectful, Standing::Alone, symbols)
 }
 
 fn expr(
@@ -58,24 +52,12 @@ fn expr(
     let effect = |name: Symbol| symbols.text(name).ends_with('!');
     let within =
         |inner: &h::Expr, standing| expr(module, inner, owner_effectful, standing, symbols);
-    let called = |name| {
-        call(
-            module,
-            expression.span,
-            name,
-            owner_effectful,
-            standing,
-            symbols,
-        )
-    };
+    let called = |name| call(module, expression.span, name, owner_effectful, standing, symbols);
     match &expression.kind {
         h::ExprKind::Global(name) if effect(*name) => Err(failure(
             module,
             expression.span,
-            format!(
-                "effect `{}` must be called and stand on its own",
-                source_name(symbols, *name)
-            ),
+            format!("effect `{}` must be called and stand on its own", source_name(symbols, *name)),
         )),
         // What `?` propagates, or `return` answers, stands where it does;
         // what `is` tests is worked out first, once, so it stands there too.
@@ -100,9 +82,7 @@ fn expr(
         h::ExprKind::Call(head, arguments) => match &head.kind {
             h::ExprKind::Global(name) if effect(*name) => {
                 called(*name)?;
-                arguments
-                    .iter()
-                    .try_for_each(|argument| within(argument, Standing::Inside))
+                arguments.iter().try_for_each(|argument| within(argument, Standing::Inside))
             }
             _ => expression.try_for_each_child(|inner| within(inner, Standing::Inside)),
         },
@@ -142,10 +122,7 @@ fn call(
         return Err(failure(
             module,
             span,
-            format!(
-                "pure definitions cannot call effect `{}`",
-                source_name(symbols, effect)
-            ),
+            format!("pure definitions cannot call effect `{}`", source_name(symbols, effect)),
         ));
     }
     // An effect inside an expression would happen in an order the line's
@@ -154,10 +131,7 @@ fn call(
         failure(
             module,
             span,
-            format!(
-                "effect `{}` must stand on its own",
-                source_name(symbols, effect)
-            ),
+            format!("effect `{}` must stand on its own", source_name(symbols, effect)),
         )
     };
     match standing {
@@ -174,7 +148,5 @@ fn call(
 
 fn source_name(symbols: &Symbols, symbol: Symbol) -> &str {
     let spelled = symbols.spelling(symbol);
-    spelled
-        .rsplit_once('.')
-        .map_or(spelled, |(_, member)| member)
+    spelled.rsplit_once('.').map_or(spelled, |(_, member)| member)
 }

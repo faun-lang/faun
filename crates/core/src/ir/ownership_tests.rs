@@ -7,10 +7,7 @@ use super::*;
 use crate::{ir, targets};
 
 #[path = "../../tests/support/runtime_lifetimes.rs"]
-#[expect(
-    dead_code,
-    reason = "the native runner is used by target integration tests"
-)]
+#[expect(dead_code, reason = "the native runner is used by target integration tests")]
 mod fixture;
 
 struct Observer {
@@ -25,12 +22,8 @@ fn escaping_children(p: &mut Program, link: ShapeId) -> FunctionId {
     p.define(select, |b, args| {
         let child = b.cell_field((Class::Cell, link), args[0], 0);
         let leaf = b.cell_field((Class::Cell, link), child, 0);
-        let joined = b.if_(
-            args[1],
-            &[Class::Cell],
-            |b| b.yield_(&[leaf]),
-            |b| b.ret(&[leaf, leaf]),
-        );
+        let joined =
+            b.if_(args[1], &[Class::Cell], |b| b.yield_(&[leaf]), |b| b.ret(&[leaf, leaf]));
         let one = b.constant(Class::Word, 1);
         let result = b.loop_(&[joined[0], one], &[Class::Cell], |b, state| {
             b.if_(
@@ -114,26 +107,16 @@ impl Host for Observer {
 /// Run `p` handed the entry arguments `args`.
 fn run(p: &Program, bits: u16, args: &[u64]) -> (Evaluation, Observer) {
     validate(p).expect("valid fixture");
-    let mut host = Observer {
-        bytes: Vec::new(),
-        calls: Vec::new(),
-    };
+    let mut host = Observer { bytes: Vec::new(), calls: Vec::new() };
     let result = evaluate::evaluate(
         p,
         p.entry(),
         &args.iter().copied().map(BigUint::from).collect::<Vec<_>>(),
-        evaluate::Config {
-            word_bits: bits,
-            fuel: 100_000_000,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { word_bits: bits, fuel: 100_000_000, ..evaluate::Config::default() },
         &mut host,
     )
     .expect("ownership fixture execution");
-    assert!(
-        result.returned().is_some(),
-        "unexpected runtime exhaustion: {result:?}"
-    );
+    assert!(result.returned().is_some(), "unexpected runtime exhaustion: {result:?}");
     (result, host)
 }
 
@@ -202,9 +185,8 @@ fn branching_function(p: &mut Program, offset: u64) -> FunctionId {
 fn one_global_mapping_preserves_sibling_and_cross_function_ownership() {
     for choice in [0, 1] {
         let (mut original, main) = Program::new("main");
-        let functions: Vec<_> = (0..16)
-            .map(|offset| branching_function(&mut original, offset))
-            .collect();
+        let functions: Vec<_> =
+            (0..16).map(|offset| branching_function(&mut original, offset)).collect();
         original.define(main, |b, _| {
             let arg = b.constant(Class::Word, choice);
             let mut sum = b.constant(Class::Word, 0);
@@ -259,13 +241,7 @@ fn widened_loop(initial_bits: u16) -> Program {
 fn loop_body(p: &Program) -> RegionId {
     p.ops(p.function(p.entry()).body().unwrap())
         .iter()
-        .find_map(|op| {
-            if let Op::Loop { body, .. } = *op {
-                Some(body)
-            } else {
-                None
-            }
-        })
+        .find_map(|op| if let Op::Loop { body, .. } = *op { Some(body) } else { None })
         .expect("entry's loop")
 }
 
@@ -286,11 +262,7 @@ fn narrower_loop_initial_values_do_not_narrow_rebuilt_carried_parameters() {
             let scalar = legalize(&original, config).unwrap();
             let params = scalar.values(scalar.region(loop_body(&scalar)).params);
             assert_eq!(params.len(), 1);
-            assert_eq!(
-                scalar.class(params[0]),
-                Class::Word,
-                "preserve declared loop width"
-            );
+            assert_eq!(scalar.class(params[0]), Class::Word, "preserve declared loop width");
             let (before, _) = run(&original, bits, &[]);
             let (after, _) = run(&scalar, bits, &[]);
             assert_eq!(before.returned().unwrap(), [BigUint::from(260u16)]);

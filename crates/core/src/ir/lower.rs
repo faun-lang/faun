@@ -130,14 +130,8 @@ fn lower_with(
 fn counted_walks(routines: &Routines) -> Option<barb::Counted> {
     let word = routines.word()?;
     let half = (1u64 << (word / 2)) - 1;
-    let most = routines
-        .length()
-        .high
-        .map_or(half, |length| length.min(half));
-    Some(barb::Counted {
-        most,
-        lists: word >= 32,
-    })
+    let most = routines.length().high.map_or(half, |length| length.min(half));
+    Some(barb::Counted { most, lists: word >= 32 })
 }
 
 /// [`lower_with`], given the program's facts.
@@ -209,10 +203,7 @@ fn begun(
     entry: barb::FnId,
     params: &NamedParams,
 ) -> (Program, FunctionId) {
-    let borrowed: Vec<_> = params
-        .iter()
-        .map(|(name, class)| (name.as_str(), *class))
-        .collect();
+    let borrowed: Vec<_> = params.iter().map(|(name, class)| (name.as_str(), *class)).collect();
     Program::new_with_params(program.name(program.function(entry).name), &borrowed)
 }
 
@@ -261,11 +252,7 @@ fn entry_parameters(
 /// else, so a call of it nothing reads goes.
 fn making_arguments(machine: &mut Program, routines: &Routines, bytes: Class) -> FunctionId {
     let word = u64::from(routines.word().unwrap_or(64) / 8);
-    let made = machine.declare(
-        MAKE_ARGUMENTS,
-        &[Class::Word, Class::Address],
-        &SEQUENCE_LEAVES,
-    );
+    let made = machine.declare(MAKE_ARGUMENTS, &[Class::Word, Class::Address], &SEQUENCE_LEAVES);
     machine.define(made, |b, args| {
         let list = Lowering::arguments(b, (args[0], args[1]), (word, bytes));
         b.ret(&list);
@@ -386,10 +373,7 @@ fn declare<'a>(
         let name = program.name(function.name);
         let (_, returns) = demand.signature(id);
         let named = demand.named_params(id);
-        let named: Vec<_> = named
-            .iter()
-            .map(|(name, class)| (name.as_str(), *class))
-            .collect();
+        let named: Vec<_> = named.iter().map(|(name, class)| (name.as_str(), *class)).collect();
         // External functions carry the provider's machine contract. They
         // share function IDs and calls with bodies, not the narrowing policy.
         if written[id.index()] {
@@ -425,9 +409,7 @@ fn declare<'a>(
                     }
                 })?;
                 if wanted.comes_back() == uninhabited(program, function.result) {
-                    return Err(format!(
-                        "`{outside}` disagrees with `{name}` about returning"
-                    ));
+                    return Err(format!("`{outside}` disagrees with `{name}` about returning"));
                 }
                 if let Some(built) = &wanted.built {
                     let (Built::Put(through) | Built::Read(through)) = built;
@@ -466,10 +448,8 @@ fn declare<'a>(
 fn written_where_called(demand: &Demand<'_>, entry: barb::FnId) -> Vec<bool> {
     let program = demand.program;
     let looping = loops(demand, entry);
-    let sites: Vec<Vec<(barb::FnId, barb::ExprId)>> = program
-        .function_ids()
-        .map(|id| outside_calls(program, &demand.reached, id))
-        .collect();
+    let sites: Vec<Vec<(barb::FnId, barb::ExprId)>> =
+        program.function_ids().map(|id| outside_calls(program, &demand.reached, id)).collect();
     let mut hosts: Vec<Option<(barb::FnId, barb::ExprId)>> = (0..sites.len())
         .map(|at| match sites[at].as_slice() {
             &[site] if looping[at] => Some(site),
@@ -535,9 +515,7 @@ fn goes_round_or_leaves(program: &barb::Program, id: barb::FnId) -> bool {
     let tails = tail_calls(program, id, body);
     !tails.is_empty()
         && leaves(program, id, body)
-        && calls_of(program, body, id)
-            .iter()
-            .all(|expr| tails.contains(expr))
+        && calls_of(program, body, id).iter().all(|expr| tails.contains(expr))
 }
 
 /// Every call of `id` from a function reached other than itself, and where.
@@ -548,18 +526,10 @@ fn outside_calls(
 ) -> Vec<(barb::FnId, barb::ExprId)> {
     let mut found = Vec::new();
     for (caller, &reached) in program.function_ids().zip(reached) {
-        let Some(body) = program
-            .function(caller)
-            .body()
-            .filter(|_| reached && caller != id)
-        else {
+        let Some(body) = program.function(caller).body().filter(|_| reached && caller != id) else {
             continue;
         };
-        found.extend(
-            calls_of(program, body, id)
-                .into_iter()
-                .map(|expr| (caller, expr)),
-        );
+        found.extend(calls_of(program, body, id).into_iter().map(|expr| (caller, expr)));
     }
     found
 }
@@ -654,11 +624,10 @@ fn hands_unbounded(
     mut locals: Vec<barb::Bounds>,
 ) -> bool {
     let unbounded = |locals: &[barb::Bounds], args| {
-        program.atoms(args).iter().any(|atom| {
-            locals
-                .get(atom.0.index())
-                .is_none_or(|bounds| bounds.high.is_none())
-        })
+        program
+            .atoms(args)
+            .iter()
+            .any(|atom| locals.get(atom.0.index()).is_none_or(|bounds| bounds.high.is_none()))
     };
     for &expr in program.bindings(body.bindings).iter().chain([&body.tail]) {
         match program.expr(expr) {
@@ -808,10 +777,7 @@ fn counted(b: &mut super::Builder, held: Held, count: barb::Bounds) -> Held {
         return held;
     }
     let len = b.constant(Class::Held(count), count.low);
-    Held::Flat {
-        leaves: *leaves,
-        values: [values[0], values[1], len].as_slice().into(),
-    }
+    Held::Flat { leaves: *leaves, values: [values[0], values[1], len].as_slice().into() }
 }
 
 /// Whether `index` is surely below `len`: the most it can be is less than
@@ -882,10 +848,7 @@ impl Held {
     fn of(carried: Carried, values: &[ValueId]) -> Self {
         match carried {
             Carried::One(_) => Self::One(values[0]),
-            Carried::Flat(leaves) => Self::Flat {
-                leaves,
-                values: values.into(),
-            },
+            Carried::Flat(leaves) => Self::Flat { leaves, values: values.into() },
         }
     }
 
@@ -1026,15 +989,10 @@ impl<'a> Demand<'a> {
             .zip(&self.takes[id.index()])
             .filter(|(((_, ty), _), used)| **used && self.carries[ty.index()].carried())
         {
-            let carried = self.carries[ty.index()]
-                .held(*held)
-                .expect("a carried parameter has a class");
+            let carried =
+                self.carries[ty.index()].held(*held).expect("a carried parameter has a class");
             let leaves = leaf_names(self, *ty, carried, name);
-            named.extend(
-                leaves
-                    .into_iter()
-                    .zip(classes(&self.leaves, &carried).iter().copied()),
-            );
+            named.extend(leaves.into_iter().zip(classes(&self.leaves, &carried).iter().copied()));
         }
         named
     }
@@ -1055,17 +1013,15 @@ impl<'a> Demand<'a> {
         }
         carried
             .iter()
-            .map(
-                |(ty, bounds)| match self.carries[ty.index()].held(**bounds) {
-                    Some(Carried::One(Class::Cell)) => handed_sentence(&[Handed::Bytes]),
-                    Some(Carried::One(class)) => handed_sentence(&[Handed::Value(class)]),
-                    Some(Carried::Flat(_)) if self.carries[ty.index()] == Storage::Seq => {
-                        handed_sentence(&[Handed::Bytes])
-                    }
-                    Some(Carried::Flat(_)) => "a product".to_owned(),
-                    None => unreachable!("an argument handed over is carried"),
-                },
-            )
+            .map(|(ty, bounds)| match self.carries[ty.index()].held(**bounds) {
+                Some(Carried::One(Class::Cell)) => handed_sentence(&[Handed::Bytes]),
+                Some(Carried::One(class)) => handed_sentence(&[Handed::Value(class)]),
+                Some(Carried::Flat(_)) if self.carries[ty.index()] == Storage::Seq => {
+                    handed_sentence(&[Handed::Bytes])
+                }
+                Some(Carried::Flat(_)) => "a product".to_owned(),
+                None => unreachable!("an argument handed over is carried"),
+            })
             .collect::<Vec<_>>()
             .join(" and ")
     }
@@ -1165,9 +1121,8 @@ impl<'a> Demand<'a> {
             .zip(&self.takes[id.index()])
             .filter(|((ty, _), used)| **used && self.carries[ty.index()].carried())
         {
-            let carried = self.carries[ty.index()]
-                .held(*held)
-                .expect("a carried parameter has a class");
+            let carried =
+                self.carries[ty.index()].held(*held).expect("a carried parameter has a class");
             params.extend_from_slice(classes(&self.leaves, &carried));
         }
         let result = self.program.function(id).result;
@@ -1258,10 +1213,7 @@ impl<'a> Demand<'a> {
             return Ok(matches!(inner, Storage::Tagged(_)).then_some(inner));
         }
         let ctors: Vec<_> = (0..self.program.ctors(ty).len())
-            .map(|tag| {
-                self.program
-                    .ctor_at(ty, u32::try_from(tag).expect("a sane tag"))
-            })
+            .map(|tag| self.program.ctor_at(ty, u32::try_from(tag).expect("a sane tag")))
             .collect();
         for &ctor in &ctors {
             for field in self.program.fields(ctor).to_vec() {
@@ -1302,17 +1254,11 @@ impl<'a> Demand<'a> {
             return Ok(None);
         }
         let most = u64::try_from(ctors.len() - 1).expect("a sane constructor count");
-        let mut leaves = vec![Class::Held(barb::Bounds {
-            low: 0,
-            high: Some(most),
-        })];
+        let mut leaves = vec![Class::Held(barb::Bounds { low: 0, high: Some(most) })];
         leaves.extend(scalars);
         leaves.extend(std::iter::repeat_n(Class::Natural, naturals));
         leaves.extend(std::iter::repeat_n(Class::Buffer, buffers));
-        Ok(Some(Storage::Tagged(append_range(
-            &mut self.leaves,
-            &leaves,
-        ))))
+        Ok(Some(Storage::Tagged(append_range(&mut self.leaves, &leaves))))
     }
 
     /// Demand every field of every constructor, as a cell's.
@@ -1337,12 +1283,7 @@ impl<'a> Demand<'a> {
         takes: &[Vec<bool>],
         found: &mut [bool],
     ) -> bool {
-        for &expr in self
-            .program
-            .bindings(body.bindings)
-            .iter()
-            .chain([&body.tail])
-        {
+        for &expr in self.program.bindings(body.bindings).iter().chain([&body.tail]) {
             match self.program.expr(expr) {
                 barb::Expr::Atom(atom) => mark_parameter(atom, found),
                 barb::Expr::Static(_) => {}
@@ -1380,12 +1321,7 @@ impl<'a> Demand<'a> {
 
     /// Whether this body can return, matching `Lowering::body`.
     fn body(&mut self, body: barb::Body) -> Result<bool, String> {
-        for &expr in self
-            .program
-            .bindings(body.bindings)
-            .iter()
-            .chain([&body.tail])
-        {
+        for &expr in self.program.bindings(body.bindings).iter().chain([&body.tail]) {
             if !self.expr(expr)? {
                 return Ok(false);
             }
@@ -1523,12 +1459,8 @@ fn summed(program: &barb::Program, id: barb::TypeId) -> Option<barb::TypeId> {
         return None;
     }
     let mut seen = vec![false; program.types().len()];
-    let mut waiting: Vec<_> = program
-        .ctors(sum)
-        .iter()
-        .flat_map(|ctor| program.types_of(ctor.fields))
-        .copied()
-        .collect();
+    let mut waiting: Vec<_> =
+        program.ctors(sum).iter().flat_map(|ctor| program.types_of(ctor.fields)).copied().collect();
     while let Some(field) = waiting.pop() {
         if field == sum {
             return None;
@@ -1537,11 +1469,7 @@ fn summed(program: &barb::Program, id: barb::TypeId) -> Option<barb::TypeId> {
             continue;
         }
         waiting.extend(
-            program
-                .ctors(field)
-                .iter()
-                .flat_map(|ctor| program.types_of(ctor.fields))
-                .copied(),
+            program.ctors(field).iter().flat_map(|ctor| program.types_of(ctor.fields)).copied(),
         );
     }
     Some(sum)
@@ -1620,15 +1548,10 @@ fn asks_with_authority(
 /// What the target says of values from outside the program: what each
 /// routine it answers for answers, and what it hands the entry.
 fn assumed(program: &barb::Program, routines: &Routines) -> barb::Assumed {
-    let mut assumed = barb::Assumed {
-        floats: routines.floats(),
-        ..barb::Assumed::default()
-    };
+    let mut assumed = barb::Assumed { floats: routines.floats(), ..barb::Assumed::default() };
     for (id, function) in program.function_ids().zip(program.functions()) {
         if let Some(provider) = function.provider()
-            && let Some(bounds) = routines
-                .get(program.name(provider))
-                .and_then(Routine::bounds)
+            && let Some(bounds) = routines.get(program.name(provider)).and_then(Routine::bounds)
         {
             assumed.results.push((id, bounds));
         }
@@ -1644,10 +1567,7 @@ fn assumed(program: &barb::Program, routines: &Routines) -> barb::Assumed {
             // are bytes wherever they were built; what the primitive
             // answered beside them is a word, and the type holding both is
             // the routine's own.
-            let byte = barb::Bounds {
-                low: 0,
-                high: Some(255),
-            };
+            let byte = barb::Bounds { low: 0, high: Some(255) };
             for (field_of, at) in byte_places(program, bytes).into_iter().flatten() {
                 assumed.fields.push((field_of, at, byte));
             }
@@ -1670,11 +1590,7 @@ fn handed(
 ) {
     let startup = |name: &str, ty| startup(program, routines, name, ty);
     let mut waiting = Vec::new();
-    for (at, (name, &ty)) in program
-        .parameter_names(entry)
-        .zip(program.params(entry))
-        .enumerate()
-    {
+    for (at, (name, &ty)) in program.parameter_names(entry).zip(program.params(entry)).enumerate() {
         if let Some(bounds) = startup(name, ty) {
             assumed.parameters.push((at, bounds));
         }
@@ -1691,9 +1607,8 @@ fn handed(
             continue;
         };
         for (at, &field) in program.fields(constructor).iter().enumerate() {
-            if let Some(bounds) = program
-                .field_name(constructor, at)
-                .and_then(|name| startup(name, field))
+            if let Some(bounds) =
+                program.field_name(constructor, at).and_then(|name| startup(name, field))
             {
                 assumed.fields.push((constructor, at, bounds));
             }
@@ -1715,10 +1630,7 @@ fn assume_argument_bytes(
     if let barb::TypeShape::Sequence { element, .. } = barb::type_shape(program, field)
         && let Some(places) = byte_places(program, element)
     {
-        let byte = barb::Bounds {
-            low: 0,
-            high: Some(255),
-        };
+        let byte = barb::Bounds { low: 0, high: Some(255) };
         for (constructor, at) in places {
             assumed.fields.push((constructor, at, byte));
         }
@@ -1733,14 +1645,8 @@ fn startup(
     name: &str,
     ty: barb::TypeId,
 ) -> Option<barb::Bounds> {
-    let natural = matches!(
-        barb::type_shape(program, ty),
-        barb::TypeShape::Natural { .. }
-    );
-    routines
-        .startup(name)
-        .filter(|_| natural)
-        .map(crate::platform::Startup::bounds)
+    let natural = matches!(barb::type_shape(program, ty), barb::TypeShape::Natural { .. });
+    routines.startup(name).filter(|_| natural).map(crate::platform::Startup::bounds)
 }
 
 /// Each leaf's name, for a value of `ty` held as `carried`: the name of the
@@ -1779,11 +1685,7 @@ fn leaf_names(
     let (Carried::Flat(_), barb::TypeShape::Product { constructor }) =
         (carried, barb::type_shape(program, ty))
     else {
-        return if count == 1 {
-            vec![held_as]
-        } else {
-            placed(&held_as)
-        };
+        return if count == 1 { vec![held_as] } else { placed(&held_as) };
     };
     let mut found = Vec::with_capacity(count);
     for at in 0..program.fields(constructor).len() {
@@ -1794,18 +1696,9 @@ fn leaf_names(
         let field = program
             .field_name(constructor, at)
             .map_or_else(|| format!("{held_as}.{at}"), str::to_owned);
-        found.extend(leaf_names(
-            demand,
-            program.fields(constructor)[at],
-            inner,
-            &field,
-        ));
+        found.extend(leaf_names(demand, program.fields(constructor)[at], inner, &field));
     }
-    if found.len() == count {
-        found
-    } else {
-        placed(fallback)
-    }
+    if found.len() == count { found } else { placed(fallback) }
 }
 
 /// Whether a type's values are a run of bytes: a sequence whose element is
@@ -1821,9 +1714,9 @@ fn byte_element(
 ) -> Class {
     peeled(program, id)
         .and_then(|id| match barb::type_shape(program, id) {
-            barb::TypeShape::Sequence {
-                push, recursive, ..
-            } => field_carried(program, facts, carries, push, usize::from(recursive == 0)),
+            barb::TypeShape::Sequence { push, recursive, .. } => {
+                field_carried(program, facts, carries, push, usize::from(recursive == 0))
+            }
             _ => None,
         })
         .and_then(|carried| match carried {
@@ -1863,9 +1756,7 @@ fn argument_bytes(
         .filter(|&strings| {
             peeled(program, strings).is_some_and(|held| carries[held.index()] == Storage::Seq)
         })
-        .map_or(Class::fixed(8), |strings| {
-            byte_element(program, facts, carries, strings)
-        })
+        .map_or(Class::fixed(8), |strings| byte_element(program, facts, carries, strings))
 }
 
 fn byte_shaped(program: &barb::Program, id: barb::TypeId) -> bool {
@@ -1876,10 +1767,7 @@ fn byte_shaped(program: &barb::Program, id: barb::TypeId) -> bool {
         return false;
     };
     peeled(program, element).is_some_and(|element| {
-        matches!(
-            barb::type_shape(program, element),
-            barb::TypeShape::Natural { .. }
-        )
+        matches!(barb::type_shape(program, element), barb::TypeShape::Natural { .. })
     })
 }
 
@@ -1888,23 +1776,16 @@ fn byte_shaped(program: &barb::Program, id: barb::TypeId) -> bool {
 /// A value of a byte type is a byte wherever it was built, so saying so of
 /// every one is saying nothing false.
 fn byte_places(program: &barb::Program, id: barb::TypeId) -> Option<[(barb::CtorId, usize); 2]> {
-    let barb::TypeShape::Sequence {
-        element,
-        push,
-        recursive,
-        ..
-    } = barb::type_shape(program, peeled(program, id)?)
+    let barb::TypeShape::Sequence { element, push, recursive, .. } =
+        barb::type_shape(program, peeled(program, id)?)
     else {
         return None;
     };
     let barb::TypeShape::Wrapper { constructor, field } = barb::type_shape(program, element) else {
         return None;
     };
-    matches!(
-        barb::type_shape(program, peeled(program, field)?),
-        barb::TypeShape::Natural { .. }
-    )
-    .then_some([(constructor, 0), (push, usize::from(recursive == 0))])
+    matches!(barb::type_shape(program, peeled(program, field)?), barb::TypeShape::Natural { .. })
+        .then_some([(constructor, 0), (push, usize::from(recursive == 0))])
 }
 
 /// Read through one-field products. Bounded by the declared types, so a
@@ -1931,11 +1812,7 @@ fn width(held: barb::Bounds) -> Class {
     // another width takes anything off it. The singleton zero needs no
     // value bits and is still a scalar; physical storage and
     // calling-convention slots are target decisions.
-    if held.width().is_some() {
-        Class::Held(held)
-    } else {
-        Class::Natural
-    }
+    if held.width().is_some() { Class::Held(held) } else { Class::Natural }
 }
 
 /// A type with no constructors has no values, so nothing holds one and
@@ -2015,11 +1892,7 @@ impl<T> Answer<T> {
 /// is a program refused rather than a value quietly made to fit -- which is
 /// what [`super::model::Op::Convert`] is for, a program asking.
 fn met(b: &mut super::Builder, arg: ValueId, wanted: Class) -> ValueId {
-    if b.class(arg).fits(wanted) {
-        arg
-    } else {
-        b.convert(wanted, arg)
-    }
+    if b.class(arg).fits(wanted) { arg } else { b.convert(wanted, arg) }
 }
 
 /// Where two arms meet: what they leave with is one place, so it is as wide
@@ -2049,12 +1922,7 @@ fn tag_plan(
     arms: impl Iterator<Item = barb::Arm>,
     mut answer: impl FnMut(barb::Body) -> Answer<Carried>,
 ) -> Vec<TagArm> {
-    let mut planned: Vec<_> = arms
-        .map(|arm| TagArm {
-            suffix: answer(arm.body),
-            arm,
-        })
-        .collect();
+    let mut planned: Vec<_> = arms.map(|arm| TagArm { suffix: answer(arm.body), arm }).collect();
     let mut suffix = Answer::Never;
     for arm in planned.iter_mut().rev() {
         suffix = widest(arm.suffix, suffix);
@@ -2110,14 +1978,12 @@ fn returned(
         (Answer::Value(held), ReturnTo::Entry) => {
             let &[answer] = held.values() else {
                 return Err(
-                    "the entry's result is a product, but its exit status is one word".to_owned(),
+                    "the entry's result is a product, but its exit status is one word".to_owned()
                 );
             };
             if b.class(answer) == Class::Natural {
-                return Err(
-                    "the entry's result is unbounded, but its exit status must fit a word"
-                        .to_owned(),
-                );
+                return Err("the entry's result is unbounded, but its exit status must fit a word"
+                    .to_owned());
             }
             let answer = met(b, answer, Class::Word);
             b.ret(&[answer]);
@@ -2183,9 +2049,7 @@ impl Lowering<'_> {
     /// at different widths, while an aggregate keeps the representation
     /// selected for its source type.
     fn carried(&self, ty: barb::TypeId, bounds: barb::Bounds) -> Carried {
-        self.carries[ty.index()]
-            .held(bounds)
-            .expect("a carried type has a class")
+        self.carries[ty.index()].held(bounds).expect("a carried type has a class")
     }
 
     fn classes<'a>(&'a self, carried: &'a Carried) -> &'a [Class] {
@@ -2194,9 +2058,7 @@ impl Lowering<'_> {
 
     /// What a join carries out, one class per machine value.
     fn join(&self, answer: Answer<Carried>) -> Vec<Class> {
-        answer
-            .held()
-            .map_or_else(Vec::new, |carried| self.classes(&carried).to_vec())
+        answer.held().map_or_else(Vec::new, |carried| self.classes(&carried).to_vec())
     }
 
     fn field_carried(&self, ctor: barb::CtorId, at: usize) -> Option<Carried> {
@@ -2227,9 +2089,7 @@ impl Lowering<'_> {
     /// The shape of each element of a sequence of type `ty`.
     fn sequence_shape(&self, b: &mut super::Builder, ty: barb::TypeId) -> ShapeId {
         let owner = peeled(self.barb, ty).expect("a sequence is not cyclic");
-        let barb::TypeShape::Sequence {
-            push, recursive, ..
-        } = barb::type_shape(self.barb, owner)
+        let barb::TypeShape::Sequence { push, recursive, .. } = barb::type_shape(self.barb, owner)
         else {
             unreachable!("a sequence operation is of a sequence");
         };
@@ -2246,11 +2106,7 @@ impl Lowering<'_> {
     }
 
     fn function(&self, machine: &mut Program, id: barb::FnId) -> Result<(), String> {
-        let body = self
-            .barb
-            .function(id)
-            .body()
-            .expect("a function with a body");
+        let body = self.barb.function(id).body().expect("a function with a body");
         let Callee::Function(into) = self.callees[id.index()] else {
             unreachable!("only machine functions have bodies to lower");
         };
@@ -2274,11 +2130,7 @@ impl Lowering<'_> {
         };
         if tails.is_empty() && held.is_empty() {
             machine.try_define(into, |b, params| {
-                let params = if entry {
-                    self.arguments_made(b, params)
-                } else {
-                    params.to_vec()
-                };
+                let params = if entry { self.arguments_made(b, params) } else { params.to_vec() };
                 let mut locals = self.parameters(b, id, &params);
                 let mut statics = vec![None; locals.len()];
                 let answer = self.body(b, body, &mut locals, &mut statics);
@@ -2327,12 +2179,7 @@ impl Lowering<'_> {
         let built = b.loop_(&[empty, none, none], &SEQUENCE_LEAVES, |b, state| {
             let (held, first, len) = (state[0], state[1], state[2]);
             let done = b.compare(Relation::Equal, len, count);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[held, first, len]),
-                |b| b.yield_(&[]),
-            );
+            b.if_(done, &[], |b| b.break_(&[held, first, len]), |b| b.yield_(&[]));
             let one = b.constant(Class::Word, 1);
             let rest = b.binary(Binary::Sub, count, len);
             let index = b.binary(Binary::Sub, rest, one);
@@ -2546,10 +2393,7 @@ impl Lowering<'_> {
     }
 
     fn goes_round(&self, expr: barb::ExprId) -> bool {
-        self.looping
-            .borrow()
-            .as_ref()
-            .is_some_and(|(_, tails)| tails.contains(&expr))
+        self.looping.borrow().as_ref().is_some_and(|(_, tails)| tails.contains(&expr))
     }
 
     /// The calls of `id` to itself in tail position: a body's tail, and
@@ -2633,10 +2477,7 @@ impl Lowering<'_> {
                     unreachable!("a drop is of a sequence and a count");
                 };
                 match statics[bytes.0.index()] {
-                    Some(Known { value, skip: None }) => Some(Known {
-                        value,
-                        skip: Some(count),
-                    }),
+                    Some(Known { value, skip: None }) => Some(Known { value, skip: Some(count) }),
                     _ => None,
                 }
             }
@@ -2728,10 +2569,7 @@ impl Lowering<'_> {
             Carried::Flat(leaves) => {
                 let mut values = Vec::new();
                 self.static_leaves(b, value, &mut values);
-                Held::Flat {
-                    leaves,
-                    values: values.into(),
-                }
+                Held::Flat { leaves, values: values.into() }
             }
         }
     }
@@ -2822,9 +2660,7 @@ impl Lowering<'_> {
     /// the buffer is nothing else's, so each push writes in place.
     fn static_sequence(&self, b: &mut super::Builder, value: barb::Constant<'_>) -> [ValueId; 3] {
         let owner = peeled(self.barb, value.owner()).expect("a sequence is not cyclic");
-        let barb::TypeShape::Sequence {
-            push, recursive, ..
-        } = barb::type_shape(self.barb, owner)
+        let barb::TypeShape::Sequence { push, recursive, .. } = barb::type_shape(self.barb, owner)
         else {
             unreachable!("a sequence constant has a sequence type");
         };
@@ -2857,10 +2693,8 @@ impl Lowering<'_> {
             let shape = b.shape(&[class]);
             let data = b.data(&bytes);
             let start = b.constant(Class::Word, 0);
-            let len = b.constant(
-                Class::Word,
-                u64::try_from(bytes.len()).expect("a length fits 64 bits"),
-            );
+            let len =
+                b.constant(Class::Word, u64::try_from(bytes.len()).expect("a length fits 64 bits"));
             return [b.buffer_known(data, shape, 1), start, len];
         }
         Self::unrolled_bytes(b, &bytes, element)
@@ -2892,10 +2726,7 @@ impl Lowering<'_> {
         let mut buffer = b.buffer_empty(shape);
         let mut first = b.constant(Class::Word, 0);
         for (len, values) in built.iter().rev().enumerate() {
-            let len = b.constant(
-                Class::Word,
-                u64::try_from(len).expect("a length fits 64 bits"),
-            );
+            let len = b.constant(Class::Word, u64::try_from(len).expect("a length fits 64 bits"));
             [buffer, first] = b.buffer_push((buffer, first, len), shape, values);
         }
         [buffer, first, b.constant(Class::Word, len)]
@@ -2933,9 +2764,7 @@ impl Lowering<'_> {
     ) -> Option<ValueId> {
         let first = elements.first()?;
         if first.is_empty()
-            || !first
-                .iter()
-                .all(|&v| matches!(b.class(v), Class::Held(_) | Class::Natural))
+            || !first.iter().all(|&v| matches!(b.class(v), Class::Held(_) | Class::Natural))
         {
             return None;
         }
@@ -2950,10 +2779,8 @@ impl Lowering<'_> {
         let widest = numbers.iter().copied().max().unwrap_or(0);
         let bytes = u8::try_from((u64::BITS - widest.leading_zeros()).div_ceil(8).max(1))
             .expect("a number of at most eight bytes");
-        let data: Vec<u8> = numbers
-            .iter()
-            .flat_map(|n| n.to_le_bytes()[..usize::from(bytes)].to_vec())
-            .collect();
+        let data: Vec<u8> =
+            numbers.iter().flat_map(|n| n.to_le_bytes()[..usize::from(bytes)].to_vec()).collect();
         let data = b.data(&data);
         Some(b.buffer_known(data, shape, bytes))
     }
@@ -2970,14 +2797,9 @@ impl Lowering<'_> {
         let mut buffer = b.buffer_empty(shape);
         let mut first = b.constant(Class::Word, 0);
         for (len, &byte) in bytes.iter().rev().enumerate() {
-            let len = b.constant(
-                Class::Word,
-                u64::try_from(len).expect("a length fits 64 bits"),
-            );
-            let fields: Vec<_> = element
-                .map(|class| b.constant(class, u64::from(byte)))
-                .into_iter()
-                .collect();
+            let len = b.constant(Class::Word, u64::try_from(len).expect("a length fits 64 bits"));
+            let fields: Vec<_> =
+                element.map(|class| b.constant(class, u64::from(byte))).into_iter().collect();
             [buffer, first] = b.buffer_push((buffer, first, len), shape, &fields);
         }
         [buffer, first, b.constant(Class::Word, len)]
@@ -2997,10 +2819,7 @@ impl Lowering<'_> {
     /// An instruction where the tier below has one, a platform routine where
     /// something outside answers, and a call otherwise. An argument that
     /// carries nothing is not passed.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one dispatch over every kind of callee"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one dispatch over every kind of callee")]
     fn call(
         &self,
         b: &mut super::Builder,
@@ -3107,20 +2926,12 @@ impl Lowering<'_> {
                 let reversed = *operation == barb::SequenceOperation::ReverseOnto;
                 return Answer::Value(self.prepended(b, (function, arguments), locals, reversed));
             }
-            Callee::External {
-                id,
-                routine,
-                handed,
-            } => {
+            Callee::External { id, routine, handed } => {
                 let asked = (*routine, handed.as_slice());
                 let args = self.outside_arguments(b, function, arguments, locals, statics, asked);
                 (b.call(*id, &args), routine.answers())
             }
-            Callee::Built {
-                routine,
-                built,
-                primitive,
-            } => {
+            Callee::Built { routine, built, primitive } => {
                 let asked = (function, arguments);
                 let results = self.built(b, asked, locals, statics, (routine, built, *primitive));
                 (results, None)
@@ -3196,10 +3007,8 @@ impl Lowering<'_> {
         let sequence = self.barb.params(function)[0];
         let shape = self.sequence_shape(b, sequence);
         let held = |atom: barb::Atom| {
-            let values = locals[atom.0.index()]
-                .as_ref()
-                .expect("a prepended sequence is carried")
-                .values();
+            let values =
+                locals[atom.0.index()].as_ref().expect("a prepended sequence is carried").values();
             (values[0], values[1], values[2])
         };
         let (from, onto) = (held(from), held(onto));
@@ -3209,10 +3018,7 @@ impl Lowering<'_> {
             b.buffer_extend(from, onto, shape)
         };
         let len = b.binary_at(Class::Word, Binary::Add, onto.2, from.2);
-        Held::Flat {
-            leaves: sequence_run(),
-            values: [buffer, first, len].as_slice().into(),
-        }
+        Held::Flat { leaves: sequence_run(), values: [buffer, first, len].as_slice().into() }
     }
 
     /// A sequence without as many of its first elements as a count says:
@@ -3221,18 +3027,13 @@ impl Lowering<'_> {
         let &[sequence, count] = self.barb.atoms(arguments) else {
             unreachable!("a drop is of a sequence and a count");
         };
-        let values = locals[sequence.0.index()]
-            .as_ref()
-            .expect("a dropped sequence is carried")
-            .values();
+        let values =
+            locals[sequence.0.index()].as_ref().expect("a dropped sequence is carried").values();
         let (buffer, first, len) = (values[0], values[1], values[2]);
         let skipped = Self::skipped(b, Self::scalar(locals, count), (len, None));
         let later = b.binary(Binary::Add, first, skipped);
         let rest = b.binary_at(Class::Word, Binary::Sub, len, skipped);
-        Held::Flat {
-            leaves: sequence_run(),
-            values: [buffer, later, rest].as_slice().into(),
-        }
+        Held::Flat { leaves: sequence_run(), values: [buffer, later, rest].as_slice().into() }
     }
 
     /// A sequence's first elements: the same buffer from the same start,
@@ -3241,16 +3042,11 @@ impl Lowering<'_> {
         let &[sequence, count] = self.barb.atoms(arguments) else {
             unreachable!("a take is of a sequence and a count");
         };
-        let values = locals[sequence.0.index()]
-            .as_ref()
-            .expect("a taken sequence is carried")
-            .values();
+        let values =
+            locals[sequence.0.index()].as_ref().expect("a taken sequence is carried").values();
         let (buffer, first, len) = (values[0], values[1], values[2]);
         let kept = Self::skipped(b, Self::scalar(locals, count), (len, None));
-        Held::Flat {
-            leaves: sequence_run(),
-            values: [buffer, first, kept].as_slice().into(),
-        }
+        Held::Flat { leaves: sequence_run(), values: [buffer, first, kept].as_slice().into() }
     }
 
     /// A sequence followed by one more element: written after its last,
@@ -3264,16 +3060,13 @@ impl Lowering<'_> {
         let &[sequence, value] = self.barb.atoms(arguments) else {
             unreachable!("an append is of a sequence and an element");
         };
-        let barb::TypeShape::Sequence {
-            push, recursive, ..
-        } = barb::type_shape(self.barb, self.barb.params(function)[0])
+        let barb::TypeShape::Sequence { push, recursive, .. } =
+            barb::type_shape(self.barb, self.barb.params(function)[0])
         else {
             unreachable!("an append is to a sequence");
         };
-        let &[buffer, first, len] = locals[sequence.0.index()]
-            .as_ref()
-            .expect("an appended sequence is carried")
-            .values()
+        let &[buffer, first, len] =
+            locals[sequence.0.index()].as_ref().expect("an appended sequence is carried").values()
         else {
             unreachable!("a sequence is held as its buffer, start and length");
         };
@@ -3283,10 +3076,7 @@ impl Lowering<'_> {
         let [written, start] = b.buffer_append((buffer, first, len), shape, &fields);
         let one = b.constant(Class::Word, 1);
         let longer = b.binary_at(Class::Word, Binary::Add, len, one);
-        Held::Flat {
-            leaves: sequence_run(),
-            values: [written, start, longer].as_slice().into(),
-        }
+        Held::Flat { leaves: sequence_run(), values: [written, start, longer].as_slice().into() }
     }
 
     /// A sequence with the element a count reaches replaced by a value: the
@@ -3301,16 +3091,13 @@ impl Lowering<'_> {
         let &[sequence, count, value] = self.barb.atoms(arguments) else {
             unreachable!("a replacement is of a sequence, a count and a value");
         };
-        let barb::TypeShape::Sequence {
-            push, recursive, ..
-        } = barb::type_shape(self.barb, self.barb.params(function)[0])
+        let barb::TypeShape::Sequence { push, recursive, .. } =
+            barb::type_shape(self.barb, self.barb.params(function)[0])
         else {
             unreachable!("a replacement is of a sequence");
         };
-        let &[buffer, first, len] = locals[sequence.0.index()]
-            .as_ref()
-            .expect("a replaced sequence is carried")
-            .values()
+        let &[buffer, first, len] =
+            locals[sequence.0.index()].as_ref().expect("a replaced sequence is carried").values()
         else {
             unreachable!("a sequence is held as its buffer, start and length");
         };
@@ -3357,12 +3144,8 @@ impl Lowering<'_> {
         let class = super::arithmetic::widest(b.class(count), Class::Word);
         let (wide_count, wide_len) = (met(b, count, class), met(b, len, class));
         let more = b.compare(Relation::Less, wide_len, wide_count);
-        let skipped = b.if_(
-            more,
-            &[class],
-            |b| b.yield_(&[wide_len]),
-            |b| b.yield_(&[wide_count]),
-        )[0];
+        let skipped =
+            b.if_(more, &[class], |b| b.yield_(&[wide_len]), |b| b.yield_(&[wide_count]))[0];
         met(b, skipped, Class::Word)
     }
 
@@ -3389,20 +3172,13 @@ impl Lowering<'_> {
                 b.binary(Binary::Sub, total, skipped)
             })
         } else {
-            locals[sequence.0.index()]
-                .as_ref()
-                .expect("a counted sequence is carried")
-                .values()[2]
+            locals[sequence.0.index()].as_ref().expect("a counted sequence is carried").values()[2]
         };
         // A length is held in a word, which is what the tier above was told
         // a length can be; only a class with no greatest number needs it
         // converted.
         let class = self.width(expr);
-        if class == Class::Natural {
-            b.convert(class, len)
-        } else {
-            len
-        }
+        if class == Class::Natural { b.convert(class, len) } else { len }
     }
 
     /// What a call answers: what its result type does, which is nothing
@@ -3450,9 +3226,8 @@ impl Lowering<'_> {
             .zip(&self.takes[function.index()])
             .filter(|((_, ty), used)| **used && self.carries[ty.index()].carried())
         {
-            let held = locals[atom.0.index()]
-                .as_ref()
-                .expect("a demanded call argument to carry a value");
+            let held =
+                locals[atom.0.index()].as_ref().expect("a demanded call argument to carry a value");
             values.extend_from_slice(held.values());
         }
         values
@@ -3460,10 +3235,7 @@ impl Lowering<'_> {
 
     /// The one value a scalar local is held in.
     fn scalar(locals: &Locals, atom: barb::Atom) -> ValueId {
-        locals[atom.0.index()]
-            .as_ref()
-            .expect("a scalar local to carry a value")
-            .one()
+        locals[atom.0.index()].as_ref().expect("a scalar local to carry a value").one()
     }
 
     /// Materialize a target-independent affine summary as machine arithmetic.
@@ -3501,11 +3273,7 @@ impl Lowering<'_> {
                 super::arithmetic::lower(b, barb::Operation::Add, class, held, constant)
             }));
         }
-        met(
-            b,
-            answer.expect("an affine form has a term or constant"),
-            class,
-        )
+        met(b, answer.expect("an affine form has a term or constant"), class)
     }
 
     /// The machine values a call to something outside hands over.
@@ -3601,10 +3369,7 @@ impl Lowering<'_> {
                 Self::filled(
                     b,
                     primitive,
-                    (
-                        Self::scalar(locals, descriptor),
-                        Self::scalar(locals, count),
-                    ),
+                    (Self::scalar(locals, descriptor), Self::scalar(locals, count)),
                     bytes,
                 )
                 .to_vec()
@@ -3661,9 +3426,7 @@ impl Lowering<'_> {
             });
             return (run, None);
         }
-        let held = locals[atom.0.index()]
-            .as_ref()
-            .expect("a string handed out is carried");
+        let held = locals[atom.0.index()].as_ref().expect("a string handed out is carried");
         let [buffer, first, len] = held.values() else {
             unreachable!("a byte string is held as a sequence");
         };
@@ -3723,12 +3486,7 @@ impl Lowering<'_> {
         let built = b.loop_(&[empty, none, none], &SEQUENCE_LEAVES, |b, state| {
             let (held, first, len) = (state[0], state[1], state[2]);
             let done = b.compare(Relation::Equal, len, total);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[held, first, len]),
-                |b| b.yield_(&[]),
-            );
+            b.if_(done, &[], |b| b.break_(&[held, first, len]), |b| b.yield_(&[]));
             let one = b.constant(Class::Word, 1);
             let rest = b.binary(Binary::Sub, total, len);
             let at = b.binary(Binary::Sub, rest, one);
@@ -3754,9 +3512,7 @@ impl Lowering<'_> {
         let barb::ConstantView::Spine(string) = value.view() else {
             unreachable!("a byte string is spine encoded");
         };
-        string
-            .to_bytes()
-            .expect("a byte string's elements are byte-wide naturals")
+        string.to_bytes().expect("a byte string's elements are byte-wide naturals")
     }
 
     fn operation(
@@ -3825,9 +3581,7 @@ impl Lowering<'_> {
         if barb::single_field(self.barb, owner).is_some() {
             let atom = self.barb.atoms(args)[0];
             return Some(
-                locals[atom.0.index()]
-                    .clone()
-                    .expect("a transparent field to carry a value"),
+                locals[atom.0.index()].clone().expect("a transparent field to carry a value"),
             );
         }
         if self.carries[owner.index()] == Storage::Seq {
@@ -3842,10 +3596,7 @@ impl Lowering<'_> {
             Carried::Flat(leaves) => {
                 let mut values = Vec::new();
                 self.field_values(b, ctor, args, locals, &mut values);
-                return Some(Held::Flat {
-                    leaves,
-                    values: values.into(),
-                });
+                return Some(Held::Flat { leaves, values: values.into() });
             }
             Carried::One(class) => class,
         };
@@ -3901,10 +3652,7 @@ impl Lowering<'_> {
                 })
             })
             .collect();
-        Held::Flat {
-            leaves: run,
-            values: values.into(),
-        }
+        Held::Flat { leaves: run, values: values.into() }
     }
 
     /// Where in a tagged union's run each leaf of `ctor`'s fields is held,
@@ -3944,12 +3692,8 @@ impl Lowering<'_> {
         locals: &Locals,
     ) -> Held {
         let owner = self.barb.ctor(ctor).owner;
-        let barb::TypeShape::Sequence {
-            empty,
-            push,
-            recursive,
-            ..
-        } = barb::type_shape(self.barb, owner)
+        let barb::TypeShape::Sequence { empty, push, recursive, .. } =
+            barb::type_shape(self.barb, owner)
         else {
             unreachable!("a sequence's constructor belongs to a sequence");
         };
@@ -3960,10 +3704,7 @@ impl Lowering<'_> {
         } else {
             self.pushed(b, (ctor, recursive), args, locals)
         };
-        Held::Flat {
-            leaves: sequence_run(),
-            values: values.as_slice().into(),
-        }
+        Held::Flat { leaves: sequence_run(), values: values.as_slice().into() }
     }
 
     /// A sequence of `ctor`, which pushes its element before its rest,
@@ -3977,9 +3718,8 @@ impl Lowering<'_> {
         locals: &Locals,
     ) -> [ValueId; 3] {
         let atoms = self.barb.atoms(args);
-        let rest = locals[atoms[recursive].0.index()]
-            .as_ref()
-            .expect("a sequence's rest is carried");
+        let rest =
+            locals[atoms[recursive].0.index()].as_ref().expect("a sequence's rest is carried");
         let &[buffer, first, len] = rest.values() else {
             unreachable!("a sequence is held as its buffer, start and length");
         };
@@ -3988,11 +3728,7 @@ impl Lowering<'_> {
         let shape = self.element_shape(b, ctor, element);
         let [pushed, earlier] = b.buffer_push((buffer, first, len), shape, &fields);
         let one = b.constant(Class::Word, 1);
-        [
-            pushed,
-            earlier,
-            b.binary_at(Class::Word, Binary::Add, len, one),
-        ]
+        [pushed, earlier, b.binary_at(Class::Word, Binary::Add, len, one)]
     }
 
     /// The leaves of `value`, an element of a sequence pushed by `ctor` as
@@ -4008,9 +3744,7 @@ impl Lowering<'_> {
         let Some(carried) = self.field_carried(ctor, element) else {
             return Vec::new();
         };
-        let held = locals[value.0.index()]
-            .as_ref()
-            .expect("a carried element carries a value");
+        let held = locals[value.0.index()].as_ref().expect("a carried element carries a value");
         held.values()
             .iter()
             .zip(self.classes(&carried))
@@ -4053,9 +3787,7 @@ impl Lowering<'_> {
             let Some(carried) = carried else {
                 continue;
             };
-            let held = locals[atom.0.index()]
-                .as_ref()
-                .expect("a carried field to carry a value");
+            let held = locals[atom.0.index()].as_ref().expect("a carried field to carry a value");
             for (&value, &class) in held.values().iter().zip(self.classes(&carried)) {
                 out.push(met(b, value, class));
             }
@@ -4089,10 +3821,7 @@ impl Lowering<'_> {
         if self.carries[owner.index()] == Storage::Seq {
             return self.sequence_branch(b, scrutinee, [first, second], locals, statics);
         }
-        let held_apart = matches!(
-            self.carries[owner.index()],
-            Storage::Cell | Storage::Tagged(_)
-        );
+        let held_apart = matches!(self.carries[owner.index()], Storage::Cell | Storage::Tagged(_));
         if held_apart {
             let planned = {
                 let mut carried: Vec<_> = locals
@@ -4134,18 +3863,13 @@ impl Lowering<'_> {
         // one the constant codec asks, which answers about encodings.
         if let barb::TypeShape::Natural { empty: nil, .. } = barb::type_shape(self.barb, owner) {
             // A number has exactly these two arms, whatever their tags.
-            let (empty, counted) = if first.ctor == nil {
-                (first, second)
-            } else {
-                (second, first)
-            };
+            let (empty, counted) =
+                if first.ctor == nil { (first, second) } else { (second, first) };
             return self.natural_branch(b, scrutinee, &empty, &counted, locals, statics);
         }
         let arms = {
-            let mut carried = locals
-                .iter()
-                .map(|value| value.as_ref().map(|value| value.carried(b)))
-                .collect();
+            let mut carried =
+                locals.iter().map(|value| value.as_ref().map(|value| value.carried(b))).collect();
             tag_plan([first, second].into_iter().chain(arms), |body| {
                 self.body_answer(body, &mut carried)
             })
@@ -4165,10 +3889,8 @@ impl Lowering<'_> {
         statics: &[Option<Known>],
     ) -> Answer<Held> {
         let answer = {
-            let mut carried: Vec<_> = locals
-                .iter()
-                .map(|value| value.as_ref().map(|value| value.carried(b)))
-                .collect();
+            let mut carried: Vec<_> =
+                locals.iter().map(|value| value.as_ref().map(|value| value.carried(b))).collect();
             let base = carried.len();
             let mut answer = Answer::Never;
             for arm in arms {
@@ -4182,11 +3904,8 @@ impl Lowering<'_> {
         let barb::TypeShape::Sequence { empty, .. } = barb::type_shape(self.barb, owner) else {
             unreachable!("a sequence's arms belong to a sequence");
         };
-        let (nil, step) = if arms[0].ctor == empty {
-            (arms[0], arms[1])
-        } else {
-            (arms[1], arms[0])
-        };
+        let (nil, step) =
+            if arms[0].ctor == empty { (arms[0], arms[1]) } else { (arms[1], arms[0]) };
         let join = self.join(answer);
         let len = scrutinee.values()[2];
         let nought = b.constant(Class::Word, 0);
@@ -4221,10 +3940,8 @@ impl Lowering<'_> {
         // The counting arm binds what the scrutinee wraps, which holds what
         // the scrutinee holds.
         let answer = {
-            let mut carried = locals
-                .iter()
-                .map(|value| value.as_ref().map(|value| value.carried(b)))
-                .collect();
+            let mut carried =
+                locals.iter().map(|value| value.as_ref().map(|value| value.carried(b))).collect();
             let answer = self.body_answer(empty.body, &mut carried);
             carried.push(Some(Carried::One(class)));
             widest(answer, self.body_answer(counted.body, &mut carried))
@@ -4301,10 +4018,7 @@ impl Lowering<'_> {
             for carried in self.fields_carried(arm.ctor) {
                 inner.push(None);
                 inner_statics.push(None);
-                debug_assert!(
-                    carried.is_none(),
-                    "a carried field belongs to a carried type"
-                );
+                debug_assert!(carried.is_none(), "a carried field belongs to a carried type");
             }
         }
         self.body(b, arm.body, &mut inner, &mut inner_statics)
@@ -4447,13 +4161,7 @@ impl Lowering<'_> {
         locals: &Locals,
         statics: &[Option<Known>],
     ) -> Answer<Held> {
-        let (
-            TagArm {
-                arm,
-                suffix: answer,
-            },
-            rest,
-        ) = arms.split_first().expect("an arm to match");
+        let (TagArm { arm, suffix: answer }, rest) = arms.split_first().expect("an arm to match");
         if rest.is_empty() {
             let mut inner = locals.to_vec();
             let mut inner_statics = statics.to_vec();
@@ -4490,13 +4198,7 @@ impl Lowering<'_> {
         locals: &Locals,
         statics: &[Option<Known>],
     ) -> Answer<Held> {
-        let (
-            TagArm {
-                arm,
-                suffix: answer,
-            },
-            rest,
-        ) = arms.split_first().expect("an arm to match");
+        let (TagArm { arm, suffix: answer }, rest) = arms.split_first().expect("an arm to match");
         if rest.is_empty() {
             return self.only_arm(b, Some(held), arm, locals, statics);
         }
@@ -4548,13 +4250,11 @@ impl Lowering<'_> {
         match self.barb.expr(expr) {
             barb::Expr::Static(value) => {
                 let ty = self.barb.constant(value).owner();
-                self.answer(ty)
-                    .map(|()| self.carried(ty, self.facts.held(expr)))
+                self.answer(ty).map(|()| self.carried(ty, self.facts.held(expr)))
             }
             barb::Expr::Con(ctor, _) => {
                 let ty = self.barb.ctor(ctor).owner;
-                self.answer(ty)
-                    .map(|()| self.carried(ty, self.facts.held(expr)))
+                self.answer(ty).map(|()| self.carried(ty, self.facts.held(expr)))
             }
             // A call of itself in tail position goes round again rather
             // than answering here.
@@ -4567,8 +4267,7 @@ impl Lowering<'_> {
             }
             barb::Expr::Call(function, _) => {
                 let ty = self.barb.function(function).result;
-                self.answer(ty)
-                    .map(|()| self.carried(ty, self.facts.held(expr)))
+                self.answer(ty).map(|()| self.carried(ty, self.facts.held(expr)))
             }
             barb::Expr::Match(_, arms) => {
                 let base = carried.len();

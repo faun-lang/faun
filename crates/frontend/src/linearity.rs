@@ -88,11 +88,7 @@ fn settle(facts: &Facts<'_>) -> Vec<Vec<Contract>> {
             .into_iter()
             .zip(&contracts)
             .map(|(learned, known)| {
-                learned
-                    .into_iter()
-                    .zip(known)
-                    .map(|(learned, known)| known.and(learned))
-                    .collect()
+                learned.into_iter().zip(known).map(|(learned, known)| known.and(learned)).collect()
             })
             .collect();
         if learned == contracts {
@@ -258,12 +254,7 @@ impl<'a> Facts<'a> {
         (0..self.program.functions.len())
             .map(|at| {
                 let function = &self.program.functions[at];
-                let takes_any = function
-                    .key
-                    .signature
-                    .parameters
-                    .iter()
-                    .any(|p| self.carries(p));
+                let takes_any = function.key.signature.parameters.iter().any(|p| self.carries(p));
                 if matches!(function.definition, d::Definition::External(_)) || !takes_any {
                     known[at].clone()
                 } else {
@@ -320,13 +311,9 @@ impl<'a> Facts<'a> {
         let partly = paths.iter().find(|path| path.partly.contains(&parameter));
         let paths = partly.map_or(paths, std::slice::from_ref);
         let taken = paths.iter().find_map(|path| {
-            path.taken
-                .iter()
-                .find_map(|(at, place)| place.filter(|_| *at == parameter))
+            path.taken.iter().find_map(|(at, place)| place.filter(|_| *at == parameter))
         });
-        let kept = paths
-            .iter()
-            .find_map(|path| path.kept.contains(&parameter).then_some(path.end));
+        let kept = paths.iter().find_map(|path| path.kept.contains(&parameter).then_some(path.end));
         let name = self.name(function);
         let resource = self.program.functions[function]
             .key
@@ -335,11 +322,8 @@ impl<'a> Facts<'a> {
             .get(parameter)
             .and_then(|ty| self.resource_in(ty));
         let resource = self.called(resource, "resource");
-        let label = if taken.is_some() {
-            "used up here".to_owned()
-        } else {
-            "held here".to_owned()
-        };
+        let label =
+            if taken.is_some() { "used up here".to_owned() } else { "held here".to_owned() };
         let (message, help) = disagreeing(name, &resource, parameter, partly.is_some());
         Refusal {
             at: taken.or_else(|| kept.map(|(at, _)| at)),
@@ -428,10 +412,9 @@ impl<'a> Facts<'a> {
     /// elements and the rest of it.
     fn parts<'p>(&self, pattern: &'p Pattern, ty: &Type) -> Vec<(&'p Pattern, Type)> {
         match (pattern, ty) {
-            (Pattern::Constructor(constructor, patterns), _) => patterns
-                .iter()
-                .zip(self.fields(*constructor, ty).unwrap_or_default())
-                .collect(),
+            (Pattern::Constructor(constructor, patterns), _) => {
+                patterns.iter().zip(self.fields(*constructor, ty).unwrap_or_default()).collect()
+            }
             (Pattern::Product(patterns), Type::Tuple(members)) => {
                 patterns.iter().zip(members.iter().cloned()).collect()
             }
@@ -447,10 +430,7 @@ impl<'a> Facts<'a> {
                 let element = arguments.first().cloned();
                 std::iter::once((&split.front, ty.clone()))
                     .chain(
-                        split
-                            .last
-                            .iter()
-                            .filter_map(|pattern| Some((pattern, element.clone()?))),
+                        split.last.iter().filter_map(|pattern| Some((pattern, element.clone()?))),
                     )
                     .collect()
             }
@@ -478,9 +458,7 @@ impl<'a> Facts<'a> {
     /// resource.
     fn others_carry(&self, ty: &Type, field: Symbol) -> bool {
         self.record_fields(ty).is_some_and(|fields| {
-            fields
-                .iter()
-                .any(|(each, ty)| *each != field && self.carries(ty))
+            fields.iter().any(|(each, ty)| *each != field && self.carries(ty))
         })
     }
 
@@ -505,19 +483,14 @@ impl<'a> Facts<'a> {
     /// The fields of `constructor`, of type `ty`, at that type's arguments.
     fn fields(&self, constructor: Symbol, ty: &Type) -> Option<Vec<Type>> {
         match ty {
-            Type::Variants(tags) => tags
-                .iter()
-                .find(|(tag, _)| *tag == constructor)
-                .map(|(_, fields)| fields.clone()),
+            Type::Variants(tags) => {
+                tags.iter().find(|(tag, _)| *tag == constructor).map(|(_, fields)| fields.clone())
+            }
             Type::Named(name, arguments) => {
                 let (owner, fields) = self.constructors.get(&constructor)?;
                 let data = self.program.data.get(name).filter(|_| owner == name)?;
-                let variables: HashMap<_, _> = data
-                    .parameters
-                    .iter()
-                    .copied()
-                    .zip(arguments.iter().cloned())
-                    .collect();
+                let variables: HashMap<_, _> =
+                    data.parameters.iter().copied().zip(arguments.iter().cloned()).collect();
                 fields
                     .iter()
                     .map(|field| surface_type(field, &variables, &self.cx.symbols).ok())
@@ -654,11 +627,7 @@ struct Outcome {
 impl Outcome {
     /// A condition holding no test, alike either way.
     fn alike(states: Vec<State>) -> Self {
-        Self {
-            holds: states.clone(),
-            fails: states,
-            apart: Apart::default(),
-        }
+        Self { holds: states.clone(), fails: states, apart: Apart::default() }
     }
 }
 
@@ -801,10 +770,7 @@ impl<'f, 'a> Walk<'f, 'a> {
 
     fn body(&mut self, body: &d::Body) {
         let answer = self.block(body);
-        self.end(
-            &answer,
-            (place(answering(&body.result)), Leaving::Answering),
-        );
+        self.end(&answer, (place(answering(&body.result)), Leaving::Answering));
     }
 
     /// Bind what a pattern names of a value holding `origins`. A part it
@@ -863,10 +829,7 @@ impl<'f, 'a> Walk<'f, 'a> {
             }
         }
         let named = |each: &Symbol| patterns.iter().any(|(name, _)| name == each);
-        if fields
-            .iter()
-            .any(|(name, field)| !named(name) && self.facts.carries(field))
-        {
+        if fields.iter().any(|(name, field)| !named(name) && self.facts.carries(field)) {
             self.hold(origins);
         }
     }
@@ -881,10 +844,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// [`Self::named`], within the records `within` holds: a record found
     /// inside itself, which no value is, is held whole there.
     fn named_within(&mut self, origins: &[Origin], ty: &Type, within: &mut Vec<Type>) -> usize {
-        self.held.push(Held {
-            origins: origins.to_vec(),
-            state: State::Held,
-        });
+        self.held.push(Held { origins: origins.to_vec(), state: State::Held });
         let held = self.held.len() - 1;
         if within.contains(ty) {
             return held;
@@ -892,10 +852,8 @@ impl<'f, 'a> Walk<'f, 'a> {
         let Some(fields) = self.facts.record_fields(ty) else {
             return held;
         };
-        let fields: Vec<(Symbol, Type)> = fields
-            .into_iter()
-            .filter(|(_, field)| self.facts.carries(field))
-            .collect();
+        let fields: Vec<(Symbol, Type)> =
+            fields.into_iter().filter(|(_, field)| self.facts.carries(field)).collect();
         if fields.is_empty() {
             return held;
         }
@@ -915,12 +873,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     fn leaves(&self, held: usize) -> Vec<usize> {
         self.fields.get(&held).map_or_else(
             || vec![held],
-            |fields| {
-                fields
-                    .iter()
-                    .flat_map(|(_, field)| self.leaves(*field))
-                    .collect()
-            },
+            |fields| fields.iter().flat_map(|(_, field)| self.leaves(*field)).collect(),
         )
     }
 
@@ -928,10 +881,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// it was made here.
     fn hold(&mut self, origins: &[Origin]) {
         if !origins.is_empty() {
-            self.held.push(Held {
-                origins: origins.to_vec(),
-                state: State::Held,
-            });
+            self.held.push(Held { origins: origins.to_vec(), state: State::Held });
         }
     }
 
@@ -950,10 +900,8 @@ impl<'f, 'a> Walk<'f, 'a> {
             ExprKind::Construct(_, fields) | ExprKind::Tuple(fields) => {
                 let mut origins = self.values(fields.iter());
                 if self.facts.is_resource(&expr.ty) {
-                    let made = Made {
-                        resource: self.facts.resource_in(&expr.ty),
-                        by: Maker::Built,
-                    };
+                    let made =
+                        Made { resource: self.facts.resource_in(&expr.ty), by: Maker::Built };
                     origins.push(Origin::Made(place(expr), made));
                 }
                 origins
@@ -1038,10 +986,7 @@ impl<'f, 'a> Walk<'f, 'a> {
         let ExprKind::Record(fields) = &expr.kind else {
             return None;
         };
-        if !fields
-            .iter()
-            .any(|(_, field)| self.facts.carries(&field.ty))
-        {
+        if !fields.iter().any(|(_, field)| self.facts.carries(&field.ty)) {
             return None;
         }
         let mut parts = Vec::new();
@@ -1063,10 +1008,7 @@ impl<'f, 'a> Walk<'f, 'a> {
             }
             parts.push((*name, held));
         }
-        self.held.push(Held {
-            origins,
-            state: State::Empty,
-        });
+        self.held.push(Held { origins, state: State::Empty });
         let held = self.held.len() - 1;
         self.fields.insert(held, parts);
         Some(held)
@@ -1077,27 +1019,21 @@ impl<'f, 'a> Walk<'f, 'a> {
         if origins.is_empty() {
             return None;
         }
-        self.held.push(Held {
-            origins,
-            state: State::Held,
-        });
+        self.held.push(Held { origins, state: State::Held });
         Some(self.held.len() - 1)
     }
 
     /// The resource type what is held at `held` holds, as its origins say.
     fn resource_of(&self, held: usize) -> Option<Symbol> {
-        self.held[held]
-            .origins
-            .iter()
-            .find_map(|origin| match origin {
-                Origin::Made(_, made) => made.resource,
-                Origin::Parameter(parameter) => self.facts.program.functions[self.function]
-                    .key
-                    .signature
-                    .parameters
-                    .get(*parameter)
-                    .and_then(|ty| self.facts.resource_in(ty)),
-            })
+        self.held[held].origins.iter().find_map(|origin| match origin {
+            Origin::Made(_, made) => made.resource,
+            Origin::Parameter(parameter) => self.facts.program.functions[self.function]
+                .key
+                .signature
+                .parameters
+                .get(*parameter)
+                .and_then(|ty| self.facts.resource_in(ty)),
+        })
     }
 
     /// A condition worked out: what is held where it holds, which a test
@@ -1128,11 +1064,7 @@ impl<'f, 'a> Walk<'f, 'a> {
         // right side may use nothing up.
         let through = left.apart.undone(right.fails);
         let fails = self.met(condition, self.extended(left.fails), &through);
-        Outcome {
-            holds: right.holds,
-            fails,
-            apart: left.apart.and(right.apart),
-        }
+        Outcome { holds: right.holds, fails, apart: left.apart.and(right.apart) }
     }
 
     /// `left | right`: the right worked out where the left fails.
@@ -1155,11 +1087,7 @@ impl<'f, 'a> Walk<'f, 'a> {
                 }
             }
         }
-        Outcome {
-            holds,
-            fails: right.fails,
-            apart: left.apart.and(right.apart),
-        }
+        Outcome { holds, fails: right.fails, apart: left.apart.and(right.apart) }
     }
 
     /// A test, `value is pattern`, its rows each a choice of the pattern's
@@ -1188,11 +1116,7 @@ impl<'f, 'a> Walk<'f, 'a> {
         }
         let patterns: Vec<&Pattern> = rows.iter().map(|(pattern, _)| pattern).collect();
         let apart = self.matched(whole, value, &patterns);
-        Outcome {
-            holds: self.states(),
-            fails: self.extended(fails),
-            apart,
-        }
+        Outcome { holds: self.states(), fails: self.extended(fails), apart }
     }
 
     /// What a test or arms look at, held: the held thing a local names, or
@@ -1219,10 +1143,7 @@ impl<'f, 'a> Walk<'f, 'a> {
         let start = self.held.len();
         let mut took = Vec::new();
         let leaves = self.leaves(whole);
-        if leaves
-            .iter()
-            .all(|leaf| self.held[*leaf].state == State::Held)
-        {
+        if leaves.iter().all(|leaf| self.held[*leaf].state == State::Held) {
             if let Some(pattern) = patterns.iter().find(|p| self.names_resource(p, ty)) {
                 for leaf in leaves {
                     took.push((leaf, State::Held));
@@ -1243,11 +1164,7 @@ impl<'f, 'a> Walk<'f, 'a> {
             .filter(|(_, held)| **held >= start)
             .map(|(local, held)| (*local, *held))
             .collect();
-        Apart {
-            took,
-            parts: (start..self.held.len()).collect(),
-            bound,
-        }
+        Apart { took, parts: (start..self.held.len()).collect(), bound }
     }
 
     /// Whether `pattern` binds a name to a part of a value of `ty` that
@@ -1380,12 +1297,7 @@ impl<'f, 'a> Walk<'f, 'a> {
             // rows bind the same names, so what the first's guard takes
             // apart every row's does: it is worked out as a condition, and
             // the others looked at.
-            for guard in arm
-                .rows
-                .iter()
-                .skip(1)
-                .filter_map(|(_, guard)| guard.as_ref())
-            {
+            for guard in arm.rows.iter().skip(1).filter_map(|(_, guard)| guard.as_ref()) {
                 self.lend(guard);
             }
             if let Some(whole) = whole {
@@ -1475,12 +1387,8 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// A call: each argument lent or taken as the callee does, and what it
     /// answers made here, where it holds a resource.
     fn call(&mut self, expr: &d::Expr, callee: &FunctionKey, arguments: &[d::Expr]) -> Vec<Origin> {
-        let contracts = self
-            .facts
-            .functions
-            .get(callee)
-            .map(|&at| self.known[at].clone())
-            .unwrap_or_default();
+        let contracts =
+            self.facts.functions.get(callee).map(|&at| self.known[at].clone()).unwrap_or_default();
         let contract = |at: usize| contracts.get(at).copied().unwrap_or(Contract::Lent);
         // What each argument works out first, then what looks at a local,
         // then what takes one: all of it happens before the call does.
@@ -1492,10 +1400,8 @@ impl<'f, 'a> Walk<'f, 'a> {
         }
         self.hand_locals(arguments, contract);
         if self.facts.carries(&expr.ty) {
-            let made = Made {
-                resource: self.facts.resource_in(&expr.ty),
-                by: Maker::Call(callee.name),
-            };
+            let made =
+                Made { resource: self.facts.resource_in(&expr.ty), by: Maker::Call(callee.name) };
             vec![Origin::Made(place(expr), made)]
         } else {
             Vec::new()
@@ -1564,19 +1470,13 @@ impl<'f, 'a> Walk<'f, 'a> {
                 help: Some("use it up in the clause's body".to_owned()),
             });
         }
-        self.held.push(Held {
-            origins: origins.to_vec(),
-            state: State::Gone(at),
-        });
+        self.held.push(Held { origins: origins.to_vec(), state: State::Gone(at) });
     }
 
     /// Resources handed to a function nothing is known of yet.
     fn handed_on(&mut self, origins: &[Origin]) {
         if !origins.is_empty() {
-            self.held.push(Held {
-                origins: origins.to_vec(),
-                state: State::Unknown,
-            });
+            self.held.push(Held { origins: origins.to_vec(), state: State::Unknown });
         }
     }
 
@@ -1596,13 +1496,10 @@ impl<'f, 'a> Walk<'f, 'a> {
         let Some(held) = self.local(expr) else {
             return;
         };
-        let gone = self
-            .leaves(held)
-            .into_iter()
-            .find_map(|leaf| match self.held[leaf].state {
-                State::Gone(gone) => Some(gone),
-                _ => None,
-            });
+        let gone = self.leaves(held).into_iter().find_map(|leaf| match self.held[leaf].state {
+            State::Gone(gone) => Some(gone),
+            _ => None,
+        });
         if let Some(gone) = gone {
             let refusal = self.used_twice(expr, gone);
             self.refused.push(refusal);
@@ -1641,12 +1538,8 @@ impl<'f, 'a> Walk<'f, 'a> {
 
     /// A resource used again at `expr`, which was used up at `gone`.
     fn used_twice(&self, expr: &d::Expr, gone: Place) -> Refusal {
-        let resource = self
-            .facts
-            .called(self.facts.resource_in(&expr.ty), "resource");
-        let partly = self
-            .local(expr)
-            .is_some_and(|held| self.fields.contains_key(&held));
+        let resource = self.facts.called(self.facts.resource_in(&expr.ty), "resource");
+        let partly = self.local(expr).is_some_and(|held| self.fields.contains_key(&held));
         let message = if self.taken_apart.contains(&gone) {
             format!("this {resource} is read whole after a test took it apart")
         } else if partly {
@@ -1683,10 +1576,7 @@ impl<'f, 'a> Walk<'f, 'a> {
                 let Some(fields) = self.fields.get(&whole) else {
                     return Some(whole);
                 };
-                fields
-                    .iter()
-                    .find(|(each, _)| each == field)
-                    .map(|(_, held)| *held)
+                fields.iter().find(|(each, _)| each == field).map(|(_, held)| *held)
             }
             _ => None,
         }
@@ -1731,11 +1621,8 @@ impl<'f, 'a> Walk<'f, 'a> {
     fn partly_held(&self) -> Vec<usize> {
         let mut partly = Vec::new();
         for record in self.fields.keys() {
-            let states: Vec<State> = self
-                .leaves(*record)
-                .into_iter()
-                .map(|leaf| self.held[leaf].state)
-                .collect();
+            let states: Vec<State> =
+                self.leaves(*record).into_iter().map(|leaf| self.held[leaf].state).collect();
             let gone = states.iter().any(|state| matches!(state, State::Gone(_)));
             if gone && states.contains(&State::Held) {
                 for origin in &self.held[*record].origins {
@@ -1795,9 +1682,7 @@ fn ordinal(index: usize) -> String {
         "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
         "tenth",
     ];
-    WORDS
-        .get(index)
-        .map_or_else(|| format!("{}th", index + 1), |word| (*word).to_owned())
+    WORDS.get(index).map_or_else(|| format!("{}th", index + 1), |word| (*word).to_owned())
 }
 
 /// What a function taking its parameter's resource on some ways and not

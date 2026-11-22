@@ -21,10 +21,7 @@ fn per_step(package: &Package, len: u64) -> (String, String, u64) {
     let (few, first) = spent(package, 100);
     let (many, second) = spent(package, 200);
     let step = (second - first) / 100;
-    assert!(
-        step * 4 < len,
-        "a step cost {step} fuel, as if the {len} elements were copied"
-    );
+    assert!(step * 4 < len, "a step cost {step} fuel, as if the {len} elements were copied");
     (few, many, step)
 }
 
@@ -49,9 +46,7 @@ fn a_list_joined_to_a_run_of_itself_grows_where_it_lies() {
     "#,
     );
     let expected = |steps: usize| {
-        let mut out: Vec<u8> = (0..2000u32)
-            .map(|n| u8::try_from(n % 251).unwrap())
-            .collect();
+        let mut out: Vec<u8> = (0..2000u32).map(|n| u8::try_from(n % 251).unwrap()).collect();
         let mut back = 3;
         for _ in 0..steps {
             let from = out.len() - back;
@@ -92,10 +87,7 @@ fn a_run_of_words_joined_to_its_list_keeps_every_claim() {
     "#,
     );
     let (written, _) = spent(&package, 3);
-    assert_eq!(
-        written,
-        "a!,bb!,ccc!,a!,bb!,ccc! bb!,ccc!,a!,bb! a!,bb!,ccc!,ccc!,bb!,ccc!,a!,bb!"
-    );
+    assert_eq!(written, "a!,bb!,ccc!,a!,bb!,ccc! bb!,ccc!,a!,bb! a!,bb!,ccc!,ccc!,bb!,ccc!,a!,bb!");
 }
 
 #[test]
@@ -132,11 +124,7 @@ fn a_read_beside_a_write_of_the_same_list_is_made_before_it() {
             *slot = head[key];
             head[key] = at + 1;
         }
-        format!(
-            "{} {}",
-            head.iter().sum::<usize>(),
-            prev.iter().sum::<usize>()
-        )
+        format!("{} {}", head.iter().sum::<usize>(), prev.iter().sum::<usize>())
     };
     let (few, many, _) = per_step(&package, 1024);
     assert_eq!(few, expected(100));

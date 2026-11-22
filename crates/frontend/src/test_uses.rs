@@ -54,11 +54,7 @@ impl Facts {
         let mut roots: Vec<Symbol> = interface_names(&entry.public).collect();
         let main = format!("{}$$main!", loaded.symbols.text(entry.namespace));
         roots.extend(loaded.symbols.find(&main));
-        Self {
-            test: test.difference(&real).copied().collect(),
-            methods,
-            roots,
-        }
+        Self { test: test.difference(&real).copied().collect(), methods, roots }
     }
 }
 
@@ -87,19 +83,11 @@ struct Named {
 }
 
 const fn written(name: Symbol, at: Span) -> Named {
-    Named {
-        name,
-        at,
-        written: true,
-    }
+    Named { name, at, written: true }
 }
 
 const fn may_be(name: Symbol, at: Span) -> Named {
-    Named {
-        name,
-        at,
-        written: false,
-    }
+    Named { name, at, written: false }
 }
 
 /// Refuse real code of `program`'s package that names what only a
@@ -126,10 +114,8 @@ pub(crate) fn check(program: &h::Program, cx: &Context, facts: &Facts) -> Result
             continue;
         }
         let definition = &package.definitions[name];
-        if let Some(named) = definition
-            .names
-            .iter()
-            .find(|named| named.written && facts.test.contains(&named.name))
+        if let Some(named) =
+            definition.names.iter().find(|named| named.written && facts.test.contains(&named.name))
         {
             return Err(refused(cx, &real, *name, definition.module, named));
         }
@@ -159,9 +145,7 @@ impl Package {
             if !cx.package.contains(&module.source) {
                 continue;
             }
-            package
-                .expectations
-                .extend(module.expectations.iter().copied());
+            package.expectations.extend(module.expectations.iter().copied());
             for item in &module.items {
                 item_names(
                     item,
@@ -180,14 +164,7 @@ impl Package {
         let mut next = Vec::new();
         for named in &definition.names {
             next.push(self.owners.get(&named.name).copied().unwrap_or(named.name));
-            next.extend(
-                facts
-                    .methods
-                    .get(&named.name)
-                    .into_iter()
-                    .flatten()
-                    .copied(),
-            );
+            next.extend(facts.methods.get(&named.name).into_iter().flatten().copied());
         }
         next.retain(|name| self.definitions.contains_key(name));
         next
@@ -237,11 +214,7 @@ fn refused(
     let at = used.at;
     let used = spelled(used.name);
     let mut diagnostic = cx
-        .diagnostic(
-            module,
-            at,
-            format!("{used} is from a test dependency, and real code uses it"),
-        )
+        .diagnostic(module, at, format!("{used} is from a test dependency, and real code uses it"))
         .label(format!("{} uses it", chain[0]))
         .note("only expectations, and what only they reach, may use a package in `test_uses`");
     if chain.len() > 1 {
@@ -265,10 +238,7 @@ fn item_names(
     let mut define = |name: Symbol, names: Vec<Named>| {
         let definition = definitions.entry(name).or_insert_with(|| {
             order.push(name);
-            Definition {
-                module,
-                names: Vec::new(),
-            }
+            Definition { module, names: Vec::new() }
         });
         definition.names.extend(names);
     };
@@ -337,10 +307,7 @@ fn type_names(ty: &h::Type, span: Span, names: &mut Vec<Named>) {
             type_names(result, span, names);
         }
         h::Type::Variants(constructors) => {
-            for field in constructors
-                .iter()
-                .flat_map(|constructor| &constructor.fields)
-            {
+            for field in constructors.iter().flat_map(|constructor| &constructor.fields) {
                 type_names(field, span, names);
             }
         }

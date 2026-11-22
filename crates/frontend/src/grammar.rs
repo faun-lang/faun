@@ -30,11 +30,7 @@ pub(crate) struct SyntaxError {
 
 impl SyntaxError {
     pub(crate) fn new(span: Span, message: impl Into<String>) -> Self {
-        Self {
-            span,
-            message: message.into(),
-            advice: Advice::default(),
-        }
+        Self { span, message: message.into(), advice: Advice::default() }
     }
 }
 
@@ -53,13 +49,7 @@ type Parsed<T> = Result<T, SyntaxError>;
 pub(crate) const ERRORS_SHOWN: usize = 20;
 
 pub(crate) fn file(tokens: &[Token], source: &str) -> (Vec<Line>, Vec<SyntaxError>) {
-    let mut parser = Parser {
-        tokens,
-        source,
-        at: 0,
-        expected: Vec::new(),
-        errors: Vec::new(),
-    };
+    let mut parser = Parser { tokens, source, at: 0, expected: Vec::new(), errors: Vec::new() };
     let lines = parser.lines(false);
     (lines, parser.errors)
 }
@@ -291,11 +281,7 @@ impl Parser<'_> {
     /// Whether only space stands between the line's start and `token`.
     fn begins_line(&self, token: Token) -> bool {
         let start = usize::try_from(token.start).expect("spans fit in usize");
-        self.source[..start]
-            .chars()
-            .rev()
-            .take_while(|&c| c != '\n')
-            .all(|c| c == ' ' || c == '\t')
+        self.source[..start].chars().rev().take_while(|&c| c != '\n').all(|c| c == ' ' || c == '\t')
     }
 
     /// Lines up to the end of the file, or of a method block, each read or
@@ -313,10 +299,7 @@ impl Parser<'_> {
                 _ => {}
             }
             let start = self.at;
-            match self
-                .line()
-                .and_then(|line| self.line_end(block).map(|()| line))
-            {
+            match self.line().and_then(|line| self.line_end(block).map(|()| line)) {
                 Ok(line) => lines.push(line),
                 Err(error) => {
                     self.errors.push(error);
@@ -432,10 +415,7 @@ impl Parser<'_> {
             return Ok(head);
         }
         let (arguments, end) = self.arguments()?;
-        Ok(Expr {
-            span: head.span.through(end),
-            kind: ExprKind::Call(Box::new(head), arguments),
-        })
+        Ok(Expr { span: head.span.through(end), kind: ExprKind::Call(Box::new(head), arguments) })
     }
 
     /// Why no line begins with the current token: each begins with a
@@ -524,11 +504,7 @@ impl Parser<'_> {
             return Ok(Statement::Value(ternary));
         }
         let out = self.leaving()?;
-        Ok(Statement::If(
-            keyword.span().through(out.span),
-            condition,
-            out,
-        ))
+        Ok(Statement::If(keyword.span().through(out.span), condition, out))
     }
 
     /// What a leaving line leaves by: `return value`, its value any
@@ -557,14 +533,12 @@ impl Parser<'_> {
         if !looping {
             return Ok(());
         }
-        Err(
-            SyntaxError::new(token.span(), format!("Faun has no `{word}` loop"))
-                .label("a loop")
-                .help(
-                    "walk a list with a function calling itself on the rest, a fold, or a list's \
+        Err(SyntaxError::new(token.span(), format!("Faun has no `{word}` loop"))
+            .label("a loop")
+            .help(
+                "walk a list with a function calling itself on the rest, a fold, or a list's \
                  own methods: `fold`, `fold_until`, `map`, `find`",
-                ),
-        )
+            ))
     }
 
     /// A block's line beginning `expect`, which a later assumption will be.
@@ -609,11 +583,7 @@ impl Parser<'_> {
         }
         if self.eat(Kind::KwElse).is_some() {
             let otherwise = self.leaving()?;
-            return Ok(Statement::Else(
-                value.span.through(otherwise.span),
-                value,
-                otherwise,
-            ));
+            return Ok(Statement::Else(value.span.through(otherwise.span), value, otherwise));
         }
         Ok(Statement::Value(value))
     }
@@ -621,12 +591,8 @@ impl Parser<'_> {
     fn package(&mut self) -> Parsed<HeaderDecl> {
         let start = self.bump();
         self.expect(Kind::LBrace, "`{`")?;
-        let (fields, _) = self.separated(
-            false,
-            |kind| kind == Kind::Ident,
-            "a name",
-            Self::header_field,
-        )?;
+        let (fields, _) =
+            self.separated(false, |kind| kind == Kind::Ident, "a name", Self::header_field)?;
         let close = self.expect(Kind::RBrace, "`}`")?;
         Ok(HeaderDecl {
             span: start.span().through(close.span()),
@@ -648,11 +614,7 @@ impl Parser<'_> {
                     let named = parser.bump();
                     parser.expect(Kind::Colon, "`:`")?;
                     let (path, close) = parser.text("a path")?;
-                    Ok(Dependency {
-                        span: named.span().through(close),
-                        name: name(named),
-                        path,
-                    })
+                    Ok(Dependency { span: named.span().through(close), name: name(named), path })
                 },
             )?;
             let close = self.expect(Kind::RBrace, "`}`")?;
@@ -662,11 +624,7 @@ impl Parser<'_> {
             let (text, close) = self.text("a string")?;
             (HeaderValue::Text(text), close)
         };
-        Ok(HeaderField {
-            span: named.span().through(close),
-            name: name(named),
-            value,
-        })
+        Ok(HeaderField { span: named.span().through(close), name: name(named), value })
     }
 
     /// A string of plain text, no splices: its text's spans, and where it
@@ -695,18 +653,10 @@ impl Parser<'_> {
                 Some(_) => parser.any_name()?,
                 None => exported,
             };
-            Ok(Exposure {
-                exported: name(exported),
-                local: name(local),
-                constructors,
-            })
+            Ok(Exposure { exported: name(exported), local: name(local), constructors })
         })?;
         let close = self.expect(Kind::RBrace, "`}`")?;
-        Ok(ImportDecl {
-            span: start.span().through(close.span()),
-            path,
-            exposures,
-        })
+        Ok(ImportDecl { span: start.span().through(close.span()), path, exposures })
     }
 
     fn exports(&mut self) -> Parsed<ExportsDecl> {
@@ -714,16 +664,10 @@ impl Parser<'_> {
         self.expect(Kind::LBrace, "`{`")?;
         let (exports, _) = self.separated(false, is_name, "a name", |parser| {
             let exported = parser.bump();
-            Ok(Export {
-                name: name(exported),
-                constructors: parser.eat(Kind::DotStar).is_some(),
-            })
+            Ok(Export { name: name(exported), constructors: parser.eat(Kind::DotStar).is_some() })
         })?;
         let close = self.expect(Kind::RBrace, "`}`")?;
-        Ok(ExportsDecl {
-            span: start.span().through(close.span()),
-            exports,
-        })
+        Ok(ExportsDecl { span: start.span().through(close.span()), exports })
     }
 
     fn any_name(&mut self) -> Parsed<Token> {
@@ -751,12 +695,7 @@ impl Parser<'_> {
             }
             _ => None,
         };
-        Ok(Typed {
-            parameters,
-            result,
-            constraints,
-            methods,
-        })
+        Ok(Typed { parameters, result, constraints, methods })
     }
 
     /// A signature's `type`: a function type's parameters and result, or the
@@ -779,10 +718,7 @@ impl Parser<'_> {
         let mut constraints = vec![self.constraint()?];
         while let Some(comma) = self.eat(Kind::Comma) {
             let member = self.peek() == Kind::Ident
-                && self
-                    .tokens
-                    .get(self.at + 1)
-                    .is_some_and(|next| next.kind == Kind::Dot);
+                && self.tokens.get(self.at + 1).is_some_and(|next| next.kind == Kind::Dot);
             if self.peek() != Kind::TypeIdent && !member {
                 return Err(SyntaxError::new(
                     comma.span(),
@@ -874,11 +810,7 @@ impl Parser<'_> {
     fn alone(operand: Operand) -> Parsed<Type> {
         match operand {
             Operand::One(ty) => Ok(ty),
-            Operand::Listed {
-                mut members,
-                span,
-                trailing,
-            } => match members.len() {
+            Operand::Listed { mut members, span, trailing } => match members.len() {
                 1 if !trailing => Ok(members.pop().expect("one type")),
                 1 => Err(one_tuple(span)),
                 _ => Ok(Type::Tuple { span, members }),
@@ -898,9 +830,7 @@ impl Parser<'_> {
                 let variable = self.bump();
                 named_type(variable, Vec::new(), variable.span())
             }
-            Kind::Wild => Type::Hole {
-                span: self.bump().span(),
-            },
+            Kind::Wild => Type::Hole { span: self.bump().span() },
             Kind::LParen => {
                 let open = self.bump();
                 let (members, trailing) = self.separated(true, begins_type, "a type", Self::ty)?;
@@ -930,17 +860,11 @@ impl Parser<'_> {
             |parser| {
                 let head = parser.bump();
                 let (fields, _) = parser.type_arguments(head.span())?;
-                Ok(ConstructorDecl {
-                    name: name(head),
-                    fields,
-                })
+                Ok(ConstructorDecl { name: name(head), fields })
             },
         )?;
         let close = self.expect(Kind::RBracket, "`]`")?;
-        Ok(Type::Variants {
-            span: open.span().through(close.span()),
-            constructors,
-        })
+        Ok(Type::Variants { span: open.span().through(close.span()), constructors })
     }
 
     /// `{x: A}`, or `{x: A, *}`, open to more fields.
@@ -964,11 +888,7 @@ impl Parser<'_> {
             self.eat(Kind::Comma);
         }
         let close = self.expect(Kind::RBrace, "`}`")?;
-        Ok(Type::Record {
-            span: open.span().through(close.span()),
-            fields,
-            open: open_record,
-        })
+        Ok(Type::Record { span: open.span().through(close.span()), fields, open: open_record })
     }
 
     /// A type name's arguments, `(A, B)`, if it is given any, and where it
@@ -1100,10 +1020,7 @@ impl Parser<'_> {
                 "a test answers a `Bool`: to compare it, put it in parentheses, `(x is P) == y`",
             ));
         }
-        Ok(Expr {
-            span,
-            kind: ExprKind::Is(Box::new(value), pattern),
-        })
+        Ok(Expr { span, kind: ExprKind::Is(Box::new(value), pattern) })
     }
 
     /// `operand`: prefixes, a primary, and its postfixes.
@@ -1157,11 +1074,8 @@ impl Parser<'_> {
 
     /// A `(` apart from the operand before it, which would have called it.
     fn apart_call(&self) -> SyntaxError {
-        SyntaxError::new(
-            self.tokens[self.at].span(),
-            "a call's `(` touches what it calls: `f(x)`",
-        )
-        .help("a loop's body follows `do`: `while c do (`")
+        SyntaxError::new(self.tokens[self.at].span(), "a call's `(` touches what it calls: `f(x)`")
+            .help("a loop's body follows `do`: `while c do (`")
     }
 
     /// `.name`, or `.name(arguments)`, of `value`.
@@ -1189,11 +1103,7 @@ impl Parser<'_> {
             |kind| kind == Kind::Bar || begins_expr(kind),
             "an expression",
             |parser| {
-                if parser.peek() == Kind::Bar {
-                    parser.lambda()
-                } else {
-                    parser.expr()
-                }
+                if parser.peek() == Kind::Bar { parser.lambda() } else { parser.expr() }
             },
         )?;
         let close = self.expect(Kind::RParen, "`)`")?;
@@ -1227,10 +1137,7 @@ impl Parser<'_> {
                     return Ok(atom(token, ExprKind::Wild));
                 }
                 let (end, span) = self.range_end()?;
-                Ok(Expr {
-                    span: token.span().through(span),
-                    kind: ExprKind::Range(None, end),
-                })
+                Ok(Expr { span: token.span().through(span), kind: ExprKind::Range(None, end) })
             }
             Kind::Decimal | Kind::TypeIdent | Kind::Ident | Kind::EffectIdent => {
                 let token = self.bump();
@@ -1285,14 +1192,8 @@ impl Parser<'_> {
             return Ok(atom(start, ExprKind::Number(numeral(start))));
         }
         let (end, span) = self.range_end()?;
-        let start = Bound {
-            numeral: numeral(start),
-            negative: false,
-        };
-        Ok(Expr {
-            span: start.numeral.span.through(span),
-            kind: ExprKind::Range(Some(start), end),
-        })
+        let start = Bound { numeral: numeral(start), negative: false };
+        Ok(Expr { span: start.numeral.span.through(span), kind: ExprKind::Range(Some(start), end) })
     }
 
     /// `range-end`: a numeral, negated or not, or `_` for no end.
@@ -1306,13 +1207,7 @@ impl Parser<'_> {
                 let end = self.bump();
                 let span =
                     minus.map_or_else(|| end.span(), |minus| minus.span().through(end.span()));
-                Ok((
-                    Some(Bound {
-                        numeral: numeral(end),
-                        negative: minus.is_some(),
-                    }),
-                    span,
-                ))
+                Ok((Some(Bound { numeral: numeral(end), negative: minus.is_some() }), span))
             }
             _ => {
                 if minus.is_none() {
@@ -1344,10 +1239,7 @@ impl Parser<'_> {
                 self.note("`then`");
                 self.note("a new line");
                 let close = self.expect(Kind::RParen, "`)`")?;
-                Ok(Expr {
-                    span: open.span().through(close.span()),
-                    ..first
-                })
+                Ok(Expr { span: open.span().through(close.span()), ..first })
             }
         }
     }
@@ -1361,10 +1253,7 @@ impl Parser<'_> {
         }
         self.note("a new line");
         let close = self.expect(Kind::RParen, "`)`")?;
-        Ok(Expr {
-            span: open.span().through(close.span()),
-            kind: ExprKind::Arms(arms),
-        })
+        Ok(Expr { span: open.span().through(close.span()), kind: ExprKind::Arms(arms) })
     }
 
     /// An arm after its pattern: its guard, if any, and its value after
@@ -1391,11 +1280,7 @@ impl Parser<'_> {
             }
         };
         let pattern = lines::pattern(written, self.source)?;
-        Ok(Arm {
-            pattern,
-            guard,
-            body,
-        })
+        Ok(Arm { pattern, guard, body })
     }
 
     /// The rest of a tuple, after its first member.
@@ -1409,16 +1294,11 @@ impl Parser<'_> {
             members.push(self.expr()?);
         }
         self.note("`,`");
-        let span = open
-            .span()
-            .through(self.expect(Kind::RParen, "`)`")?.span());
+        let span = open.span().through(self.expect(Kind::RParen, "`)`")?.span());
         if members.len() == 1 {
             return Err(one_tuple(span));
         }
-        Ok(Expr {
-            span,
-            kind: ExprKind::Tuple(members),
-        })
+        Ok(Expr { span, kind: ExprKind::Tuple(members) })
     }
 
     /// The rest of a block, after its first line.
@@ -1439,10 +1319,7 @@ impl Parser<'_> {
         self.note("a new line");
         let close = self.expect(Kind::RParen, "`)`")?;
         let body = lines::body(statements, self.source)?;
-        Ok(Expr {
-            span: open.span().through(close.span()),
-            kind: ExprKind::Block(Box::new(body)),
-        })
+        Ok(Expr { span: open.span().through(close.span()), kind: ExprKind::Block(Box::new(body)) })
     }
 
     fn string(&mut self) -> Parsed<Expr> {
@@ -1465,10 +1342,7 @@ impl Parser<'_> {
             }
         }
         let close = self.expect(Kind::StrEnd, "the string's closing quote")?;
-        Ok(Expr {
-            span: open.span().through(close.span()),
-            kind: ExprKind::String(parts),
-        })
+        Ok(Expr { span: open.span().through(close.span()), kind: ExprKind::String(parts) })
     }
 
     /// A splice's width after its `:`: an alignment, then a count.
@@ -1485,10 +1359,7 @@ impl Parser<'_> {
         };
         self.bump();
         let columns = self.expect(Kind::Number, "a numeral for the width")?;
-        Ok(Width {
-            align,
-            columns: numeral(columns),
-        })
+        Ok(Width { align, columns: numeral(columns) })
     }
 
     fn list(&mut self) -> Parsed<Expr> {
@@ -1538,9 +1409,7 @@ impl Parser<'_> {
         if base.is_some() {
             self.eat(Kind::Comma);
         }
-        let span = open
-            .span()
-            .through(self.expect(Kind::RBrace, "`}`")?.span());
+        let span = open.span().through(self.expect(Kind::RBrace, "`}`")?.span());
         let kind = match base {
             Some(base) => ExprKind::Update(fields, Box::new(base)),
             None => ExprKind::Record(fields),
@@ -1558,11 +1427,7 @@ impl Parser<'_> {
         let Some(star) = self.eat(Kind::Star) else {
             return Ok(None);
         };
-        let rest = if begins_expr(self.peek()) {
-            self.expr()?
-        } else {
-            atom(star, ExprKind::Wild)
-        };
+        let rest = if begins_expr(self.peek()) { self.expr()? } else { atom(star, ExprKind::Wild) };
         Ok(Some(rest))
     }
 
@@ -1583,11 +1448,7 @@ impl Parser<'_> {
 /// A type operand: parenthesized types, which are a function type's
 /// parameters where an arrow follows, or one type.
 enum Operand {
-    Listed {
-        members: Vec<Type>,
-        span: Span,
-        trailing: bool,
-    },
+    Listed { members: Vec<Type>, span: Span, trailing: bool },
     One(Type),
 }
 
@@ -1599,18 +1460,13 @@ fn value_of(line: Statement, what: &str) -> Parsed<Expr> {
         Statement::Binding(pattern, value) => (pattern.span.through(value.span), "a binding"),
         Statement::Else(span, ..) | Statement::If(span, ..) => (span, "a leaving line"),
     };
-    Err(
-        SyntaxError::new(span, format!("{what} is a value, and this is {kind}"))
-            .label("a block's line")
-            .help("a binding and a leaving line each stand on a block's line of their own"),
-    )
+    Err(SyntaxError::new(span, format!("{what} is a value, and this is {kind}"))
+        .label("a block's line")
+        .help("a binding and a leaving line each stand on a block's line of their own"))
 }
 
 fn one_tuple(span: Span) -> SyntaxError {
-    SyntaxError::new(
-        span,
-        "a tuple has at least two members: write `(a)` to group one",
-    )
+    SyntaxError::new(span, "a tuple has at least two members: write `(a)` to group one")
 }
 
 fn name(token: Token) -> Name {
@@ -1618,11 +1474,7 @@ fn name(token: Token) -> Name {
 }
 
 fn named_type(token: Token, arguments: Vec<Type>, end: Span) -> Type {
-    Type::Named {
-        span: token.span().through(end),
-        name: name(token),
-        arguments,
-    }
+    Type::Named { span: token.span().through(end), name: name(token), arguments }
 }
 
 fn numeral(token: Token) -> Numeral {
@@ -1637,10 +1489,7 @@ fn numeral(token: Token) -> Numeral {
 }
 
 fn atom(token: Token, kind: ExprKind) -> Expr {
-    Expr {
-        span: token.span(),
-        kind,
-    }
+    Expr { span: token.span(), kind }
 }
 
 /// `-` and what it negates. A range whose first end it is held to,
@@ -1652,13 +1501,7 @@ fn negated(token: Token, value: Expr) -> Expr {
         {
             Expr {
                 span: token.span().through(value.span),
-                kind: ExprKind::Range(
-                    Some(Bound {
-                        negative: true,
-                        ..start
-                    }),
-                    end,
-                ),
+                kind: ExprKind::Range(Some(Bound { negative: true, ..start }), end),
             }
         }
         _ => unary(UnaryOp::Negate, token, value),
@@ -1666,10 +1509,7 @@ fn negated(token: Token, value: Expr) -> Expr {
 }
 
 fn unary(op: UnaryOp, token: Token, value: Expr) -> Expr {
-    Expr {
-        span: token.span().through(value.span),
-        kind: ExprKind::Unary(op, Box::new(value)),
-    }
+    Expr { span: token.span().through(value.span), kind: ExprKind::Unary(op, Box::new(value)) }
 }
 
 /// The operator written last in `expression` without parentheses, on its

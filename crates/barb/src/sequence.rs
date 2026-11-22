@@ -16,12 +16,9 @@ use super::{Builder, SequenceOperation, type_shape};
 /// counts of a sequence `length` already found.
 pub(super) fn recognise(program: &Program, length: &[bool]) -> Vec<Option<SequenceOperation>> {
     let count = program.functions().len();
-    let reversals: Vec<_> = (0..count)
-        .map(|at| reverses(program, FnId::at(at)))
-        .collect();
-    let prepended: Vec<_> = (0..count)
-        .map(|at| prepends(program, FnId::at(at), &reversals))
-        .collect();
+    let reversals: Vec<_> = (0..count).map(|at| reverses(program, FnId::at(at))).collect();
+    let prepended: Vec<_> =
+        (0..count).map(|at| prepends(program, FnId::at(at), &reversals)).collect();
     (0..count)
         .map(|at| {
             let id = FnId::at(at);
@@ -50,12 +47,7 @@ pub(super) fn recognise(program: &Program, length: &[bool]) -> Vec<Option<Sequen
 /// step's two fields is the rest.
 pub(super) fn sequence(program: &Program, ty: TypeId) -> Option<(CtorId, CtorId, usize)> {
     match type_shape(program, ty) {
-        TypeShape::Sequence {
-            empty,
-            push,
-            recursive,
-            ..
-        } => Some((empty, push, recursive)),
+        TypeShape::Sequence { empty, push, recursive, .. } => Some((empty, push, recursive)),
         _ => None,
     }
 }
@@ -219,12 +211,7 @@ fn drops(program: &Program, id: FnId) -> bool {
     let Some((empty, push, recursive)) = sequence(program, list) else {
         return false;
     };
-    let TypeShape::Natural {
-        empty: zero,
-        push: succ,
-        ..
-    } = type_shape(program, count)
-    else {
+    let TypeShape::Natural { empty: zero, push: succ, .. } = type_shape(program, count) else {
         return false;
     };
     if program.function(id).result != list {
@@ -341,14 +328,8 @@ fn taken_onto(program: &Program, id: FnId, reversals: &[bool]) -> bool {
         return false;
     };
     let (list, count) = (program.params(id)[0], program.params(id)[1]);
-    let (
-        Some((empty, push, recursive)),
-        TypeShape::Natural {
-            empty: zero,
-            push: succ,
-            ..
-        },
-    ) = (sequence(program, list), type_shape(program, count))
+    let (Some((empty, push, recursive)), TypeShape::Natural { empty: zero, push: succ, .. }) =
+        (sequence(program, list), type_shape(program, count))
     else {
         return false;
     };
@@ -436,12 +417,7 @@ fn replaces(program: &Program, id: FnId) -> bool {
     let Some((empty, push, recursive)) = sequence(program, list) else {
         return false;
     };
-    let TypeShape::Natural {
-        empty: zero,
-        push: succ,
-        ..
-    } = type_shape(program, count)
-    else {
+    let TypeShape::Natural { empty: zero, push: succ, .. } = type_shape(program, count) else {
         return false;
     };
     // The element's type is the one the push's other field holds.
@@ -492,11 +468,7 @@ fn replaces(program: &Program, id: FnId) -> bool {
             Expr::Call(callee, args) => {
                 callee == id
                     && program.atoms(args)
-                        == [
-                            Atom(Local::at(rest)),
-                            Atom(Local::at(5)),
-                            Atom(Local::at(2)),
-                        ]
+                        == [Atom(Local::at(rest)), Atom(Local::at(5)), Atom(Local::at(2))]
             }
             _ => false,
         },
@@ -517,11 +489,8 @@ pub(super) fn write_reverse_onto(program: &mut Program, list: TypeId) -> FnId {
             if ctor == empty {
                 return onto;
             }
-            let (element, rest) = if recursive == 0 {
-                (fields[1], fields[0])
-            } else {
-                (fields[0], fields[1])
-            };
+            let (element, rest) =
+                if recursive == 0 { (fields[1], fields[0]) } else { (fields[0], fields[1]) };
             let pushed = if recursive == 0 {
                 b.con(push, &[onto, element])
             } else {
@@ -573,12 +542,7 @@ pub(super) fn write_append(
 /// in `count`: recognized as [`SequenceOperation::Length`].
 pub(super) fn write_length(program: &mut Program, list: TypeId, count: TypeId) -> FnId {
     let (empty, _, recursive) = sequence(program, list).expect("a length is of a sequence");
-    let TypeShape::Natural {
-        empty: zero,
-        push: succ,
-        ..
-    } = type_shape(program, count)
-    else {
+    let TypeShape::Natural { empty: zero, push: succ, .. } = type_shape(program, count) else {
         unreachable!("a length is a natural");
     };
     let length = program.declare("length", &[list], count);

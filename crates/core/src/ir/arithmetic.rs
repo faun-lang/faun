@@ -30,20 +30,15 @@ fn room(a: Class, b: Class) -> Class {
     match (a, b) {
         (Class::Natural, _) | (_, Class::Natural) => Class::Natural,
         (Class::Word, _) | (_, Class::Word) => Class::Word,
-        (Class::Held(a), Class::Held(b)) => Class::Held(barb::Bounds {
-            low: 0,
-            high: a.high.zip(b.high).map(|(a, b)| a.max(b)),
-        }),
+        (Class::Held(a), Class::Held(b)) => {
+            Class::Held(barb::Bounds { low: 0, high: a.high.zip(b.high).map(|(a, b)| a.max(b)) })
+        }
         _ => a,
     }
 }
 
 fn at(b: &mut Builder, value: ValueId, class: Class) -> ValueId {
-    if b.class(value).fits(class) {
-        value
-    } else {
-        b.convert(class, value)
-    }
+    if b.class(value).fits(class) { value } else { b.convert(class, value) }
 }
 
 pub(super) fn compare(
@@ -85,11 +80,7 @@ pub(super) fn lower(
         }
         _ => brought,
     };
-    let class = if brought.fits(result) {
-        result
-    } else {
-        room(result, brought)
-    };
+    let class = if brought.fits(result) { result } else { room(result, brought) };
     let left = at(b, left, class);
     let right = at(b, right, class);
     // An operand may be narrower than the width the answer is worked out
@@ -157,11 +148,7 @@ fn shifted_one(
 fn power(b: &mut Builder, result: Class, base: ValueId, exponent: ValueId) -> ValueId {
     // Loop state is held at one class throughout, which is the answer's
     // even where the base alone is narrower.
-    let base = if b.class(base) == result {
-        base
-    } else {
-        b.convert(result, base)
-    };
+    let base = if b.class(base) == result { base } else { b.convert(result, base) };
     let one = b.constant(result, 1);
     let bit = Class::fixed(1);
     let counted = b.class(exponent);

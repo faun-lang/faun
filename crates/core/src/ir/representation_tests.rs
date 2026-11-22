@@ -4,19 +4,11 @@ use crate::platform::Routines;
 use barb::fixture::Library;
 
 fn bodies(program: &Program) -> usize {
-    program
-        .functions()
-        .iter()
-        .filter_map(Function::body)
-        .count()
+    program.functions().iter().filter_map(Function::body).count()
 }
 
 fn externals(program: &Program) -> usize {
-    program
-        .functions()
-        .iter()
-        .filter_map(Function::external)
-        .count()
+    program.functions().iter().filter_map(Function::external).count()
 }
 
 fn routines() -> Routines {
@@ -78,13 +70,13 @@ impl Standard {
         let digit = p.declare("u8_digit", &[bool_, nat], nat);
         p.define(digit, |b, args| {
             let doubled = b.call(add, &[args[1], args[1]]);
-            b.match_(args[0], bool_, |b, ctor, _| {
-                if ctor == yes {
-                    b.con(succ, &[doubled])
-                } else {
-                    doubled
-                }
-            })
+            b.match_(
+                args[0],
+                bool_,
+                |b, ctor, _| {
+                    if ctor == yes { b.con(succ, &[doubled]) } else { doubled }
+                },
+            )
         });
         let u8_to_nat = p.declare("u8_to_nat", &[u8_type], nat);
         p.define(u8_to_nat, |b, args| {
@@ -121,13 +113,13 @@ impl Standard {
         p.define(int_from_nat, |b, args| b.con(pos, &[args[0]]));
         let int_abs = p.declare("int_abs", &[int], nat);
         p.define(int_abs, |b, args| {
-            b.match_(args[0], int, |b, ctor, fields| {
-                if ctor == pos {
-                    fields[0]
-                } else {
-                    b.con(succ, &[fields[0]])
-                }
-            })
+            b.match_(
+                args[0],
+                int,
+                |b, ctor, fields| {
+                    if ctor == pos { fields[0] } else { b.con(succ, &[fields[0]]) }
+                },
+            )
         });
         // int_negate(Pos(Zero)) -> Pos(Zero); int_negate(Pos(Succ(n))) ->
         // NegSucc(n); int_negate(NegSucc(n)) -> Pos(Succ(n))
@@ -139,11 +131,7 @@ impl Standard {
                     return b.con(pos, &[magnitude]);
                 }
                 b.match_(fields[0], nat, |b, ctor, below| {
-                    if ctor == zero {
-                        b.con(pos, &[fields[0]])
-                    } else {
-                        b.con(neg, &[below[0]])
-                    }
+                    if ctor == zero { b.con(pos, &[fields[0]]) } else { b.con(neg, &[below[0]]) }
                 })
             })
         });
@@ -168,9 +156,7 @@ impl Standard {
     ) -> barb::Program {
         let world = &self.world;
         let main =
-            self.library
-                .program
-                .declare_named("main!", &[("host", world.host)], world.never);
+            self.library.program.declare_named("main!", &[("host", world.host)], world.never);
         let mut program = std::mem::take(&mut self.library.program);
         program.define(main, |b, args| body(b, args[0], &self));
         program.set_entry(main);
@@ -283,10 +269,6 @@ fn default_pipeline_removes_folded_library_temporaries() {
 /// widest leaf any constructor puts there; nothing is built as a cell, and
 /// a projection reads a leaf back at the class its field says.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one fixture declares its types, builds its values, and checks the signature"
-)]
 fn tagged_union_slots_are_as_wide_as_what_is_built_there() {
     let mut standard = Standard::new();
     let (nat, zero) = (standard.library.nat, standard.library.zero);
@@ -296,13 +278,13 @@ fn tagged_union_slots_are_as_wide_as_what_is_built_there() {
     let mk_pair = p.ctor_at(pair, 1);
     let first = p.declare("first", &[pair], nat);
     p.define(first, |b, args| {
-        b.match_(args[0], pair, |b, ctor, fields| {
-            if ctor == mk_pair {
-                fields[0]
-            } else {
-                b.con(zero, &[])
-            }
-        })
+        b.match_(
+            args[0],
+            pair,
+            |b, ctor, fields| {
+                if ctor == mk_pair { fields[0] } else { b.con(zero, &[]) }
+            },
+        )
     });
     let source = standard.main(|b, host, s| {
         let n = b.call(s.world.input, &[host]);
@@ -316,27 +298,14 @@ fn tagged_union_slots_are_as_wide_as_what_is_built_there() {
     let machine = lower_program(&source).unwrap();
     validate(&machine).unwrap();
     let rendered = machine.render();
-    assert!(
-        !machine.ops.iter().any(|op| matches!(op, Op::Cell { .. })),
-        "{rendered}"
-    );
-    let first = machine
-        .functions()
-        .iter()
-        .find(|function| machine.name(function.name) == "first")
-        .unwrap();
+    assert!(!machine.ops.iter().any(|op| matches!(op, Op::Cell { .. })), "{rendered}");
+    let first =
+        machine.functions().iter().find(|function| machine.name(function.name) == "first").unwrap();
     // The tag, then a slot for each number a machine holds: the byte read,
     // and the nought beside it.
     assert_eq!(
         machine.signature(first.params),
-        [
-            Class::fixed(1),
-            Class::Held(barb::Bounds {
-                low: 0,
-                high: Some(511)
-            }),
-            Class::fixed(0)
-        ],
+        [Class::fixed(1), Class::Held(barb::Bounds { low: 0, high: Some(511) }), Class::fixed(0)],
         "{rendered}"
     );
 }
@@ -376,11 +345,9 @@ fn runtime_products_and_signed_sums_lower_without_erasing_unused_bindings() {
         b.call(s.u8_zero, &[]);
         s.exit_zero(b, host)
     });
-    for (source, cells) in [
-        (runtime_product(true), false),
-        (runtime_product(false), false),
-        (zero_byte, false),
-    ] {
+    for (source, cells) in
+        [(runtime_product(true), false), (runtime_product(false), false), (zero_byte, false)]
+    {
         let machine = lower_program(&source).unwrap();
         validate(&machine).unwrap();
         assert_eq!(
@@ -389,10 +356,7 @@ fn runtime_products_and_signed_sums_lower_without_erasing_unused_bindings() {
             "{}",
             machine.render()
         );
-        assert!(
-            bodies(&machine) > 1,
-            "the library calls are lowered, not erased"
-        );
+        assert!(bodies(&machine) > 1, "the library calls are lowered, not erased");
     }
 }
 
@@ -411,11 +375,8 @@ fn selected(owner_is_nat: bool, good: usize, argument: usize) -> barb::Program {
     let (u8_zero, u8_to_nat) = (standard.u8_zero, standard.u8_to_nat);
     let host_type = standard.world.host;
     let p = &mut standard.library.program;
-    let select = p.declare_named(
-        "select!",
-        &[("host", host_type), ("x", owner)],
-        standard.world.never,
-    );
+    let select =
+        p.declare_named("select!", &[("host", host_type), ("x", owner)], standard.world.never);
     p.define(select, |b, args| {
         b.match_(args[1], owner, |b, ctor, _| {
             if ctor == tags[good] {
@@ -459,11 +420,8 @@ fn recognized_definition_bodies_do_not_demand_runtime_representations() {
     source.define_type(nat, &[("Zero", &[]), ("Succ", &[nat])]);
     let int = source.declare_type("Int");
     source.define_type(int, &[("Pos", &[nat]), ("NegSucc", &[nat])]);
-    let (zero, succ, pos) = (
-        source.ctor_at(nat, 0),
-        source.ctor_at(nat, 1),
-        source.ctor_at(int, 0),
-    );
+    let (zero, succ, pos) =
+        (source.ctor_at(nat, 0), source.ctor_at(nat, 1), source.ctor_at(int, 0));
     let world = host(&mut source, nat);
     // add(a, Zero) -> ignored = Pos(a) a
     // add(a, Succ(b)) -> Succ(add(a, b))
@@ -494,26 +452,15 @@ fn recognized_definition_bodies_do_not_demand_runtime_representations() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "declare the leaving routine, then lower both ways of leaving"
-)]
 fn unsupported_values_after_nonreturning_bindings_are_not_lowered() {
     for leaves_through_stop in [false, true] {
         let mut standard = Standard::new();
-        let (nat, zero, exit, host_type) = (
-            standard.library.nat,
-            standard.library.zero,
-            standard.world.exit,
-            standard.world.host,
-        );
+        let (nat, zero, exit, host_type) =
+            (standard.library.nat, standard.library.zero, standard.world.exit, standard.world.host);
         let p = &mut standard.library.program;
         // stop!(h, Zero) -> exit!(h, Zero); stop!(h, Succ(n)) -> exit!(h, Zero)
-        let stop = p.declare_named(
-            "stop!",
-            &[("host", host_type), ("n", nat)],
-            standard.world.never,
-        );
+        let stop =
+            p.declare_named("stop!", &[("host", host_type), ("n", nat)], standard.world.never);
         p.define(stop, |b, args| {
             b.match_(args[1], nat, |b, _, _| {
                 let nought = b.con(zero, &[]);
@@ -569,10 +516,6 @@ fn detached_arena_expressions_do_not_demand_a_representation() {
 /// the product itself rather than taking a step into it. Both are held flat,
 /// so nothing is built and nothing is read back.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one fixture declares its types and functions and checks the lowering"
-)]
 fn a_wrapper_around_a_product_stays_transparent_when_matched() {
     let mut standard = Standard::new();
     let nat = standard.library.nat;
@@ -583,13 +526,9 @@ fn a_wrapper_around_a_product_stays_transparent_when_matched() {
     p.define_type(boxed, &[("MkBoxed", &[pair])]);
     let (mk_pair, mk_boxed) = (p.ctor_at(pair, 0), p.ctor_at(boxed, 0));
     let unbox = p.declare("unbox", &[boxed], pair);
-    p.define(unbox, |b, args| {
-        b.match_(args[0], boxed, |_, _, fields| fields[0])
-    });
+    p.define(unbox, |b, args| b.match_(args[0], boxed, |_, _, fields| fields[0]));
     let first = p.declare("first", &[pair], nat);
-    p.define(first, |b, args| {
-        b.match_(args[0], pair, |_, _, fields| fields[0])
-    });
+    p.define(first, |b, args| b.match_(args[0], pair, |_, _, fields| fields[0]));
     let source = standard.main(|b, host, s| {
         let n = b.call(s.world.input, &[host]);
         let nought = b.con(s.library.zero, &[]);
@@ -605,10 +544,7 @@ fn a_wrapper_around_a_product_stays_transparent_when_matched() {
     validate(&machine).unwrap();
     let rendered = machine.render();
     assert!(
-        !machine
-            .ops
-            .iter()
-            .any(|op| matches!(op, Op::Cell { .. } | Op::CellField { .. })),
+        !machine.ops.iter().any(|op| matches!(op, Op::Cell { .. } | Op::CellField { .. })),
         "{rendered}"
     );
     // The wrapper and the product it holds are the same two values.
@@ -617,10 +553,7 @@ fn a_wrapper_around_a_product_stays_transparent_when_matched() {
         .iter()
         .find(|function| machine.name(function.name) == "unbox")
         .expect("unbox is lowered");
-    assert_eq!(
-        machine.signature(unbox.params),
-        machine.signature(unbox.returns.classes())
-    );
+    assert_eq!(machine.signature(unbox.params), machine.signature(unbox.returns.classes()));
     assert_eq!(machine.signature(unbox.params).len(), 2, "{rendered}");
 }
 
@@ -642,13 +575,13 @@ fn cell_fields_are_held_at_the_class_their_projection_reads() {
     let (no_pair, mk_pair) = (p.ctor_at(pair, 0), p.ctor_at(pair, 1));
     let first = p.declare("first", &[pair], nat);
     p.define(first, |b, args| {
-        b.match_(args[0], pair, |b, ctor, fields| {
-            if ctor == mk_pair {
-                fields[0]
-            } else {
-                b.con(zero, &[])
-            }
-        })
+        b.match_(
+            args[0],
+            pair,
+            |b, ctor, fields| {
+                if ctor == mk_pair { fields[0] } else { b.con(zero, &[]) }
+            },
+        )
     });
     let source = standard.main(|b, host, s| {
         let n = b.call(s.world.input, &[host]);
@@ -672,12 +605,9 @@ fn cell_fields_are_held_at_the_class_their_projection_reads() {
         .flat_map(|body| machine.walk_within(body))
     {
         match *op {
-            Op::Cell { fields, .. } => built.extend(
-                machine
-                    .values(fields)
-                    .iter()
-                    .map(|&field| machine.class(field)),
-            ),
+            Op::Cell { fields, .. } => {
+                built.extend(machine.values(fields).iter().map(|&field| machine.class(field)));
+            }
             Op::CellField { index, .. } => read.push((index, machine.class(results[0]))),
             _ => {}
         }
@@ -687,14 +617,7 @@ fn cell_fields_are_held_at_the_class_their_projection_reads() {
     // there.
     assert_eq!(
         built,
-        [
-            Class::Held(barb::Bounds {
-                low: 0,
-                high: Some(511)
-            }),
-            Class::fixed(0),
-            Class::Cell
-        ],
+        [Class::Held(barb::Bounds { low: 0, high: Some(511) }), Class::fixed(0), Class::Cell],
         "{rendered}"
     );
     assert!(!read.is_empty(), "{rendered}");

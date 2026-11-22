@@ -88,21 +88,15 @@ fn carried(b: &mut Builder, op: Binary, x: &[ValueId], y: &[ValueId]) -> Vec<Val
     let mut carry = b.constant(W, 0);
     let mut out = Vec::with_capacity(x.len());
     for (&x, &y) in x.iter().zip(y) {
-        let (word, next) = if op == Binary::Add {
-            add_carry(b, x, y, carry)
-        } else {
-            sub_borrow(b, x, y, carry)
-        };
+        let (word, next) =
+            if op == Binary::Add { add_carry(b, x, y, carry) } else { sub_borrow(b, x, y, carry) };
         out.push(word);
         carry = next;
     }
     if op == Binary::Monus {
         let one = b.constant(W, 1);
         let kept = b.binary(Binary::Sub, one, carry);
-        out = out
-            .into_iter()
-            .map(|word| b.binary(Binary::Mul, word, kept))
-            .collect();
+        out = out.into_iter().map(|word| b.binary(Binary::Mul, word, kept)).collect();
     }
     out
 }
@@ -135,11 +129,7 @@ fn declarations(source: &Program, widths: Widths) -> Declarations {
         function.parameters = append_range(&mut declared.parameters, &names);
         if let super::Returns::Values(returns) = function.returns {
             let returns = source.signature(returns);
-            let returns = if splits {
-                widths.expanded(returns)
-            } else {
-                returns.to_vec()
-            };
+            let returns = if splits { widths.expanded(returns) } else { returns.to_vec() };
             function.returns =
                 super::Returns::Values(append_range(&mut declared.signature, &returns));
         }
@@ -220,11 +210,7 @@ impl Split {
     ) -> Vec<ValueId> {
         let mut words = self.wide[old.index()].clone().unwrap_or_else(|| {
             let value = rebuild.value(old);
-            let word = if b.class(value) == W {
-                value
-            } else {
-                b.convert(W, value)
-            };
+            let word = if b.class(value) == W { value } else { b.convert(W, value) };
             vec![word]
         });
         words.truncate(n);
@@ -337,10 +323,7 @@ impl Split {
             Binary::And | Binary::Or | Binary::Xor => {
                 let x = self.words(rebuild, b, left, n);
                 let y = self.words(rebuild, b, right, n);
-                x.iter()
-                    .zip(&y)
-                    .map(|(&x, &y)| b.binary(op, x, y))
-                    .collect()
+                x.iter().zip(&y).map(|(&x, &y)| b.binary(op, x, y)).collect()
             }
         };
         self.result(b, &words, class)
@@ -356,11 +339,8 @@ impl Split {
         (op, x, right): (Binary, &[ValueId], ValueId),
         (own, all): (usize, usize),
     ) -> Vec<ValueId> {
-        let short = rebuild
-            .source()
-            .class(right)
-            .width()
-            .is_some_and(|bits| bits <= self.word_bits() / 2);
+        let short =
+            rebuild.source().class(right).width().is_some_and(|bits| bits <= self.word_bits() / 2);
         if !short {
             let y = self.words(rebuild, b, right, all);
             let x = self.natural(b, x);
@@ -444,10 +424,7 @@ impl Split {
         (relation, left, right): (Relation, ValueId, ValueId),
     ) -> ValueId {
         let source = rebuild.source();
-        let n = self
-            .widths
-            .words(source.class(left))
-            .max(self.widths.words(source.class(right)));
+        let n = self.widths.words(source.class(left)).max(self.widths.words(source.class(right)));
         let x = self.words(rebuild, b, left, n);
         let y = self.words(rebuild, b, right, n);
         let mut answer = b.constant(W, u64::from(relation == Relation::Equal));
@@ -482,8 +459,7 @@ impl Split {
         let words = self.words(rebuild, b, value, from);
         let (whole, part) = (usize::from(by / bits), by % bits);
         let word = |b: &mut Builder, at: Option<usize>| {
-            at.and_then(|at| words.get(at).copied())
-                .unwrap_or_else(|| b.constant(W, 0))
+            at.and_then(|at| words.get(at).copied()).unwrap_or_else(|| b.constant(W, 0))
         };
         let out: Vec<_> = (0..own)
             .map(|i| {
@@ -597,10 +573,7 @@ impl Split {
 
     /// An instruction holding a shape with a wide leaf, written with its
     /// split shape: what it answers, or nothing where no leaf is wide.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm per instruction holding a shape"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one arm per instruction holding a shape")]
     fn shaped(&self, rebuild: &Rebuild<'_>, b: &mut Builder, op: Op) -> Option<Vec<ValueId>> {
         let source = rebuild.source();
         let v = |old| rebuild.value(old);
@@ -619,12 +592,7 @@ impl Split {
                     b.cell_field(held, cell, at)
                 })
             }
-            Op::BufferField {
-                buffer,
-                start,
-                index,
-                shape,
-            } => {
+            Op::BufferField { buffer, start, index, shape } => {
                 let (split, starts) = split(b, shape)?;
                 let at_buffer = (v(buffer), v(start));
                 let class = source.shaped(shape)[usize::try_from(index).expect("fits")];
@@ -637,24 +605,16 @@ impl Split {
                 let operands = source.values(operands);
                 let (sequence, fields) = operands.split_at(3);
                 let fields = self.fields(rebuild, b, fields, shape);
-                b.buffer_push(
-                    (v(sequence[0]), v(sequence[1]), v(sequence[2])),
-                    split,
-                    &fields,
-                )
-                .to_vec()
+                b.buffer_push((v(sequence[0]), v(sequence[1]), v(sequence[2])), split, &fields)
+                    .to_vec()
             }
             Op::BufferAppend { operands, shape } => {
                 let (split, _) = split(b, shape)?;
                 let operands = source.values(operands);
                 let (sequence, fields) = operands.split_at(3);
                 let fields = self.fields(rebuild, b, fields, shape);
-                b.buffer_append(
-                    (v(sequence[0]), v(sequence[1]), v(sequence[2])),
-                    split,
-                    &fields,
-                )
-                .to_vec()
+                b.buffer_append((v(sequence[0]), v(sequence[1]), v(sequence[2])), split, &fields)
+                    .to_vec()
             }
             Op::BufferReplace { operands, shape } => {
                 let (split, _) = split(b, shape)?;
@@ -675,11 +635,7 @@ impl Split {
             }
             // Each wide leaf of each element laid out as its words, a word's
             // bytes a leaf.
-            Op::BufferKnown {
-                elements,
-                shape,
-                bytes,
-            } => {
+            Op::BufferKnown { elements, shape, bytes } => {
                 let (split, _) = split(b, shape)?;
                 let classes = source.shaped(shape);
                 let word = self.word_bits() / 8;
@@ -715,11 +671,7 @@ impl Split {
                 let (split, _) = split(b, shape)?;
                 vec![b.buffer_room(v(count), split)]
             }
-            Op::BufferAt {
-                buffer,
-                start,
-                shape,
-            } => {
+            Op::BufferAt { buffer, start, shape } => {
                 let (split, _) = split(b, shape)?;
                 vec![b.buffer_at((v(buffer), v(start)), split)]
             }
@@ -766,18 +718,12 @@ impl Split {
                 let class = result_class.expect("arithmetic answers");
                 self.binary(rebuild, b, (op, left, right), class)
             }
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } if self.wide(rebuild, left) || self.wide(rebuild, right) => {
+            Op::Compare { relation, left, right }
+                if self.wide(rebuild, left) || self.wide(rebuild, right) =>
+            {
                 vec![self.compare(rebuild, b, (relation, left, right))]
             }
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } if wide_result || self.wide(rebuild, value) => {
+            Op::Shift { direction, value, by } if wide_result || self.wide(rebuild, value) => {
                 let class = result_class.expect("a shift answers");
                 self.shift(rebuild, b, (direction, value, by), class)
             }
@@ -843,11 +789,7 @@ impl Split {
                 // A loop goes round at the classes it was written with.
                 1 => {
                     let value = rebuild.value(value);
-                    vec![if b.class(value) == class {
-                        value
-                    } else {
-                        b.convert(class, value)
-                    }]
+                    vec![if b.class(value) == class { value } else { b.convert(class, value) }]
                 }
                 n => self.words(rebuild, b, value, n),
             })
@@ -869,11 +811,7 @@ impl rewrite::Pass for Split {
         let wide_result = results.iter().any(|&result| self.wide(rebuild, result));
         let fresh = match op {
             // Every region is walked here, so each exit knows where it goes.
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => {
+            Op::If { condition, then_region, else_region } => {
                 self.if_(rebuild, b, (condition, then_region, else_region), results);
                 return true;
             }
@@ -892,13 +830,13 @@ impl rewrite::Pass for Split {
                 );
                 return false;
             }
-            _ => match self
-                .numeric(rebuild, b, op, results)
-                .or_else(|| self.shaped(rebuild, b, op))
-            {
-                Some(fresh) => fresh,
-                None => return false,
-            },
+            _ => {
+                match self.numeric(rebuild, b, op, results).or_else(|| self.shaped(rebuild, b, op))
+                {
+                    Some(fresh) => fresh,
+                    None => return false,
+                }
+            }
         };
         let classes = rebuild.classes(results);
         self.grouped(rebuild, results, &classes, &fresh);
@@ -927,16 +865,8 @@ impl rewrite::Pass for Split {
         let classes = match terminator.exit {
             Exit::Return => self.returns.clone(),
             Exit::Yield => self.yields.last().cloned().unwrap_or_default(),
-            Exit::Continue => self
-                .loops
-                .last()
-                .map(|(state, _)| state.clone())
-                .unwrap_or_default(),
-            Exit::Break => self
-                .loops
-                .last()
-                .map(|(_, out)| out.clone())
-                .unwrap_or_default(),
+            Exit::Continue => self.loops.last().map(|(state, _)| state.clone()).unwrap_or_default(),
+            Exit::Break => self.loops.last().map(|(_, out)| out.clone()).unwrap_or_default(),
         };
         let values = rebuild.source().values(terminator.values).to_vec();
         let values = self.crossing(rebuild, b, &values, &classes);

@@ -83,10 +83,7 @@ fn programs() -> Vec<(PathBuf, Input)> {
         }
     }
     programs.push((examples.join("newton.fn"), Input::Nothing));
-    programs.push((
-        examples.join("nbody-untyped/main.fn"),
-        Input::Argument("50"),
-    ));
+    programs.push((examples.join("nbody-untyped/main.fn"), Input::Argument("50")));
     programs
 }
 
@@ -165,17 +162,15 @@ fn given(input: Input) -> Vec<u8> {
                 .unwrap()
         }
         // A fixed walk of bytes, every value among them.
-        Input::Bytes(count) => (0..count)
-            .map(|at| u8::try_from((at * 167 + 13) % 256).unwrap())
-            .collect(),
+        Input::Bytes(count) => {
+            (0..count).map(|at| u8::try_from((at * 167 + 13) % 256).unwrap()).collect()
+        }
     }
 }
 
 fn check(backend: Backend) {
-    let scratch = std::env::temp_dir().join(format!(
-        "faun-walked-floats-{backend:?}-{}",
-        std::process::id()
-    ));
+    let scratch =
+        std::env::temp_dir().join(format!("faun-walked-floats-{backend:?}-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).unwrap();
     let programs = programs();
     let failures: Vec<String> = std::thread::scope(|scope| {
@@ -191,10 +186,7 @@ fn check(backend: Backend) {
                 scope.spawn(move || checked(source, *input, backend, &scratch.join(at.to_string())))
             })
             .collect();
-        running
-            .into_iter()
-            .filter_map(|handle| handle.join().unwrap())
-            .collect()
+        running.into_iter().filter_map(|handle| handle.join().unwrap()).collect()
     });
     std::fs::remove_dir_all(&scratch).unwrap();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -213,12 +205,7 @@ fn checked(source: &Path, input: Input, backend: Backend, scratch: &Path) -> Opt
             && source.to_string_lossy().contains("mandelbrot"))
         .then(|| format!("{}: no float operation recognized", source.display()));
     }
-    let expected = run(
-        &recognized,
-        backend,
-        input,
-        &scratch.with_extension("recognized"),
-    );
+    let expected = run(&recognized, backend, input, &scratch.with_extension("recognized"));
     let said = run(&walked, backend, input, &scratch.with_extension("walked"));
     (expected.0 != 0 || said != expected).then(|| {
         format!(
@@ -228,11 +215,7 @@ fn checked(source: &Path, input: Input, backend: Backend, scratch: &Path) -> Opt
             expected.1.len(),
             said.0,
             said.1.len(),
-            if said.1 == expected.1 {
-                ""
-            } else {
-                ", and they differ"
-            },
+            if said.1 == expected.1 { "" } else { ", and they differ" },
         )
     })
 }

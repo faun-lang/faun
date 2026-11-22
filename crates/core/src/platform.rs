@@ -156,11 +156,7 @@ impl Routine {
     /// The machine classes it reads, one argument expanded at a time.
     #[must_use]
     pub fn reads(&self) -> Vec<Class> {
-        self.takes
-            .iter()
-            .copied()
-            .flat_map(Takes::classes)
-            .collect()
+        self.takes.iter().copied().flat_map(Takes::classes).collect()
     }
 
     /// Copy this contract while retaining parameter names from the source
@@ -187,10 +183,8 @@ impl Routine {
                 }
             }
         }
-        let params: Vec<(&str, Class)> = owned
-            .iter()
-            .map(|(name, class)| (name.as_str(), *class))
-            .collect();
+        let params: Vec<(&str, Class)> =
+            owned.iter().map(|(name, class)| (name.as_str(), *class)).collect();
         let answers = self.answers();
         let returns = if self.comes_back() {
             crate::ir::Returns::Values(answers.as_slice())
@@ -249,13 +243,9 @@ impl Startup {
 fn held_bounds(class: Class) -> barb::Bounds {
     let high = match class {
         Class::Word => Some(u64::MAX),
-        held @ Class::Held(_) => held.width().map(|bits| {
-            if bits < 64 {
-                (1u64 << bits) - 1
-            } else {
-                u64::MAX
-            }
-        }),
+        held @ Class::Held(_) => {
+            held.width().map(|bits| if bits < 64 { (1u64 << bits) - 1 } else { u64::MAX })
+        }
         // A natural, an address, or a width no machine here has: a number
         // with no bound rather than no number.
         _ => None,
@@ -325,18 +315,8 @@ impl Routines {
             // What a descriptor names, bytes where they lie, and a name
             // opened as one: standard input, output and error are the first
             // three. How many bytes moved, or the descriptor, or an error.
-            described(
-                "fd_put!",
-                &[word, Takes::Bytes],
-                count,
-                Built::Put("write_fd!".into()),
-            ),
-            described(
-                "fd_read!",
-                &[word, word],
-                Returns::Filled,
-                Built::Read("read_fd!".into()),
-            ),
+            described("fd_put!", &[word, Takes::Bytes], count, Built::Put("write_fd!".into())),
+            described("fd_read!", &[word, word], Returns::Filled, Built::Read("read_fd!".into())),
             // A name beneath where the program runs, how it is opened, and
             // who may then read or write what it names, where it is made.
             // A target whose kernel reads names up to a nought byte has its
@@ -348,19 +328,12 @@ impl Routines {
                 count,
                 Some(Built::Put("open_at!".into())),
             ),
-            Routine {
-                consumes: true,
-                ..held("fd_close!", (true, false), &[word], count, None)
-            },
+            Routine { consumes: true, ..held("fd_close!", (true, false), &[word], count, None) },
             offered("exit!", &[word], Returns::Never),
             // Bytes where they lie to or from what a descriptor names, and a
             // name opened: how many, or the descriptor, or an error.
             primitive("write_fd!", &[word, Takes::StaticBytes], count),
-            primitive(
-                "read_fd!",
-                &[word, Takes::Scalar(Class::Address), word],
-                count,
-            ),
+            primitive("read_fd!", &[word, Takes::Scalar(Class::Address), word], count),
             primitive("open_at!", &[Takes::StaticBytes, word, word], count),
             // One argument, two machine values: a machine reads where a run
             // of bytes starts and how long it is.
@@ -374,24 +347,12 @@ impl Routines {
         ];
         let startup = vec![
             // How many arguments a program was handed.
-            Startup {
-                name: "argc".to_owned(),
-                class: Class::Word,
-            },
+            Startup { name: "argc".to_owned(), class: Class::Word },
             // Where the arguments' addresses lie, one word each, and each
             // argument where its address says, ended by a nought byte.
-            Startup {
-                name: "argv".to_owned(),
-                class: Class::Address,
-            },
+            Startup { name: "argv".to_owned(), class: Class::Address },
         ];
-        Self {
-            contracts,
-            startup,
-            word: None,
-            address: None,
-            floats: false,
-        }
+        Self { contracts, startup, word: None, address: None, floats: false }
     }
 
     /// Resolve the finite range of a host word for a particular target.
@@ -457,14 +418,9 @@ impl Routines {
     #[must_use]
     pub fn length(&self) -> barb::Bounds {
         let word = held_bounds(self.word.map_or(Class::Word, Class::fixed));
-        let memory = self
-            .address
-            .filter(|&bits| bits < 64)
-            .map(|bits| (1u64 << bits) - 1);
+        let memory = self.address.filter(|&bits| bits < 64).map(|bits| (1u64 << bits) - 1);
         barb::Bounds {
-            high: word
-                .high
-                .map(|high| memory.map_or(high - 1, |memory| memory.min(high - 1))),
+            high: word.high.map(|high| memory.map_or(high - 1, |memory| memory.min(high - 1))),
             ..word
         }
     }
@@ -496,9 +452,7 @@ impl Routines {
     /// # Panics
     /// If the environment has no routine with this name.
     pub fn declare(&self, program: &mut crate::ir::Program, name: &str) -> crate::ir::FunctionId {
-        self.get(name)
-            .unwrap_or_else(|| panic!("no routine named `{name}`"))
-            .declare(program)
+        self.get(name).unwrap_or_else(|| panic!("no routine named `{name}`")).declare(program)
     }
 
     /// The ones named, and no others. What a target answers for is not what

@@ -30,21 +30,11 @@ enum Walk {
 
 /// The fixture's arithmetic, a walk, and `start(a, b)`, a call of the walk
 /// from its identity: a place of one and nothing built, or one built.
-#[expect(
-    clippy::too_many_lines,
-    reason = "each walk written as its equations, in one fixture"
-)]
+#[expect(clippy::too_many_lines, reason = "each walk written as its equations, in one fixture")]
 fn walk(kind: Walk) -> (Program, FnId, FnId) {
     let library = fixture::Library::new();
     let (nat, zero, true_) = (library.nat, library.zero, library.true_);
-    let fixture::Library {
-        add,
-        mul,
-        div,
-        modulo,
-        equals,
-        ..
-    } = library;
+    let fixture::Library { add, mul, div, modulo, equals, .. } = library;
     let mut p = library.program;
     let pow = matches!(kind, Walk::Pow | Walk::PowOnEven);
     let params: &[TypeId] = if pow { &[nat; 3] } else { &[nat; 4] };
@@ -68,11 +58,7 @@ fn walk(kind: Walk) -> (Program, FnId, FnId) {
                 let odd = b.call(equals, &[low, one]);
                 let times = b.call(mul, &[built, base]);
                 let kept = b.match_(odd, library.bool_, |_, ctor, _| {
-                    if (ctor == true_) == (kind == Walk::Pow) {
-                        times
-                    } else {
-                        built
-                    }
+                    if (ctor == true_) == (kind == Walk::Pow) { times } else { built }
                 });
                 let squared = b.call(mul, &[base, base]);
                 let half = b.call(div, &[exponent, two]);
@@ -166,12 +152,7 @@ fn a_walk_started_from_its_identity_is_its_operation() {
 
 #[test]
 fn a_near_miss_of_a_walk_is_no_operation() {
-    for kind in [
-        Walk::OrForgettingTheRest,
-        Walk::XorByThree,
-        Walk::AndOfEither,
-        Walk::PowOnEven,
-    ] {
+    for kind in [Walk::OrForgettingTheRest, Walk::XorByThree, Walk::AndOfEither, Walk::PowOnEven] {
         let (program, _, start) = walk(kind);
         let operations = arithmetic::recognise(&program);
         assert_eq!(operations[start.index()], None, "{kind:?}");

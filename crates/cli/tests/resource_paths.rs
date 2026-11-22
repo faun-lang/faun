@@ -193,11 +193,8 @@ impl Held<'_> {
 
     /// One of the names `open` holds that `wanted` says of what they hold.
     fn one_of(&mut self, open: &[(String, Kind)], wanted: fn(&Kind) -> bool) -> Option<String> {
-        let names: Vec<&String> = open
-            .iter()
-            .filter(|(_, kind)| wanted(kind))
-            .map(|(name, _)| name)
-            .collect();
+        let names: Vec<&String> =
+            open.iter().filter(|(_, kind)| wanted(kind)).map(|(name, _)| name).collect();
         (!names.is_empty()).then(|| names[self.draw.below(names.len())].clone())
     }
 
@@ -209,9 +206,8 @@ impl Held<'_> {
             2 => Step::Close(file),
             3 => Step::CloseVia(file),
             4 => {
-                let other = open
-                    .iter()
-                    .find(|(name, kind)| *kind == Kind::File && *name != file)?;
+                let other =
+                    open.iter().find(|(name, kind)| *kind == Kind::File && *name != file)?;
                 Step::ClosePair(file, other.0.clone())
             }
             _ => Step::CloseList(
@@ -230,10 +226,8 @@ impl Held<'_> {
             6 if open.len() >= 2 => {
                 let first = self.draw.below(open.len());
                 let second = (first + 1 + self.draw.below(open.len() - 1)) % open.len();
-                let kind = Kind::Tuple(
-                    Box::new(open[first].1.clone()),
-                    Box::new(open[second].1.clone()),
-                );
+                let kind =
+                    Kind::Tuple(Box::new(open[first].1.clone()), Box::new(open[second].1.clone()));
                 let name = self.fresh(&kind);
                 Step::Tuple(name, open[first].0.clone(), open[second].0.clone())
             }
@@ -313,16 +307,10 @@ impl Held<'_> {
             let condition = self.draw.below(2);
             let yes = self.whole(open.clone(), depth - 1);
             let no = self.whole(open, depth - 1);
-            return Block {
-                steps,
-                branch: Some((condition, Box::new(yes), Box::new(no))),
-            };
+            return Block { steps, branch: Some((condition, Box::new(yes), Box::new(no))) };
         }
         steps.extend(self.finish(&mut open));
-        Block {
-            steps,
-            branch: None,
-        }
+        Block { steps, branch: None }
     }
 }
 
@@ -337,10 +325,7 @@ fn held_after(step: &Step, open: &mut Vec<(String, Kind)>) {
     let made = match step {
         Step::Tuple(name, first, second) => vec![(
             name.clone(),
-            Kind::Tuple(
-                Box::new(kind_of(open, first)),
-                Box::new(kind_of(open, second)),
-            ),
+            Kind::Tuple(Box::new(kind_of(open, first)), Box::new(kind_of(open, second))),
         )],
         Step::Split(tuple, first, second) => {
             let Kind::Tuple(first_kind, second_kind) = kind_of(open, tuple) else {
@@ -390,11 +375,7 @@ fn break_one(
     if let Some((_, yes, no)) = &mut block.branch
         && draw.below(2) == 0
     {
-        let (first, second) = if draw.below(2) == 0 {
-            (yes, no)
-        } else {
-            (no, yes)
-        };
+        let (first, second) = if draw.below(2) == 0 { (yes, no) } else { (no, yes) };
         if break_one(draw, first, open.clone(), broken, named)
             || break_one(draw, second, open, broken, named)
         {
@@ -404,14 +385,13 @@ fn break_one(
     let fits = |step: &Step, held: &[(String, Kind)]| match broken {
         Broken::LeftOpen => step.ends() && !step.takes().is_empty(),
         Broken::UsedTwice => !step.takes().is_empty(),
-        Broken::ReadMoved => step.takes().iter().any(|name| {
-            held.iter()
-                .any(|(held, kind)| held == name && *kind == Kind::File)
-        }),
+        Broken::ReadMoved => step
+            .takes()
+            .iter()
+            .any(|name| held.iter().any(|(held, kind)| held == name && *kind == Kind::File)),
     };
-    let candidates: Vec<usize> = (0..block.steps.len())
-        .filter(|&at| fits(&block.steps[at], &before[at]))
-        .collect();
+    let candidates: Vec<usize> =
+        (0..block.steps.len()).filter(|&at| fits(&block.steps[at], &before[at])).collect();
     if candidates.is_empty() {
         return false;
     }
@@ -430,10 +410,8 @@ fn break_at(
     named: &mut usize,
 ) {
     let taken = block.steps[at].takes();
-    let is_file = |name: &String| {
-        held.iter()
-            .any(|(held, kind)| held == name && *kind == Kind::File)
-    };
+    let is_file =
+        |name: &String| held.iter().any(|(held, kind)| held == name && *kind == Kind::File);
     match broken {
         Broken::LeftOpen => {
             block.steps.remove(at);
@@ -448,10 +426,7 @@ fn break_at(
             block.steps.insert(at + 1, again(name, &kind, named));
         }
         Broken::ReadMoved => {
-            let file = taken
-                .iter()
-                .find(|name| is_file(name))
-                .expect("a file taken");
+            let file = taken.iter().find(|name| is_file(name)).expect("a file taken");
             block.steps.insert(at + 1, Step::Read(file.clone()));
         }
     }
@@ -468,10 +443,7 @@ fn spelled_step(step: &Step, at: usize) -> String {
         Step::Tuple(name, first, second) => format!("{name} = ({first}, {second})"),
         Step::Split(tuple, first, second) => format!("({first}, {second}) = {tuple}"),
         Step::Link(name, file, onto) => {
-            format!(
-                "{name} = Link({file}, {})",
-                onto.as_deref().unwrap_or("End")
-            )
+            format!("{name} = Link({file}, {})", onto.as_deref().unwrap_or("End"))
         }
         Step::CloseChain(chain) => format!("closed{at} = close_chain!({chain})"),
         Step::Wrap(name, file) => format!("{name} = Ok({file})"),
@@ -497,11 +469,8 @@ fn spelled_block(block: &Block, indent: usize, next: &mut usize) -> String {
         Some((condition, yes, no)) => {
             let yes = spelled_block(yes, indent + 2, next);
             let no = spelled_block(no, indent + 2, next);
-            writeln!(
-                written,
-                "{pad}if c{condition} then (\n{yes}{pad}) else (\n{no}{pad})"
-            )
-            .expect("writing to a string");
+            writeln!(written, "{pad}if c{condition} then (\n{yes}{pad}) else (\n{no}{pad})")
+                .expect("writing to a string");
         }
     }
     written
@@ -601,17 +570,10 @@ fn start(files: usize, conditions: [bool; 2]) -> String {
     let mut written = String::new();
     // A tuple of results is one parameter: `((A, B)) -> U8`.
     let results = vec!["Result(File, IoError)".to_owned(); files];
-    let results = if files == 1 {
-        results[0].clone()
-    } else {
-        format!("({})", tupled(&results))
-    };
+    let results = if files == 1 { results[0].clone() } else { format!("({})", tupled(&results)) };
     writeln!(written, "start! : {results} -> U8").expect("writing");
     let [first, second] = conditions.map(|value| if value { "True" } else { "False" });
-    let oks: Vec<String> = names("f")
-        .iter()
-        .map(|name| format!("Ok({name})"))
-        .collect();
+    let oks: Vec<String> = names("f").iter().map(|name| format!("Ok({name})")).collect();
     write!(
         written,
         "start!({}) -> (\n  n = run!({}, {first}, {second})\n  U8.of_nat(n)\n)\n",
@@ -632,19 +594,11 @@ fn start(files: usize, conditions: [bool; 2]) -> String {
 fn opening(files: usize) -> String {
     let mut written = "main! : Host -> []\nmain!(host) -> (\n".to_owned();
     for at in 0..files {
-        writeln!(
-            written,
-            "  o{at} = host.files.open!(\"f{at}.tmp\", Overwrite)"
-        )
-        .expect("writing");
+        writeln!(written, "  o{at} = host.files.open!(\"f{at}.tmp\", Overwrite)").expect("writing");
     }
     let opened: Vec<String> = (0..files).map(|at| format!("o{at}")).collect();
     let opened = tupled(&opened);
-    write!(
-        written,
-        "  status = start!({opened})\n  host.exit!(status)\n)\n"
-    )
-    .expect("writing");
+    write!(written, "  status = start!({opened})\n  host.exit!(status)\n)\n").expect("writing");
     written
 }
 
@@ -715,15 +669,10 @@ fn every_way_through_uses_up_each_file_once() {
 /// A program drawn whole, and broken where `broken` says how.
 fn drawn_program(draw: &mut Draw) -> (Option<Broken>, String) {
     let files = 1 + draw.below(3);
-    let open: Vec<(String, Kind)> = (0..files)
-        .map(|file| (format!("f0_{file}"), Kind::File))
-        .collect();
+    let open: Vec<(String, Kind)> =
+        (0..files).map(|file| (format!("f0_{file}"), Kind::File)).collect();
     let mut named = 0;
-    let mut body = Held {
-        draw,
-        named: &mut named,
-    }
-    .whole(open.clone(), 2);
+    let mut body = Held { draw, named: &mut named }.whole(open.clone(), 2);
     let broken = match draw.below(4) {
         0 => Some(Broken::LeftOpen),
         1 => Some(Broken::UsedTwice),

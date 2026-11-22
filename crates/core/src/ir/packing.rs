@@ -66,13 +66,7 @@ pub(super) struct Leaf {
 
 impl Leaf {
     /// A leaf that takes no bytes, which reads back as nought.
-    const NOTHING: Self = Self {
-        offset: 0,
-        width: None,
-        kind: SCALAR,
-        shift: 0,
-        mask: None,
-    };
+    const NOTHING: Self = Self { offset: 0, width: None, kind: SCALAR, shift: 0, mask: None };
 
     /// The leaf, from `loaded`, what reading it answered: moved down, and
     /// kept to its own bits where another lies above it.
@@ -142,11 +136,7 @@ impl Packed {
     pub(super) fn of(classes: &[Class], word_bits: u16) -> Self {
         let plain = Self::plain(classes, word_bits);
         let packed = Self::by_bits(classes, word_bits);
-        if packed.size < plain.size {
-            packed
-        } else {
-            plain
-        }
+        if packed.size < plain.size { packed } else { plain }
     }
 
     /// Each leaf in bytes of its own, widest first, and in the order the
@@ -207,33 +197,16 @@ impl Packed {
             offset = offset.next_multiple_of(bytes);
             align = align.max(bytes);
             for &(index, shift) in &members {
-                leaves[index] = read(
-                    (offset, bytes, word_bits),
-                    &members,
-                    (index, shift),
-                    classes,
-                );
+                leaves[index] = read((offset, bytes, word_bits), &members, (index, shift), classes);
             }
-            units.push(Unit {
-                offset,
-                width: width(bytes, word_bits),
-                leaves: members,
-            });
+            units.push(Unit { offset, width: width(bytes, word_bits), leaves: members });
             offset += bytes;
         }
-        Self {
-            leaves,
-            units,
-            size: offset.next_multiple_of(align),
-            align,
-        }
+        Self { leaves, units, size: offset.next_multiple_of(align), align }
     }
     /// Each leaf holding a claim: its offset and kind.
     pub(super) fn managed(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
-        self.leaves
-            .iter()
-            .filter(|leaf| leaf.kind != SCALAR)
-            .map(|leaf| (leaf.offset, leaf.kind))
+        self.leaves.iter().filter(|leaf| leaf.kind != SCALAR).map(|leaf| (leaf.offset, leaf.kind))
     }
 
     /// The descriptor saying where its claims lie, as a target's words in
@@ -286,10 +259,9 @@ fn groups(classes: &[Class], word_bits: u16) -> Vec<(u16, Vec<(usize, u16)>)> {
         .iter()
         .enumerate()
         .filter_map(|(index, &class)| match class {
-            Class::Held(_) => class
-                .width()
-                .filter(|&bits| bits > 0 && bits < word_bits)
-                .map(|bits| (index, bits)),
+            Class::Held(_) => {
+                class.width().filter(|&bits| bits > 0 && bits < word_bits).map(|bits| (index, bits))
+            }
             _ => None,
         })
         .collect();
@@ -400,12 +372,7 @@ mod tests {
     #[test]
     fn leaves_as_wide_lie_in_the_order_named() {
         let packed = Packed::plain(
-            &[
-                Class::fixed(8),
-                Class::fixed(16),
-                Class::fixed(8),
-                Class::fixed(16),
-            ],
+            &[Class::fixed(8), Class::fixed(16), Class::fixed(8), Class::fixed(16)],
             64,
         );
         let offsets: Vec<_> = packed.leaves.iter().map(|leaf| leaf.offset).collect();
@@ -505,11 +472,8 @@ mod tests {
         assert_eq!(Packed::plain(&nibbles, 64).size, 2);
         let packed = Packed::of(&nibbles, 64);
         assert_eq!((packed.size, packed.units.len()), (1, 1));
-        let reads: Vec<_> = packed
-            .leaves
-            .iter()
-            .map(|leaf| (leaf.offset, leaf.shift, leaf.mask))
-            .collect();
+        let reads: Vec<_> =
+            packed.leaves.iter().map(|leaf| (leaf.offset, leaf.shift, leaf.mask)).collect();
         assert_eq!(reads, [(0, 0, Some(4)), (0, 4, None)]);
         let mixed = [Class::fixed(8), Class::Word, Class::fixed(1)];
         assert_eq!(Packed::of(&mixed, 64), Packed::plain(&mixed, 64));
@@ -523,14 +487,8 @@ mod tests {
     fn a_small_tag_and_its_fields_share_a_word() {
         let symbol = [
             Class::fixed(1),
-            Class::Held(barb::Bounds {
-                low: 0,
-                high: Some(258),
-            }),
-            Class::Held(barb::Bounds {
-                low: 1,
-                high: Some(32768),
-            }),
+            Class::Held(barb::Bounds { low: 0, high: Some(258) }),
+            Class::Held(barb::Bounds { low: 1, high: Some(32768) }),
         ];
         assert_eq!(Packed::plain(&symbol, 64).size, 6);
         let packed = Packed::of(&symbol, 64);

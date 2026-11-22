@@ -87,10 +87,7 @@ pub fn parse_in(source: &str, source_id: SourceId) -> Result<Module, ParseError>
     let items = lines::items(lines, source).map_err(|error| syntax(source, error))?;
     literal::validate(&tokens, source)
         .map_err(|error| spanned(source, error.span, error.message))?;
-    Ok(Module {
-        source: source_id,
-        items,
-    })
+    Ok(Module { source: source_id, items })
 }
 
 /// A line's syntax error, with what it advises.
@@ -102,11 +99,7 @@ fn syntax(source: &str, error: grammar::SyntaxError) -> ParseError {
 
 /// An error about the text `span` covers.
 fn spanned(source: &str, span: Span, message: String) -> ParseError {
-    let mut error = error_at(
-        source,
-        usize::try_from(span.start).expect("u32 fits usize"),
-        message,
-    );
+    let mut error = error_at(source, usize::try_from(span.start).expect("u32 fits usize"), message);
     error.end = usize::try_from(span.end).expect("u32 fits usize");
     error
 }

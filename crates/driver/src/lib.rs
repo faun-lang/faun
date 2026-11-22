@@ -34,10 +34,9 @@ pub fn platform(target: &dyn Target) -> Platform {
 fn platform_for(name: &str, routines: &Routines) -> Platform {
     Platform::new(
         name,
-        routines.all().map(|routine| Routine {
-            name: routine.name.clone(),
-            consumes: routine.consumes,
-        }),
+        routines
+            .all()
+            .map(|routine| Routine { name: routine.name.clone(), consumes: routine.consumes }),
     )
 }
 
@@ -67,9 +66,7 @@ pub fn compile_barb(
     let mut barb = barb;
     barb::optimize(&mut barb);
     let machine = machine_ir(&barb, target).map_err(Diagnostic::new)?;
-    target
-        .compile_machine_ir_with(&machine, favour, symbols)
-        .map_err(Diagnostic::new)
+    target.compile_machine_ir_with(&machine, favour, symbols).map_err(Diagnostic::new)
 }
 
 #[cfg(test)]

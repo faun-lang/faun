@@ -53,13 +53,7 @@ pub(super) fn operands(program: &Program, id: ExprId) -> impl Iterator<Item = At
 /// one of them is read as itself in any arm, since arms bind only levels
 /// past it.
 pub(super) fn reads(program: &Program, exprs: impl Iterator<Item = ExprId>, level: usize) -> usize {
-    exprs
-        .map(|id| {
-            operands(program, id)
-                .filter(|atom| atom.0.index() == level)
-                .count()
-        })
-        .sum()
+    exprs.map(|id| operands(program, id).filter(|atom| atom.0.index() == level).count()).sum()
 }
 
 /// A body that is nothing but a match: which local it takes apart, which

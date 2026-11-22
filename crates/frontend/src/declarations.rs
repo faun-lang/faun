@@ -48,9 +48,7 @@ pub fn normalize(program: h::Program) -> Program {
     };
     let mut indices = HashMap::default();
     for module in program.modules {
-        output
-            .visible_methods
-            .insert(module.source, module.visible_methods.into_iter().collect());
+        output.visible_methods.insert(module.source, module.visible_methods.into_iter().collect());
         for item in module.items {
             match item {
                 h::Item::Data(data) => {

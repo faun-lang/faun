@@ -35,10 +35,7 @@ fn items_and_statements_end_with_their_lines() {
 fn a_body_of_several_lines_is_a_block() {
     for (source, said) in [
         ("f(x) ->\n  y = x\n  y\n", "a binding belongs to a block"),
-        (
-            "expect\n  y = 1\n  y == 1\n",
-            "a binding belongs to a block",
-        ),
+        ("expect\n  y = 1\n  y == 1\n", "a binding belongs to a block"),
         ("f(x) -> x\n  x\n", "belongs to no definition"),
         (
             "f(x) -> (\n  y = x\n  y\ng(x) -> x\n",
@@ -55,10 +52,7 @@ fn a_definition_of_no_parameters_is_a_value() {
     let read = clauses("origin = (0, 0)\n");
     assert!(read[0].patterns.is_empty());
     for (source, said) in [
-        (
-            "origin() -> (0, 0)\n",
-            "a definition of no parameters is a value: `origin = ...`",
-        ),
+        ("origin() -> (0, 0)\n", "a definition of no parameters is a value: `origin = ...`"),
         ("(x, y) = (0, 0)\n", "begins with the name it defines"),
         ("(origin) = (0, 0)\n", "begins with the name it defines"),
         ("f(x).y -> 1\n", "expected one of"),
@@ -80,13 +74,7 @@ fn an_update_names_a_field_of_a_field_by_its_path() {
     // A field alone puns its name; a path is no name, so it is given its
     // value.
     let error = parse("f(c, macros) -> {asm.macros, *c}\n").unwrap_err();
-    assert!(
-        error
-            .message
-            .contains("a field of a field is given its value"),
-        "{}",
-        error.message
-    );
+    assert!(error.message.contains("a field of a field is given its value"), "{}", error.message);
 }
 
 #[test]
@@ -100,10 +88,7 @@ fn a_block_stands_wherever_an_expression_does() {
         ExprKind::Lambda(_, body) if matches!(&body.kind, ExprKind::Block(block) if block.bindings.len() == 1)
     ));
     let read = clauses("f(x) if (\n  y = x\n  y > 1\n) -> x\n");
-    assert!(matches!(
-        read[0].guard.as_ref().map(|guard| &guard.kind),
-        Some(ExprKind::Block(_))
-    ));
+    assert!(matches!(read[0].guard.as_ref().map(|guard| &guard.kind), Some(ExprKind::Block(_))));
     let lines = body("f(x) -> (\n  y = (\n    z = x\n    z\n  )\n  (y, (y))\n)\n");
     assert!(matches!(lines.bindings[0].value.kind, ExprKind::Block(_)));
     assert!(matches!(lines.result.kind, ExprKind::Tuple(ref members) if members.len() == 2));
@@ -114,10 +99,7 @@ fn a_body_is_its_lines_and_its_last_line_is_its_answer() {
     let lines = body("f(x) -> (\n  log!(x)\n  y = x\n  -y\n)\n");
     assert_eq!(lines.bindings.len(), 2);
     assert!(lines.bindings[0].discarded && !lines.bindings[1].discarded);
-    assert!(matches!(
-        lines.result.kind,
-        ExprKind::Unary(UnaryOp::Negate, _)
-    ));
+    assert!(matches!(lines.result.kind, ExprKind::Unary(UnaryOp::Negate, _)));
 }
 
 #[test]
@@ -142,14 +124,8 @@ fn a_where_list_s_constraints_are_parted_by_commas() {
         Item::Signature(signature) if signature.constraints.len() == 3
     ));
     for (source, said) in [
-        (
-            "f : a -> a where\n  a.zero : a\n  a.add : (a, a) -> a\n",
-            "parted by commas",
-        ),
-        (
-            "f : a -> a where\n  a.zero : a,\nf(x) -> x\n",
-            "last constraint takes no comma",
-        ),
+        ("f : a -> a where\n  a.zero : a\n  a.add : (a, a) -> a\n", "parted by commas"),
+        ("f : a -> a where\n  a.zero : a,\nf(x) -> x\n", "last constraint takes no comma"),
     ] {
         let error = parse(source).unwrap_err();
         assert!(error.message.contains(said), "{source}: {}", error.message);
@@ -171,14 +147,8 @@ fn elements_are_parted_by_commas_however_they_are_spaced() {
         ("f(a) -> ! a\n", "touches what it negates"),
         ("f(a, b) -> [a *b]\n", "touches the rest it takes"),
         ("f([a, * rest]) -> a\n", "touches the rest it takes"),
-        (
-            "f(a, b) -> a ==b\n",
-            "touches the name a pattern compares with",
-        ),
-        (
-            "f(xs, b) -> xs is [== b]\n",
-            "touches the name a pattern compares with",
-        ),
+        ("f(a, b) -> a ==b\n", "touches the name a pattern compares with"),
+        ("f(xs, b) -> xs is [== b]\n", "touches the name a pattern compares with"),
     ] {
         let error = parse(source).unwrap_err();
         assert!(error.message.contains(said), "{source}: {}", error.message);
@@ -186,11 +156,7 @@ fn elements_are_parted_by_commas_however_they_are_spaced() {
     let error = parse("f(a b) -> a\n").unwrap_err();
     assert!(error.message.contains("`,`"), "{}", error.message);
     let error = parse("f(a) -> (a,)\n").unwrap_err();
-    assert!(
-        error.message.contains("at least two members"),
-        "{}",
-        error.message
-    );
+    assert!(error.message.contains("at least two members"), "{}", error.message);
     let lines = body("f(a) ->\n  [-4, -5, *a]\n");
     assert!(
         matches!(lines.result.kind, ExprKind::List(ref elements, Some(_)) if elements.len() == 2)
@@ -227,14 +193,8 @@ fn a_pattern_is_the_expression_that_builds_what_it_matches() {
         [
             Pattern::Bind(_),
             Pattern::Wild(_),
-            Pattern::Constructor {
-                qualifier: None,
-                ..
-            },
-            Pattern::Constructor {
-                qualifier: Some(_),
-                ..
-            },
+            Pattern::Constructor { qualifier: None, .. },
+            Pattern::Constructor { qualifier: Some(_), .. },
             Pattern::List { rest: Some(_), .. },
             Pattern::List { rest: Some(_), .. },
             Pattern::Record { open: true, .. },
@@ -242,19 +202,13 @@ fn a_pattern_is_the_expression_that_builds_what_it_matches() {
             Pattern::Tuple { .. },
             Pattern::Range { .. },
             Pattern::Number { negative: true, .. },
-            Pattern::Number {
-                negative: false,
-                ..
-            },
+            Pattern::Number { negative: false, .. },
             Pattern::String { .. },
             Pattern::Or { .. },
         ]
     ));
     let lines = body("f(xs) -> (\n  Some(y) = xs.first()\n  xs.map(|Some(z), _| z)\n)\n");
-    assert!(matches!(
-        lines.bindings[0].pattern,
-        Pattern::Constructor { .. }
-    ));
+    assert!(matches!(lines.bindings[0].pattern, Pattern::Constructor { .. }));
     assert!(matches!(lines.result.kind, ExprKind::Method(..)));
 }
 
@@ -272,10 +226,7 @@ fn what_is_not_a_pattern_or_only_a_pattern_says_so() {
         ("f(_.._) -> 1\n", "`_.._` bounds nothing"),
         ("f(-(1..3)) -> 1\n", "`-(1..3)` is not a pattern"),
         ("f(x) -> x\nf : Nat -> Nat\nz\n", "belongs to no definition"),
-        (
-            "F(x) -> x\n",
-            "a clause begins with its name and its patterns",
-        ),
+        ("F(x) -> x\n", "a clause begins with its name and its patterns"),
     ] {
         let error = parse(source).unwrap_err();
         assert!(error.message.contains(said), "{source}: {}", error.message);
@@ -307,11 +258,7 @@ fn a_file_is_read_no_further_than_its_first_twenty_errors() {
     assert_eq!(error.also.len() + 1, 20);
     assert_eq!(error.also.last().map(|last| last.line), Some(20));
     assert!(
-        error
-            .advice
-            .notes
-            .iter()
-            .any(|note| note.contains("first 20 errors")),
+        error.advice.notes.iter().any(|note| note.contains("first 20 errors")),
         "{:?}",
         error.advice.notes
     );
@@ -361,10 +308,7 @@ fn a_guard_stands_between_a_clause_s_patterns_and_its_arrow() {
     ));
     assert_eq!(guarded.body.bindings.len(), 1);
     assert!(fallback.guard.is_none());
-    assert!(matches!(
-        continued.guard.as_ref().map(|guard| &guard.kind),
-        Some(ExprKind::Name(_))
-    ));
+    assert!(matches!(continued.guard.as_ref().map(|guard| &guard.kind), Some(ExprKind::Name(_))));
 }
 
 #[test]
@@ -388,10 +332,9 @@ fn a_range_s_ends_may_be_negated_or_left_open() {
     let ends: Vec<_> = written
         .iter()
         .map(|pattern| match pattern {
-            Pattern::Range { start, end, .. } => (
-                start.map(|bound| bound.negative),
-                end.map(|bound| bound.negative),
-            ),
+            Pattern::Range { start, end, .. } => {
+                (start.map(|bound| bound.negative), end.map(|bound| bound.negative))
+            }
             other => panic!("a range, found {other:?}"),
         })
         .collect();
@@ -438,10 +381,7 @@ fn literal_validation_reaches_every_syntactic_position() {
         r#"package {faun: "\q"}"#,
     ] {
         let error = parse(source).unwrap_err();
-        assert!(
-            error.message.contains("unknown escape"),
-            "{source}: {error}"
-        );
+        assert!(error.message.contains("unknown escape"), "{source}: {error}");
     }
 }
 
@@ -466,10 +406,7 @@ fn a_discarded_value_must_be_an_effect_in_every_kind_of_body() {
         "value(x) -> (\n  f(x)?\n  x\n)",
     ] {
         let error = parse(source).unwrap_err();
-        assert!(
-            error.message.contains("then thrown away"),
-            "{source}: {error}"
-        );
+        assert!(error.message.contains("then thrown away"), "{source}: {error}");
     }
     for source in [
         "value(x) -> (\n  f!(x)\n  x\n)",
@@ -542,23 +479,16 @@ fn xor_takes_parentheses_beside_and_or_or() {
 fn xor_beside_and_or_or_is_refused_as_written() {
     let error = parse("f(x, y) -> x == 1 ^ y < 2 ^ !x & y").unwrap_err();
     assert!(
-        error
-            .message
-            .ends_with("write `(x == 1 ^ y < 2 ^ !x) & y` or `x == 1 ^ y < 2 ^ (!x & y)`"),
+        error.message.ends_with("write `(x == 1 ^ y < 2 ^ !x) & y` or `x == 1 ^ y < 2 ^ (!x & y)`"),
         "{error}"
     );
     let error = parse("f(a, b, c, d) -> a | b & c ^ d").unwrap_err();
     assert!(
-        error
-            .message
-            .starts_with("`&` and `^` need parentheses together: write `(b & c) ^ d`"),
+        error.message.starts_with("`&` and `^` need parentheses together: write `(b & c) ^ d`"),
         "{error}"
     );
     let error = parse("f(a, b, c) -> a & b\n  ^ c").unwrap_err();
-    assert!(
-        error.message.contains("need parentheses together"),
-        "{error}"
-    );
+    assert!(error.message.contains("need parentheses together"), "{error}");
     assert_eq!((error.line, error.column), (2, 3), "{error}");
 }
 
@@ -569,17 +499,9 @@ fn and_binds_before_or_and_each_chains() {
     for (source, outer, inner_left) in [
         ("f(a, b, c) -> a & b | c", BinaryOp::Or, Some(BinaryOp::And)),
         ("f(a, b, c) -> a | b & c", BinaryOp::Or, None),
-        (
-            "f(a, b, c) -> a & b & c",
-            BinaryOp::And,
-            Some(BinaryOp::And),
-        ),
+        ("f(a, b, c) -> a & b & c", BinaryOp::And, Some(BinaryOp::And)),
         ("f(a, b, c) -> a | b | c", BinaryOp::Or, Some(BinaryOp::Or)),
-        (
-            "f(a, b, c) -> a ^ b ^ c",
-            BinaryOp::Xor,
-            Some(BinaryOp::Xor),
-        ),
+        ("f(a, b, c) -> a ^ b ^ c", BinaryOp::Xor, Some(BinaryOp::Xor)),
     ] {
         let clause = clauses(source).remove(0);
         let ExprKind::Binary(op, left, right) = &clause.body.result.kind else {
@@ -623,10 +545,7 @@ fn and_or_and_xor_join_comparisons() {
         panic!("{:?}", clause.body.result);
     };
     assert!(matches!(left.kind, ExprKind::Binary(BinaryOp::Equal, ..)));
-    assert!(matches!(
-        right.kind,
-        ExprKind::Binary(BinaryOp::Greater, ..)
-    ));
+    assert!(matches!(right.kind, ExprKind::Binary(BinaryOp::Greater, ..)));
 }
 
 /// A shift has no order with arithmetic, `&`, `|`, `^` or the other shift:
@@ -712,12 +631,7 @@ fn a_shift_is_refused_as_written() {
         assert_eq!(error.message, message, "{source}");
     }
     let error = parse("f(x, y) -> x\n  << 8\n  | y").unwrap_err();
-    assert!(
-        error
-            .message
-            .starts_with("`<<` and `|` need parentheses together"),
-        "{error}"
-    );
+    assert!(error.message.starts_with("`<<` and `|` need parentheses together"), "{error}");
     assert_eq!((error.line, error.column), (3, 3), "{error}");
     let error = parse("f(x, y) -> x & y\n  << 8").unwrap_err();
     assert_eq!((error.line, error.column), (2, 3), "{error}");
@@ -753,10 +667,7 @@ fn a_shift_binds_tighter_than_a_comparison() {
         panic!("{left:?}");
     };
     assert!(matches!(shifted.kind, ExprKind::Unary(..)), "{shifted:?}");
-    assert!(matches!(
-        right.kind,
-        ExprKind::Binary(BinaryOp::ShiftRight, ..)
-    ));
+    assert!(matches!(right.kind, ExprKind::Binary(BinaryOp::ShiftRight, ..)));
 }
 
 /// A block answers its last line where that is a value, and `{}` where it
@@ -791,22 +702,14 @@ fn a_block_ending_in_no_value_answers_nothing() {
 /// refused, saying where it stands.
 #[test]
 fn a_tuple_s_member_and_an_arm_s_pattern_are_values() {
-    for source in [
-        "f(x) -> (y = x, 2)",
-        "f(x) -> (x > 0 else return 0, 2)",
-        "f(x) -> (if x return 0, 2)",
-    ] {
+    for source in
+        ["f(x) -> (y = x, 2)", "f(x) -> (x > 0 else return 0, 2)", "f(x) -> (if x return 0, 2)"]
+    {
         let error = parse(source).unwrap_err();
-        assert!(
-            error.message.contains("a tuple's member is a value"),
-            "{error}"
-        );
+        assert!(error.message.contains("a tuple's member is a value"), "{error}");
     }
     let error = parse("f(x) -> x is (\n  y = 1 then y\n)").unwrap_err();
-    assert!(
-        error.message.contains("an arm's pattern is a value"),
-        "{error}"
-    );
+    assert!(error.message.contains("an arm's pattern is a value"), "{error}");
     assert!(parse("f(x) -> (if x then 1 else 2, 3)").is_ok());
 }
 
@@ -815,10 +718,7 @@ fn a_tuple_s_member_and_an_arm_s_pattern_are_values() {
 #[test]
 fn a_lambda_is_an_argument_and_a_list_holds_one_rest() {
     let error = parse("f(n) -> (|x| x + 1)(n)\n").unwrap_err();
-    assert!(
-        error.message.contains("only as a call's argument"),
-        "{error}"
-    );
+    assert!(error.message.contains("only as a call's argument"), "{error}");
     let error = parse("f(n) -> [n].map(|| 3)\n").unwrap_err();
     assert!(error.message.contains("one parameter or more"), "{error}");
     let error = parse("f(a, b) -> a | | b\n").unwrap_err();
@@ -864,10 +764,7 @@ fn an_arm_answers_after_then_or_leaves() {
     let module = parse(alone).unwrap();
     assert!(format!("{module:?}").contains("open: false"), "{module:?}");
     let error = parse("f(r) -> g(r is (\n  Ok(v) then v\n  Err(_) return 0\n))\n").unwrap_err();
-    assert!(
-        error.message.contains("an arm leaves only where"),
-        "{error}"
-    );
+    assert!(error.message.contains("an arm leaves only where"), "{error}");
     let error = parse("f(r) -> r is (\n  Ok(v) -> v\n)\n").unwrap_err();
     assert!(error.message.contains("follows `then`"), "{error}");
 }

@@ -96,10 +96,8 @@ impl ConstantPool {
             self.bytes.truncate(start);
             return id;
         }
-        let id = self.entries.push(Entry {
-            owner,
-            bytes: Range::of(start, self.bytes.len() - start),
-        });
+        let id =
+            self.entries.push(Entry { owner, bytes: Range::of(start, self.bytes.len() - start) });
         self.held.insert(key, id);
         id
     }
@@ -122,12 +120,7 @@ mod tests {
         let mut ctors = Pool::default();
         // Successor first, empty constructor last. Names are opaque to the codec.
         for fields in [Range::of(0, 1), Range::EMPTY] {
-            ctors.push(Ctor {
-                name: Symbol::at(0),
-                owner: nat,
-                fields,
-                details: Range::EMPTY,
-            });
+            ctors.push(Ctor { name: Symbol::at(0), owner: nat, fields, details: Range::EMPTY });
         }
         let fields = [nat];
         let types = TypeInfo::new(&types, &ctors, &fields);

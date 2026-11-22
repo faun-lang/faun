@@ -77,10 +77,7 @@ impl Sources {
         let raw = u32::try_from(self.files.len()).expect("fewer than 2^32 source files");
         assert_ne!(raw, u32::MAX, "the detached source ID stays reserved");
         let id = SourceId(raw);
-        self.files.push(Source {
-            name: name.into(),
-            text: text.into(),
-        });
+        self.files.push(Source { name: name.into(), text: text.into() });
         id
     }
 

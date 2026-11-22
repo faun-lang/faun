@@ -18,10 +18,7 @@ pub(super) struct Scope {
 impl Scope {
     /// A scope whose first binding takes `level`.
     pub(super) const fn at(level: usize) -> Self {
-        Self {
-            bindings: Vec::new(),
-            level,
-        }
+        Self { bindings: Vec::new(), level }
     }
 }
 
@@ -86,17 +83,9 @@ pub(super) fn expr(
                 let fields = program.fields(arm.ctor).len();
                 let mut inner = locals.to_vec();
                 inner.extend((0..fields).map(|at| Atom(Local::at(scope.level + at))));
-                let copied = body(
-                    program,
-                    arm.body,
-                    inner,
-                    scope.level + fields,
-                    edit.as_deref_mut(),
-                );
-                rebuilt.push(Arm {
-                    ctor: arm.ctor,
-                    body: copied,
-                });
+                let copied =
+                    body(program, arm.body, inner, scope.level + fields, edit.as_deref_mut());
+                rebuilt.push(Arm { ctor: arm.ctor, body: copied });
             }
             let arms = program.terms.hold_arms(&rebuilt);
             Expr::Match(locals[on.0.index()], arms)

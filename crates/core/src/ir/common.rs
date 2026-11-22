@@ -85,24 +85,16 @@ impl rewrite::Pass for Common {
         let expression = match op {
             Op::AddressOf(data) => Expression::Address(data),
             Op::Binary { op, left, right } => Expression::Binary(op, value(left), value(right)),
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } => Expression::Compare(relation, value(left), value(right)),
+            Op::Compare { relation, left, right } => {
+                Expression::Compare(relation, value(left), value(right))
+            }
             Op::Convert { value: from } => Expression::Convert(value(from)),
-            Op::Shift {
-                direction,
-                value: from,
-                by,
-            } => Expression::Shift(direction, value(from), by),
+            Op::Shift { direction, value: from, by } => {
+                Expression::Shift(direction, value(from), by)
+            }
             Op::Float { float, operands } => {
                 let operands = rebuild.source().values(operands);
-                Expression::Float(
-                    float,
-                    value(operands[0]),
-                    operands.get(1).copied().map(value),
-                )
+                Expression::Float(float, value(operands[0]), operands.get(1).copied().map(value))
             }
             // Loads, allocations and calls are deliberately not candidates.
             _ => return false,

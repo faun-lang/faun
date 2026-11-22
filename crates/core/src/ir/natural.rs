@@ -136,10 +136,7 @@ impl Helper {
         Self::Xor,
     ];
 
-    #[expect(
-        clippy::as_conversions,
-        reason = "fieldless discriminants index the helper inventory"
-    )]
+    #[expect(clippy::as_conversions, reason = "fieldless discriminants index the helper inventory")]
     const fn index(self) -> usize {
         self as usize
     }
@@ -518,8 +515,7 @@ impl Library {
     }
 
     pub(super) const fn require(&self, helper: Helper) -> FunctionId {
-        self.get(helper)
-            .expect("requested natural helper was generated")
+        self.get(helper).expect("requested natural helper was generated")
     }
 
     const fn insert(&mut self, helper: Helper, function: FunctionId) {
@@ -532,9 +528,7 @@ const W: Class = Class::Word;
 
 impl Config {
     pub(super) const fn layout(self) -> super::Layout {
-        super::Layout {
-            word_bits: self.word_bits,
-        }
+        super::Layout { word_bits: self.word_bits }
     }
 
     fn checked(self) -> Result<(usize, u64), String> {
@@ -710,9 +704,7 @@ pub(super) fn append(
     });
     let narrow = (arithmetic || needs.contains(Helper::ToWord)).then(|| narrowing(program, word));
     let compare = (needs.contains(Helper::Compare)
-        || [Helper::Sub, Helper::Div, Helper::Mod]
-            .into_iter()
-            .any(|h| needs.contains(h)))
+        || [Helper::Sub, Helper::Div, Helper::Mod].into_iter().any(|h| needs.contains(h)))
     .then(|| comparison(program, word));
     if let Some(compare) = compare
         && needs.contains(Helper::Compare)
@@ -731,27 +723,15 @@ pub(super) fn append(
         }
         // What the allocator would take, in digits: the heap less a header,
         // or, where the heap grows, a quarter of the address space.
-        let most = if config.grows {
-            max / 4
-        } else {
-            size64(config.heap_bytes - 3 * word)
-        } / size64(word);
+        let most = if config.grows { max / 4 } else { size64(config.heap_bytes - 3 * word) }
+            / size64(word);
         let digits = digits_allocation(program, (alloc, fail), (word, most));
         let trim = trimming(program, word);
         let narrow = narrow.expect("arithmetic reads a small result back as a word");
         let finish = finishing(program, (trim, narrow), release, half);
         let boxed = boxing(program, digits, trim, word);
-        let storage = Storage {
-            word,
-            most,
-            half,
-            alloc: digits,
-            trim,
-            finish,
-            fail,
-            boxed,
-            release,
-        };
+        let storage =
+            Storage { word, most, half, alloc: digits, trim, finish, fail, boxed, release };
         storage.append(program, needs, compare, &mut library);
         storage.append_bitwise(program, needs, &mut library);
     }
@@ -923,10 +903,7 @@ impl Storage {
         ] {
             if needs.contains(helper) {
                 let divisions = divisions.expect("a division has its short division");
-                lib.insert(
-                    helper,
-                    Self::by_word(p, divisions.short, result, lib.retain),
-                );
+                lib.insert(helper, Self::by_word(p, divisions.short, result, lib.retain));
             }
         }
         if needs.contains(Helper::Mul) {
@@ -942,10 +919,7 @@ impl Storage {
                 let objects = addition(p, self, digit);
                 lib.insert(Helper::Add, self.sum(p, objects));
             }
-            if [Helper::Sub, Helper::Div, Helper::Mod]
-                .into_iter()
-                .any(|h| needs.contains(h))
-            {
+            if [Helper::Sub, Helper::Div, Helper::Mod].into_iter().any(|h| needs.contains(h)) {
                 let compare = compare.expect("subtraction and division compare digits");
                 self.append_subdivision(p, needs, lib, (digit, compare), divisions);
             }
@@ -987,16 +961,10 @@ impl Storage {
             let divisions = divisions.expect("a division has its short division");
             let divmod = division(p, self, (compare, lib.retain), divisions);
             if needs.contains(Helper::Div) {
-                lib.insert(
-                    Helper::Div,
-                    self.quotient(p, divmod, DivisionResult::Quotient),
-                );
+                lib.insert(Helper::Div, self.quotient(p, divmod, DivisionResult::Quotient));
             }
             if needs.contains(Helper::Mod) {
-                lib.insert(
-                    Helper::Mod,
-                    self.quotient(p, divmod, DivisionResult::Remainder),
-                );
+                lib.insert(Helper::Mod, self.quotient(p, divmod, DivisionResult::Remainder));
             }
         }
     }
@@ -1380,10 +1348,7 @@ fn lowering(p: &mut Program, objects: FunctionId) -> FunctionId {
     f
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "two symmetric generated reference-count routines"
-)]
+#[expect(clippy::too_many_lines, reason = "two symmetric generated reference-count routines")]
 fn counting(p: &mut Program, retain: FunctionId, release: FunctionId, fail: FunctionId, max: u64) {
     p.define(retain, |b, args| {
         let a = args[0];
@@ -1591,10 +1556,7 @@ const NARROW_GROWTH: u64 = 4;
 /// Where the search starts is kept in the globals with the number of
 /// arenas and the heap's size. Every allocation moves it, so a search that
 /// coalesced blocks around it never starts inside one.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the search and the growth share the state they keep"
-)]
+#[expect(clippy::too_many_lines, reason = "the search and the growth share the state they keep")]
 fn growing(
     p: &mut Program,
     config: Config,
@@ -2109,19 +2071,8 @@ fn comparison(p: &mut Program, word: usize) -> FunctionId {
     f
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one generated carry-propagation routine"
-)]
 fn addition(p: &mut Program, storage: Storage, digit: FunctionId) -> FunctionId {
-    let Storage {
-        alloc,
-        finish,
-        fail,
-        most,
-        word,
-        ..
-    } = storage;
+    let Storage { alloc, finish, fail, most, word, .. } = storage;
     let f = declare(p, "nat.add_digits", &[A, A], &[A]);
     p.define(f, |b, args| {
         let a = args[0];
@@ -2173,12 +2124,7 @@ fn bitwise_digits(
     digit: FunctionId,
     (op, name): (Binary, &str),
 ) -> FunctionId {
-    let Storage {
-        alloc,
-        finish,
-        word,
-        ..
-    } = storage;
+    let Storage { alloc, finish, word, .. } = storage;
     let f = declare(p, &format!("nat.{name}_digits"), &[A, A], &[A]);
     p.define(f, |b, args| {
         let a = args[0];
@@ -2245,12 +2191,7 @@ fn monus(
     compare: FunctionId,
     subtract: FunctionId,
 ) -> FunctionId {
-    let Storage {
-        alloc,
-        finish,
-        word,
-        ..
-    } = storage;
+    let Storage { alloc, finish, word, .. } = storage;
     let f = declare(p, "nat.sub_digits", &[A, A], &[A]);
     p.define(f, |b, args| {
         let a = args[0];
@@ -2322,19 +2263,9 @@ fn multiply_row(p: &mut Program, word: usize) -> FunctionId {
     row
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "checks and generated outer product loop"
-)]
+#[expect(clippy::too_many_lines, reason = "checks and generated outer product loop")]
 fn multiplication(p: &mut Program, storage: Storage) -> FunctionId {
-    let Storage {
-        alloc,
-        finish,
-        fail,
-        most,
-        word,
-        ..
-    } = storage;
+    let Storage { alloc, finish, fail, most, word, .. } = storage;
     let row = multiply_row(p, word);
     let f = declare(p, "nat.mul_digits", &[A, A], &[A]);
     p.define(f, |b, args| {
@@ -2640,12 +2571,7 @@ fn corrected(
         let q = sub(b, q, one);
         let grown = add(b, r, v1);
         let wrapped = lt(b, grown, r);
-        b.if_(
-            wrapped,
-            &[],
-            |b| b.break_(&[q]),
-            |b| b.continue_(&[q, grown]),
-        );
+        b.if_(wrapped, &[], |b| b.break_(&[q]), |b| b.continue_(&[q, grown]));
     })[0]
 }
 
@@ -2758,11 +2684,7 @@ impl Divisions {
     fn append(p: &mut Program, storage: Storage) -> Self {
         let two_by_one = dividing_word(p, storage.word);
         let normal = normalizing(p, storage.half);
-        Self {
-            two_by_one,
-            normal,
-            short: short_division(p, storage, (normal, two_by_one)),
-        }
+        Self { two_by_one, normal, short: short_division(p, storage, (normal, two_by_one)) }
     }
 }
 
@@ -2775,13 +2697,7 @@ fn short_division(
     storage: Storage,
     (normal, divide): (FunctionId, FunctionId),
 ) -> FunctionId {
-    let Storage {
-        alloc,
-        finish,
-        word,
-        half,
-        ..
-    } = storage;
+    let Storage { alloc, finish, word, half, .. } = storage;
     let from_word = promotion(p, storage);
     let f = declare(p, "nat.divide_short", &[A, W, W], &[A]);
     p.define(f, |b, args| {
@@ -2874,14 +2790,7 @@ struct Shortened {
 /// A short division's digits, from the top: what is left of the scaled
 /// dividend at the end.
 fn short_digits(b: &mut Builder<'_>, short: Shortened, divide: FunctionId, word: usize) -> ValueId {
-    let Shortened {
-        a,
-        q,
-        remainder,
-        pow,
-        worth,
-        divisor,
-    } = short;
+    let Shortened { a, q, remainder, pow, worth, divisor } = short;
     let len = length(b, a);
     let zero = number(b, 0);
     let one = number(b, 1);
@@ -2961,19 +2870,8 @@ fn division(
     (compare, retain): (FunctionId, FunctionId),
     divisions: Divisions,
 ) -> FunctionId {
-    let Storage {
-        alloc,
-        finish,
-        word,
-        half,
-        release,
-        ..
-    } = storage;
-    let Divisions {
-        two_by_one,
-        normal,
-        short,
-    } = divisions;
+    let Storage { alloc, finish, word, half, release, .. } = storage;
+    let Divisions { two_by_one, normal, short } = divisions;
     let scale = scaling(p, word);
     let unscale = unscaling(p, half, word);
     let steps = Steps {

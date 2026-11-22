@@ -148,12 +148,7 @@ impl Selector<'_> {
                         read(arg, id);
                     }
                 }
-                Some(Terminator::Branch {
-                    condition,
-                    then_args,
-                    else_args,
-                    ..
-                }) => {
+                Some(Terminator::Branch { condition, then_args, else_args, .. }) => {
                     read(condition, id);
                     for &arg in self.operands[then_args.range()]
                         .iter()
@@ -175,10 +170,7 @@ impl Selector<'_> {
 
     /// Where the edge from `from` to `target` carrying `args` can go
     /// instead, and what it carries there, where the walk decided a branch.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one walk through blocks, evaluating each"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one walk through blocks, evaluating each")]
     fn walk(
         &mut self,
         from: BlockId,
@@ -187,11 +179,7 @@ impl Selector<'_> {
         numbers: &HashMap<VReg, u64>,
         outside: &[bool],
     ) -> Option<(BlockId, Range)> {
-        let entries: Vec<_> = self
-            .functions
-            .iter()
-            .map(|function| function.entry)
-            .collect();
+        let entries: Vec<_> = self.functions.iter().map(|function| function.entry).collect();
         let mut carried: Vec<Carried> = self.operands[args.range()]
             .iter()
             .map(|&value| match numbers.get(&value) {
@@ -241,13 +229,9 @@ impl Selector<'_> {
             // and where not, what the edge's source already has.
             let read = |value: VReg| match held.get(&value) {
                 Some(&written) => written,
-                None => Some(
-                    numbers
-                        .get(&value)
-                        .map_or(Carried::Value(value), |&number| {
-                            Carried::Number(number, Some(value), self.widths[value.index()])
-                        }),
-                ),
+                None => Some(numbers.get(&value).map_or(Carried::Value(value), |&number| {
+                    Carried::Number(number, Some(value), self.widths[value.index()])
+                })),
             };
             let (next, edge, decides) = match block.terminator {
                 Some(Terminator::Jump { target, args }) => (target, args, false),
@@ -301,11 +285,7 @@ impl Selector<'_> {
         };
         let width = self.widths[result.index()];
         let masked = |value: u64, bits: u16| {
-            if bits >= 64 {
-                value
-            } else {
-                value & ((1 << bits) - 1)
-            }
+            if bits >= 64 { value } else { value & ((1 << bits) - 1) }
         };
         let answer = match (inst.opcode, inst.immediate) {
             (Opcode::Constant, Immediate::Integer(number)) => Some(number),
@@ -326,9 +306,7 @@ impl Selector<'_> {
             (Opcode::Convert, Immediate::Bits(bits)) => number(0).map(|value| masked(value, bits)),
             _ => return Answer::Stops,
         };
-        answer.map_or(Answer::Unknown, |number| {
-            Answer::Known(Carried::Number(number, None, width))
-        })
+        answer.map_or(Answer::Unknown, |number| Answer::Known(Carried::Number(number, None, width)))
     }
 
     /// A value holding `number` written at the end of `block`.
@@ -347,28 +325,20 @@ impl Selector<'_> {
 
     /// Drop every block no function's entry reaches, and the instructions
     /// they held, numbering what is left again in the same order.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "finding, renumbering and rebuilding in one place"
-    )]
+    #[expect(clippy::too_many_lines, reason = "finding, renumbering and rebuilding in one place")]
     fn drop_unreached(&mut self) {
         let mut reached = vec![false; self.blocks.len()];
-        let mut stack: Vec<BlockId> = self
-            .functions
-            .iter()
-            .map(|function| function.entry)
-            .collect();
+        let mut stack: Vec<BlockId> =
+            self.functions.iter().map(|function| function.entry).collect();
         while let Some(block) = stack.pop() {
             if std::mem::replace(&mut reached[block.index()], true) {
                 continue;
             }
             match self.blocks[block].terminator {
                 Some(Terminator::Jump { target, .. }) => stack.push(target),
-                Some(Terminator::Branch {
-                    then_target,
-                    else_target,
-                    ..
-                }) => stack.extend([then_target, else_target]),
+                Some(Terminator::Branch { then_target, else_target, .. }) => {
+                    stack.extend([then_target, else_target]);
+                }
                 _ => {}
             }
         }
@@ -398,10 +368,9 @@ impl Selector<'_> {
                 .map(|&inst| instructions.push(old_instructions[inst]))
                 .collect();
             draft.terminator = draft.terminator.map(|terminator| match terminator {
-                Terminator::Jump { target, args } => Terminator::Jump {
-                    target: renumber(target),
-                    args,
-                },
+                Terminator::Jump { target, args } => {
+                    Terminator::Jump { target: renumber(target), args }
+                }
                 Terminator::Branch {
                     condition,
                     then_target,
@@ -431,10 +400,7 @@ impl Selector<'_> {
     /// Move a comparison a block's branch alone reads to just before the
     /// branch, so the branch reads its flags rather than a number written
     /// from them and tested again.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "counting every read, then one move per branch"
-    )]
+    #[expect(clippy::too_many_lines, reason = "counting every read, then one move per branch")]
     pub(super) fn sink_conditions(&mut self) {
         let mut reads = vec![0_u32; self.widths.len()];
         for inst in &self.instructions {
@@ -449,12 +415,7 @@ impl Selector<'_> {
                         reads[arg.index()] += 1;
                     }
                 }
-                Some(Terminator::Branch {
-                    condition,
-                    then_args,
-                    else_args,
-                    ..
-                }) => {
+                Some(Terminator::Branch { condition, then_args, else_args, .. }) => {
                     reads[condition.index()] += 1;
                     for &arg in self.operands[then_args.range()]
                         .iter()

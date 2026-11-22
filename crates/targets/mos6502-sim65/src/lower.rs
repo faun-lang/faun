@@ -53,15 +53,14 @@ struct Plan {
 fn free(places: &mut Vec<Vec<(usize, usize)>>, span: (usize, usize), most: usize) -> Option<usize> {
     let apart = |&(first, last): &(usize, usize)| last < span.0 || span.1 < first;
     // Something never touched is wanted nowhere, and shares with nothing.
-    let at = places
-        .iter()
-        .position(|held| span.0 <= span.1 && held.iter().all(apart))
-        .or_else(|| {
+    let at = places.iter().position(|held| span.0 <= span.1 && held.iter().all(apart)).or_else(
+        || {
             (places.len() < most).then(|| {
                 places.push(Vec::new());
                 places.len() - 1
             })
-        })?;
+        },
+    )?;
     places[at].push(span);
     Some(at)
 }
@@ -164,28 +163,19 @@ const fn nought(byte: Held) -> bool {
 /// Whether `value` is read anywhere in `region`, nested regions included.
 fn region_reads(program: &Program, region: RegionId, value: ValueId) -> bool {
     program.outgoing(region).contains(&value)
-        || program
-            .ops(region)
-            .iter()
-            .any(|op| op_reads(program, op, value))
+        || program.ops(region).iter().any(|op| op_reads(program, op, value))
 }
 
 /// Whether a region works `value` out itself, rather than reading one from
 /// somewhere it can see.
 fn written_in(program: &Program, region: RegionId, value: ValueId) -> bool {
-    program
-        .walk(region)
-        .any(|(_, results)| results.contains(&value))
+    program.walk(region).any(|(_, results)| results.contains(&value))
 }
 
 fn op_reads(program: &Program, op: &Op, value: ValueId) -> bool {
     program.operands(op).any(|read| read == value)
         || match *op {
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } => {
+            Op::If { then_region, else_region, .. } => {
                 region_reads(program, then_region, value)
                     || region_reads(program, else_region, value)
             }
@@ -197,21 +187,15 @@ fn op_reads(program: &Program, op: &Op, value: ValueId) -> bool {
 /// How many `continue`s a loop body has. A nested loop's own belongs to it,
 /// so the walk stops at one.
 fn continues(program: &Program, region: RegionId) -> usize {
-    let own = usize::from(
-        program
-            .region(region)
-            .terminator
-            .is_some_and(|t| t.exit == Exit::Continue),
-    );
+    let own =
+        usize::from(program.region(region).terminator.is_some_and(|t| t.exit == Exit::Continue));
     own + program
         .ops(region)
         .iter()
         .map(|op| match *op {
-            Op::If {
-                then_region,
-                else_region,
-                ..
-            } => continues(program, then_region) + continues(program, else_region),
+            Op::If { then_region, else_region, .. } => {
+                continues(program, then_region) + continues(program, else_region)
+            }
             _ => 0,
         })
         .sum::<usize>()
@@ -226,21 +210,12 @@ fn path_to_continue(
     path: &mut Vec<(RegionId, usize)>,
 ) -> bool {
     let ops = program.ops(region);
-    if program
-        .region(region)
-        .terminator
-        .is_some_and(|t| t.exit == Exit::Continue)
-    {
+    if program.region(region).terminator.is_some_and(|t| t.exit == Exit::Continue) {
         path.push((region, ops.len()));
         return true;
     }
     for (index, op) in ops.iter().enumerate() {
-        let Op::If {
-            then_region,
-            else_region,
-            ..
-        } = *op
-        else {
+        let Op::If { then_region, else_region, .. } = *op else {
             continue;
         };
         for child in [then_region, else_region] {
@@ -271,12 +246,7 @@ fn reads(program: &Program) -> Vec<u16> {
         };
         regions.push(body);
         for (op, results) in program.walk_within(body) {
-            if let Op::If {
-                then_region,
-                else_region,
-                ..
-            } = *op
-            {
+            if let Op::If { then_region, else_region, .. } = *op {
                 regions.extend([then_region, else_region]);
             }
             if let Op::Loop { body, .. } = *op {
@@ -377,10 +347,7 @@ pub(crate) fn check_frames(program: &Program) -> Result<(), String> {
             continue;
         };
         state.plan(body).map_err(|error| {
-            format!(
-                "mos6502-sim65 function `{}`: {error}",
-                program.name(function.name)
-            )
+            format!("mos6502-sim65 function `{}`: {error}", program.name(function.name))
         })?;
     }
     Ok(())
@@ -400,11 +367,7 @@ fn within_the_stacks(program: &Program, heap: u16) -> Result<(), String> {
     let name = |id: FunctionId| program.name(program.function(id).name);
     // The reset routine calls the entry where it comes back, and runs into
     // it where it does not.
-    let called = if program.comes_back(entry) {
-        super::calls::RETURN_ADDRESS
-    } else {
-        0
-    };
+    let called = if program.comes_back(entry) { super::calls::RETURN_ADDRESS } else { 0 };
     let pushed = depth.pushed.bytes.saturating_add(called);
     if pushed > super::calls::STACK {
         let deep = pushed / super::calls::RETURN_ADDRESS;
@@ -456,9 +419,7 @@ fn assemble(program: &Program, heap: u16, stack: bool) -> Result<Code, String> {
     let origin = u16::try_from(blob).map_err(|_| too_large(blob))?;
 
     let mut state = Lowering::new(program, Assembler::new(origin), data);
-    state.starts = (0..program.functions().len())
-        .map(|_| state.asm.label())
-        .collect();
+    state.starts = (0..program.functions().len()).map(|_| state.asm.label()).collect();
     // The simulator is told where the stack its hooks take arguments on is,
     // and reads it without any instruction here saying so.
     state.asm.read_outside(CSP);
@@ -467,11 +428,7 @@ fn assemble(program: &Program, heap: u16, stack: bool) -> Result<Code, String> {
     state.plans = program
         .functions()
         .iter()
-        .map(|function| {
-            function
-                .body()
-                .map(|body| state.plan(body).expect("accepted frame size"))
-        })
+        .map(|function| function.body().map(|body| state.plan(body).expect("accepted frame size")))
         .collect();
     state.watch_the_stack(heap);
     state.reset(heap, stack);
@@ -480,11 +437,7 @@ fn assemble(program: &Program, heap: u16, stack: bool) -> Result<Code, String> {
     state.emit_overflow_message();
 
     let pushes = state.asm.pushes();
-    Ok(Code {
-        pushes,
-        bytes: state.asm.finish_within().map_err(too_large)?,
-        reset: origin,
-    })
+    Ok(Code { pushes, bytes: state.asm.finish_within().map_err(too_large)?, reset: origin })
 }
 
 struct Lowering<'a> {
@@ -510,12 +463,7 @@ struct Lowering<'a> {
     /// A comparison waiting for the `if` that reads its flags.
     pending: Option<(ValueId, Relation, ValueId, ValueId)>,
     starts: Vec<super::asm::Label>,
-    loops: Vec<(
-        Vec<ValueId>,
-        super::asm::Label,
-        Vec<ValueId>,
-        super::asm::Label,
-    )>,
+    loops: Vec<(Vec<ValueId>, super::asm::Label, Vec<ValueId>, super::asm::Label)>,
     /// An absent label means the arm falls into its continuation.
     ifs: Vec<(Vec<ValueId>, Option<super::asm::Label>)>,
     /// Path-local upper bounds established by enclosing comparisons.
@@ -686,11 +634,7 @@ impl Lowering<'_> {
     fn entry_argv(&self) -> Option<ValueId> {
         let entry = self.program.entry();
         (self.program.parameter_names(entry).nth(1) == Some("argv")).then(|| {
-            let body = self
-                .program
-                .function(entry)
-                .body()
-                .expect("the entry has a body");
+            let body = self.program.function(entry).body().expect("the entry has a body");
             self.program.values(self.program.region(body).params)[1]
         })
     }
@@ -698,11 +642,7 @@ impl Lowering<'_> {
     fn entry_argc(&self) -> Option<ValueId> {
         let entry = self.program.entry();
         (self.program.parameter_names(entry).next() == Some("argc")).then(|| {
-            let body = self
-                .program
-                .function(entry)
-                .body()
-                .expect("the entry has a body");
+            let body = self.program.function(entry).body().expect("the entry has a body");
             self.program.values(self.program.region(body).params)[0]
         })
     }
@@ -775,10 +715,7 @@ impl Lowering<'_> {
             self.asm.bind_reentered(start);
         }
 
-        let plan = self.plans[id.index()]
-            .as_ref()
-            .expect("a body has a frame plan")
-            .clone();
+        let plan = self.plans[id.index()].as_ref().expect("a body has a frame plan").clone();
         self.frame = plan.frame;
         self.homes = plan.homes;
         if let Some(reserve) = self.reserves[id.index()] {
@@ -863,13 +800,7 @@ impl Lowering<'_> {
         if self.overflow.is_none() {
             return false;
         }
-        let largest = self
-            .plans
-            .iter()
-            .flatten()
-            .map(|plan| plan.frame)
-            .max()
-            .unwrap_or(0);
+        let largest = self.plans.iter().flatten().map(|plan| plan.frame).max().unwrap_or(0);
         let deepest = DEEPEST * u32::from(largest);
         let reached = u32::from(heap) + deepest;
         reached > u32::from(FRAMES_TOP)
@@ -880,9 +811,7 @@ impl Lowering<'_> {
     /// calls checks again. `S` is the next byte a push writes, so `S + 1`
     /// are left. Six cycles where the branch reaches, and five bytes.
     fn check_stack(&mut self, reserve: u16) {
-        let overflow = self
-            .overflow
-            .expect("a function that checks has somewhere to say so");
+        let overflow = self.overflow.expect("a function that checks has somewhere to say so");
         let least = reserve.saturating_sub(1);
         let least = u8::try_from(least).unwrap_or(u8::MAX);
         self.asm.tsx();
@@ -1102,11 +1031,7 @@ impl Lowering<'_> {
     ) {
         for op in self.program.ops(region) {
             match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => {
+                Op::If { then_region, else_region, .. } => {
                     self.survey(then_region, depth, weight, uses, held);
                     self.survey(else_region, depth, weight, uses, held);
                 }
@@ -1119,11 +1044,8 @@ impl Lowering<'_> {
     /// Spans over the whole function, in the order it is emitted.
     fn spans(&self, body: RegionId) -> Spans {
         let count = self.program.values_count();
-        let mut spans = Spans {
-            first: vec![usize::MAX; count],
-            last: vec![0; count],
-            calls: Vec::new(),
-        };
+        let mut spans =
+            Spans { first: vec![usize::MAX; count], last: vec![0; count], calls: Vec::new() };
         let mut at = 0;
         self.span_region(body, &[], &mut at, &mut spans);
         spans
@@ -1141,18 +1063,12 @@ impl Lowering<'_> {
             for &result in results {
                 spans.touch(result, *at);
             }
-            program
-                .operands(op)
-                .for_each(|value| spans.touch(value, *at));
+            program.operands(op).for_each(|value| spans.touch(value, *at));
             match *op {
                 Op::Call { function, .. } if program.function(function).body().is_some() => {
                     spans.calls.push(*at);
                 }
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => {
+                Op::If { then_region, else_region, .. } => {
                     self.span_region(then_region, params, at, spans);
                     self.span_region(else_region, params, at, spans);
                 }
@@ -1245,11 +1161,7 @@ impl Lowering<'_> {
         while let Some(region) = loops.pop() {
             for (op, results) in program.walk(region) {
                 match *op {
-                    Op::If {
-                        then_region,
-                        else_region,
-                        ..
-                    } => {
+                    Op::If { then_region, else_region, .. } => {
                         loops.push(then_region);
                         loops.push(else_region);
                         self.share_if(results, [then_region, else_region], &mut out);
@@ -1289,13 +1201,8 @@ impl Lowering<'_> {
                     continue;
                 };
                 if value == result
-                    || matches!(
-                        self.source[value.index()],
-                        Source::Const(_) | Source::Addr(_)
-                    )
-                    || out
-                        .iter()
-                        .any(|(v, p)| *v == value || *v == result || *p == value)
+                    || matches!(self.source[value.index()], Source::Const(_) | Source::Addr(_))
+                    || out.iter().any(|(v, p)| *v == value || *v == result || *p == value)
                 {
                     continue;
                 }
@@ -1304,10 +1211,7 @@ impl Lowering<'_> {
                 // reader this knows nothing about.
                 if !written_in(program, arm, value)
                     || carried.iter().filter(|&&held| held == value).count() != 1
-                    || program
-                        .ops(arm)
-                        .iter()
-                        .any(|op| op_reads(program, op, value))
+                    || program.ops(arm).iter().any(|op| op_reads(program, op, value))
                 {
                     continue;
                 }
@@ -1341,13 +1245,8 @@ impl Lowering<'_> {
         // while the answer is still wanted -- a loop's parameter is written
         // every time round.
         if !written_in(self.program, region, value)
-            || !matches!(
-                self.source[value.index()],
-                Source::Home(_) | Source::Slot(_)
-            )
-            || out
-                .iter()
-                .any(|(v, p)| *v == value || *v == result || *p == result)
+            || !matches!(self.source[value.index()], Source::Home(_) | Source::Slot(_))
+            || out.iter().any(|(v, p)| *v == value || *v == result || *p == result)
         {
             return;
         }
@@ -1373,19 +1272,13 @@ impl Lowering<'_> {
             };
             if value == param
                 || params.contains(&value)
-                || matches!(
-                    self.source[value.index()],
-                    Source::Const(_) | Source::Addr(_)
-                )
+                || matches!(self.source[value.index()], Source::Const(_) | Source::Addr(_))
                 || out.iter().any(|(v, p)| *v == value || *p == param)
             {
                 continue;
             }
             if self.overwrites_safely(&path, &params, value, param)
-                && !carried
-                    .iter()
-                    .enumerate()
-                    .any(|(other, &v)| other != slot && v == param)
+                && !carried.iter().enumerate().any(|(other, &v)| other != slot && v == param)
             {
                 out.push((value, param));
             }
@@ -1405,9 +1298,7 @@ impl Lowering<'_> {
         let program = self.program;
         // Where the value is computed, and how far down the path.
         let defined = path.iter().enumerate().find_map(|(level, &(region, _))| {
-            let index = program
-                .walk(region)
-                .position(|(_, results)| results == [value])?;
+            let index = program.walk(region).position(|(_, results)| results == [value])?;
             Some((level, index))
         });
         let Some((level, index)) = defined else {
@@ -1430,15 +1321,11 @@ impl Lowering<'_> {
         let order = self.order(region, params);
         let position = order.iter().position(|&at| at == index).expect("emitted");
         let upto = (descended + 1).min(ops.len());
-        let after = order[position + 1..]
+        let after =
+            order[position + 1..].iter().any(|&at| at < upto && op_reads(program, &ops[at], param));
+        let deeper = path[level + 1..]
             .iter()
-            .any(|&at| at < upto && op_reads(program, &ops[at], param));
-        let deeper = path[level + 1..].iter().any(|&(region, _)| {
-            program
-                .ops(region)
-                .iter()
-                .any(|op| op_reads(program, op, param))
-        });
+            .any(|&(region, _)| program.ops(region).iter().any(|op| op_reads(program, op, param)));
         !after && !deeper
     }
 
@@ -1471,26 +1358,13 @@ impl Lowering<'_> {
                     self.fused.insert(result.index());
                 }
                 (
-                    Op::Binary {
-                        op: Binary::Add,
-                        left,
-                        right,
-                    },
-                    Some((
-                        next,
-                        Op::Shift {
-                            direction: Direction::Down,
-                            value,
-                            by: 1,
-                        },
-                    )),
+                    Op::Binary { op: Binary::Add, left, right },
+                    Some((next, Op::Shift { direction: Direction::Down, value, by: 1 })),
                 ) if value == result
                     && bits(program.class(*left)) <= 8
                     && bits(program.class(*right)) <= 8
                     && bits(program.class(*result)) <= 9
-                    && results[next]
-                        .first()
-                        .is_some_and(|shifted| self.needed(*shifted) <= 8) =>
+                    && results[next].first().is_some_and(|shifted| self.needed(*shifted) <= 8) =>
                 {
                     self.fused.insert(result.index());
                     self.halved_sums[result.index()] = Some((*left, *right));
@@ -1500,11 +1374,7 @@ impl Lowering<'_> {
         }
         for op in ops {
             match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => {
+                Op::If { then_region, else_region, .. } => {
                     self.mark(then_region, uses);
                     self.mark(else_region, uses);
                 }
@@ -1539,11 +1409,7 @@ impl Lowering<'_> {
             Source::Home(home) if home == pair => {}
             Source::Home(home) => {
                 self.asm.carry(Held::Zero(home), pair);
-                let high = if self.wide(value) {
-                    Held::Zero(home + 1)
-                } else {
-                    Held::Imm(0)
-                };
+                let high = if self.wide(value) { Held::Zero(home + 1) } else { Held::Imm(0) };
                 self.asm.carry(high, pair + 1);
             }
             Source::Slot(offset) => {
@@ -1588,25 +1454,16 @@ impl Lowering<'_> {
     /// can be and is sometimes fewer.
     fn needed(&self, value: ValueId) -> u16 {
         let held = bits(self.program.class(value));
-        self.needs
-            .get(value.index())
-            .copied()
-            .map_or(held, |needs| needs.min(held))
+        self.needs.get(value.index()).copied().map_or(held, |needs| needs.min(held))
     }
 
     /// The greatest this value can be along the path being emitted.
     fn upper_bound(&self, value: ValueId) -> Option<u64> {
-        let declared = self
-            .program
-            .class(value)
-            .facts()
-            .and_then(|facts| facts.high);
+        let declared = self.program.class(value).facts().and_then(|facts| facts.high);
         self.bounds
             .iter()
             .filter_map(|&(bounded, high)| (bounded == value).then_some(high))
-            .fold(declared, |known, high| {
-                Some(known.map_or(high, |known| known.min(high)))
-            })
+            .fold(declared, |known, high| Some(known.map_or(high, |known| known.min(high))))
     }
 
     /// Whether taking this many low bits loses nothing on the current path.
@@ -1635,10 +1492,7 @@ impl Lowering<'_> {
                 Operand::Imm(u16::try_from(word).expect("a word this target can hold"))
             }
             Source::Addr(id) => Operand::Imm(self.address(id)),
-            Source::Home(home) => Operand::Zp {
-                at: home,
-                wide: self.wide(value),
-            },
+            Source::Home(home) => Operand::Zp { at: home, wide: self.wide(value) },
             Source::Slot(_) => {
                 self.read(scratch, value);
                 Operand::pair(scratch)
@@ -1849,11 +1703,7 @@ impl Lowering<'_> {
         // `self`, and the loop stays one pass over a contiguous run.
         let program = self.program;
         let steps: Vec<(&Op, &[ValueId])> = program.walk(region).collect();
-        let params = self
-            .loops
-            .last()
-            .map(|frame| frame.0.clone())
-            .unwrap_or_default();
+        let params = self.loops.last().map(|frame| frame.0.clone()).unwrap_or_default();
         for index in self.order(region, &params) {
             let (op, results) = steps[index];
             self.instruction(op, results);
@@ -1882,15 +1732,12 @@ impl Lowering<'_> {
         // Writing one destination can only disturb another pair's source
         // when the two share a place; short of that the moves are
         // independent and need no scratch between them.
-        let tangled = destinations
-            .iter()
-            .enumerate()
-            .any(|(index, &destination)| {
-                sources
-                    .iter()
-                    .enumerate()
-                    .any(|(other, &source)| other != index && self.same_place(destination, source))
-            });
+        let tangled = destinations.iter().enumerate().any(|(index, &destination)| {
+            sources
+                .iter()
+                .enumerate()
+                .any(|(other, &source)| other != index && self.same_place(destination, source))
+        });
         if tangled {
             self.transfer_through_scratch(sources, destinations, &moving);
             return;
@@ -1989,10 +1836,7 @@ impl Lowering<'_> {
 
     /// Whether this arm reaches its enclosing `if`'s continuation.
     fn yields(&self, region: RegionId) -> bool {
-        self.program
-            .region(region)
-            .terminator
-            .is_some_and(|term| term.exit == Exit::Yield)
+        self.program.region(region).terminator.is_some_and(|term| term.exit == Exit::Yield)
     }
 
     fn conditional(
@@ -2048,8 +1892,7 @@ impl Lowering<'_> {
         let params = program.values(program.region(body).params);
         self.transfer(initial, params);
         self.asm.bind_reentered(head);
-        self.loops
-            .push((params.to_vec(), head, results.to_vec(), end));
+        self.loops.push((params.to_vec(), head, results.to_vec(), end));
         self.region(body);
         self.loops.pop();
         self.asm.bind(end);
@@ -2558,14 +2401,7 @@ impl Lowering<'_> {
         self.asm.lsr_zp(T1 + 1);
         self.asm.ror_zp(T1);
         self.asm.branch(Cc::NoCarry, skip);
-        self.arithmetic(
-            Binary::Add,
-            Operand::pair(PTR),
-            Operand::pair(T0),
-            PTR,
-            Width::Word,
-            None,
-        );
+        self.arithmetic(Binary::Add, Operand::pair(PTR), Operand::pair(T0), PTR, Width::Word, None);
         self.asm.bind(skip);
         self.asm.asl_zp(T0);
         self.asm.rol_zp(T0 + 1);
@@ -2596,14 +2432,7 @@ impl Lowering<'_> {
         self.asm.branch(Cc::Carry, subtract);
         self.holds(Relation::Less, Operand::pair(PTR), Operand::pair(T1), next);
         self.asm.bind(subtract);
-        self.arithmetic(
-            Binary::Sub,
-            Operand::pair(PTR),
-            Operand::pair(T1),
-            PTR,
-            Width::Word,
-            None,
-        );
+        self.arithmetic(Binary::Sub, Operand::pair(PTR), Operand::pair(T1), PTR, Width::Word, None);
         self.asm.inc_zp(T0); // the shifted-in quotient bit was zero
         self.asm.bind(next);
         self.asm.dex();
@@ -2761,10 +2590,7 @@ impl Lowering<'_> {
         self.asm.bind(done);
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one call per op; the length is the patterns"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one call per op; the length is the patterns")]
     fn instruction(&mut self, op: &Op, results: &[ValueId]) {
         let program = self.program;
         match op {
@@ -2787,11 +2613,7 @@ impl Lowering<'_> {
                 unreachable!("target preparation legalizes abstract cells")
             }
             Op::Constant { .. } | Op::AddressOf(_) => {}
-            Op::Binary {
-                op: Binary::Monus,
-                left,
-                right,
-            } => self.monus(*left, *right, results[0]),
+            Op::Binary { op: Binary::Monus, left, right } => self.monus(*left, *right, results[0]),
             Op::Binary { op, left, right } => {
                 if self.halved_sums[results[0].index()].is_some() {
                     return;
@@ -2832,30 +2654,20 @@ impl Lowering<'_> {
                 // As wide as anything reads the answer, which is not always
                 // as wide as the answer can be: a sum narrowed straight away
                 // has a high half nobody looks at and nothing writes it.
-                let width = if self.needed(results[0]) <= 8 {
-                    Width::Byte
-                } else {
-                    Width::Word
-                };
+                let width = if self.needed(results[0]) <= 8 { Width::Byte } else { Width::Word };
                 let bits = if width == Width::Byte { 8 } else { 16 };
                 let carry_after = (*op == Binary::Add
-                    && self
-                        .upper_bound(left_id)
-                        .zip(self.upper_bound(right_id))
-                        .is_some_and(|(left, right)| {
-                            left.checked_add(right)
-                                .is_some_and(|sum| sum < (1u64 << bits))
-                        }))
+                    && self.upper_bound(left_id).zip(self.upper_bound(right_id)).is_some_and(
+                        |(left, right)| {
+                            left.checked_add(right).is_some_and(|sum| sum < (1u64 << bits))
+                        },
+                    ))
                 .then_some(false);
                 let dest = self.dest(results[0]);
                 self.arithmetic(*op, left, right, dest, width, carry_after);
                 self.commit(results[0], dest);
             }
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } => {
+            Op::Shift { direction, value, by } => {
                 if *direction == Direction::Down
                     && *by == 1
                     && let Some((left, right)) = self.halved_sums[value.index()]
@@ -2883,20 +2695,12 @@ impl Lowering<'_> {
                     }
                     self.asm.sta_zp(dest);
                 } else {
-                    let width = if needed <= 8 {
-                        Width::Byte
-                    } else {
-                        Width::Word
-                    };
+                    let width = if needed <= 8 { Width::Byte } else { Width::Word };
                     self.shifted(*direction, from, dest, *by, width);
                 }
                 self.commit(results[0], dest);
             }
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } => {
+            Op::Compare { relation, left, right } => {
                 // When the next `if` is the only reader, the flags carry the
                 // answer and the one-or-zero word is never built.
                 if self.fused.contains(&results[0].index()) {
@@ -2909,17 +2713,12 @@ impl Lowering<'_> {
                 self.comparison(*relation, left, right, dest);
                 self.commit(results[0], dest);
             }
-            Op::Load {
-                width,
-                address,
-                offset,
-            } => self.load_at(held(*width), *address, *offset, results[0]),
-            Op::Store {
-                width,
-                address,
-                offset,
-                value,
-            } => self.store_at(held(*width), *address, *offset, *value),
+            Op::Load { width, address, offset } => {
+                self.load_at(held(*width), *address, *offset, results[0]);
+            }
+            Op::Store { width, address, offset, value } => {
+                self.store_at(held(*width), *address, *offset, *value);
+            }
             Op::Convert { value } => {
                 self.convert(program.class(results[0]), *value, results[0]);
             }
@@ -2930,11 +2729,9 @@ impl Lowering<'_> {
                     self.call(*function, program.values(*args), results);
                 }
             }
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => self.conditional(*condition, *then_region, *else_region, results),
+            Op::If { condition, then_region, else_region } => {
+                self.conditional(*condition, *then_region, *else_region, results);
+            }
             Op::Loop { initial, body } => {
                 self.repeat(program.values(*initial), *body, results);
             }

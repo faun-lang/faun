@@ -15,10 +15,7 @@ use faun_x86_64_linux::X86_64Linux;
 
 /// Each rung: the ladder's name for it, and the same program in Faun.
 const RUNGS: [(&str, &str); 5] = [
-    (
-        "a constant",
-        "import std.host {Host}\n\nmain! : Host -> []\nmain!(host) -> host.exit!(0)\n",
-    ),
+    ("a constant", "import std.host {Host}\n\nmain! : Host -> []\nmain!(host) -> host.exit!(0)\n"),
     (
         "the count",
         "import std.host {Host}\n\nmain! : Host -> []\nmain!(host) -> (\n  count = host.args.len()\n  host.exit!(U8.of_nat(count))\n)\n",
@@ -31,10 +28,7 @@ const RUNGS: [(&str, &str); 5] = [
         "the low bits of a sum",
         "import std.host {Host}\n\nmain! : Host -> []\nmain!(host) -> (\n  count = host.args.len()\n  host.exit!(U8.of_nat(count + count))\n)\n",
     ),
-    (
-        "a greeting",
-        include_str!("../../frontend/examples/minimal-hello.fn"),
-    ),
+    ("a greeting", include_str!("../../frontend/examples/minimal-hello.fn")),
 ];
 
 /// Each target, what it appends to an output name, and each rung's size.
@@ -60,10 +54,8 @@ fn faun_rungs_are_as_small_as_the_ladder() {
             let written = fs::metadata(&artifact).unwrap().len();
             assert_eq!(written, size, "{} `{name}` from Faun", target.name());
 
-            let (_, rung) = built_ladder
-                .iter()
-                .find(|(rung, _)| *rung == name)
-                .expect("a rung of the ladder");
+            let (_, rung) =
+                built_ladder.iter().find(|(rung, _)| *rung == name).expect("a rung of the ladder");
             let mut barb = rung.clone();
             barb::optimize(&mut barb);
             let machine = faun_core::lower_to_machine_ir(&barb, &target.routines()).unwrap();

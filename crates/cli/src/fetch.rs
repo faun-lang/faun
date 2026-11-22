@@ -60,12 +60,7 @@ impl Fetcher {
             .http_status_as_error(false)
             .build()
             .into();
-        Ok(Self {
-            root,
-            agent,
-            unpacked: 0,
-            downloaded: 0,
-        })
+        Ok(Self { root, agent, unpacked: 0, downloaded: 0 })
     }
 
     /// Fetch what the package at `source` reaches, and choose its versions.
@@ -91,9 +86,7 @@ impl Fetcher {
                     .ok_or_else(|| failed(&"a redirect with no location"))?;
                 let next = joined(&at, location);
                 if !allowed(&next) {
-                    return Err(failed(&format!(
-                        "it redirects to `{next}`, which is not `https`"
-                    )));
+                    return Err(failed(&format!("it redirects to `{next}`, which is not `https`")));
                 }
                 at = next;
                 continue;
@@ -170,10 +163,7 @@ fn extract(bundle: &[u8], staging: &Path) -> Result<u64, String> {
     for entry in archive.entries().map_err(failed)? {
         let mut entry = entry.map_err(failed)?;
         let path = entry.path().map_err(failed)?.into_owned();
-        if path
-            .components()
-            .any(|part| !matches!(part, Component::Normal(_) | Component::CurDir))
-        {
+        if path.components().any(|part| !matches!(part, Component::Normal(_) | Component::CurDir)) {
             return Err(format!("holds `{}`, outside the bundle", path.display()));
         }
         let target = staging.join(&path);
@@ -248,16 +238,11 @@ fn joined(from: &str, location: &str) -> String {
         return location.to_owned();
     }
     let after_scheme = from.find("://").map_or(0, |at| at + 3);
-    let origin_end = from[after_scheme..]
-        .find('/')
-        .map_or(from.len(), |at| after_scheme + at);
+    let origin_end = from[after_scheme..].find('/').map_or(from.len(), |at| after_scheme + at);
     if location.starts_with('/') {
         format!("{}{location}", &from[..origin_end])
     } else {
-        let directory = from
-            .rfind('/')
-            .filter(|&at| at >= origin_end)
-            .unwrap_or(origin_end);
+        let directory = from.rfind('/').filter(|&at| at >= origin_end).unwrap_or(origin_end);
         format!("{}/{location}", &from[..directory])
     }
 }
@@ -304,10 +289,7 @@ mod tests {
     #[test]
     fn a_redirect_is_read_from_where_it_was_given() {
         let from = "https://example.com/a/b/x.tar.zst";
-        assert_eq!(
-            joined(from, "https://cdn.example.com/y"),
-            "https://cdn.example.com/y"
-        );
+        assert_eq!(joined(from, "https://cdn.example.com/y"), "https://cdn.example.com/y");
         assert_eq!(joined(from, "/y"), "https://example.com/y");
         assert_eq!(joined(from, "y"), "https://example.com/a/b/y");
         assert!(allowed("http://localhost:8000/y"));

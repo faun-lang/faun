@@ -45,17 +45,11 @@ fn copy_short_runs(code: &mut Code<Inst>) {
     let alone = reached_once(code);
     // From the last, so each replacement leaves the earlier positions be.
     for at in (0..code.insts().len()).rev() {
-        let Inst::Jump {
-            condition: None,
-            target,
-        } = code.insts()[at]
-        else {
+        let Inst::Jump { condition: None, target } = code.insts()[at] else {
             continue;
         };
         let moves = alone[target.index()]
-            && code
-                .position(target)
-                .is_some_and(|start| !falls_into(code, start));
+            && code.position(target).is_some_and(|start| !falls_into(code, start));
         if moves && let Some(run) = short_run(code, target) {
             code.replace(at, run);
         }
@@ -80,14 +74,7 @@ fn reached_once(code: &Code<Inst>) -> Vec<bool> {
 
 /// Whether what stands before `at` goes on into it.
 fn falls_into(code: &Code<Inst>, at: usize) -> bool {
-    at > 0
-        && !matches!(
-            code.insts()[at - 1],
-            Inst::Jump {
-                condition: None,
-                ..
-            } | Inst::Return
-        )
+    at > 0 && !matches!(code.insts()[at - 1], Inst::Jump { condition: None, .. } | Inst::Return)
 }
 
 /// The few plain instructions at `label` and the jump or return ending
@@ -98,10 +85,7 @@ fn short_run(code: &Code<Inst>, label: Label) -> Option<Vec<Inst>> {
     for inst in code.insts().get(start..)?.iter().take(COPIED + 1) {
         match *inst {
             Inst::Move { .. } | Inst::XorSelf { .. } => run.push(*inst),
-            Inst::Jump {
-                condition: None,
-                target,
-            } if code.position(target) != Some(start) => {
+            Inst::Jump { condition: None, target } if code.position(target) != Some(start) => {
                 run.push(*inst);
                 return (run.len() > 1).then_some(run);
             }
@@ -149,10 +133,7 @@ fn landing(code: &Code<Inst>, mut label: Label, landed: &mut [Option<Label>]) ->
     let mut passed = HashSet::default();
     let mut ended = true;
     while let Some(at) = code.position(label)
-        && let Some(&Inst::Jump {
-            condition: None,
-            target,
-        }) = code.insts().get(at)
+        && let Some(&Inst::Jump { condition: None, target }) = code.insts().get(at)
     {
         if let Some(end) = landed[label.index()] {
             label = end;
@@ -192,17 +173,13 @@ fn drop_redundant(code: &mut Code<Inst>) -> bool {
                 if code.position(target) == Some(at + 1) {
                     kept[at] = false;
                 } else if let Some(condition) = condition
-                    && let Some(&Inst::Jump {
-                        condition: None,
-                        target: over,
-                    }) = code.insts().get(at + 1)
+                    && let Some(&Inst::Jump { condition: None, target: over }) =
+                        code.insts().get(at + 1)
                     && !labelled[at + 1]
                     && code.position(target) == Some(at + 2)
                 {
-                    code.insts_mut()[at] = Inst::Jump {
-                        condition: Some(condition.inverse()),
-                        target: over,
-                    };
+                    code.insts_mut()[at] =
+                        Inst::Jump { condition: Some(condition.inverse()), target: over };
                     kept[at + 1] = false;
                 }
                 reached = condition.is_some();
@@ -253,11 +230,7 @@ mod tests {
         thread(&mut code);
         assert_eq!(
             code.insts(),
-            [
-                jump(Some(Condition::Equal), second),
-                Inst::Return,
-                Inst::Return
-            ]
+            [jump(Some(Condition::Equal), second), Inst::Return, Inst::Return]
         );
         assert_eq!(code.position(second), Some(2));
     }
@@ -279,11 +252,8 @@ mod tests {
     fn a_short_run_one_jump_reaches_takes_its_place() {
         let mut code = Code::default();
         let (other, run, away) = (code.label(), code.label(), code.label());
-        let moved = Inst::Move {
-            dst: Reg::Rax,
-            src: Reg::Rcx,
-            width: crate::machine::RegisterWidth::Word,
-        };
+        let moved =
+            Inst::Move { dst: Reg::Rax, src: Reg::Rcx, width: crate::machine::RegisterWidth::Word };
         code.push(jump(Some(Condition::Equal), other));
         code.push(Inst::XorSelf { dst: Reg::Rdi });
         code.push(jump(None, run));
@@ -315,11 +285,8 @@ mod tests {
     fn a_short_run_two_jumps_reach_stays_where_it_is() {
         let mut code = Code::default();
         let run = code.label();
-        let moved = Inst::Move {
-            dst: Reg::Rax,
-            src: Reg::Rcx,
-            width: crate::machine::RegisterWidth::Word,
-        };
+        let moved =
+            Inst::Move { dst: Reg::Rax, src: Reg::Rcx, width: crate::machine::RegisterWidth::Word };
         code.push(jump(Some(Condition::Equal), run));
         code.push(jump(None, run));
         code.bind(run);
@@ -342,11 +309,7 @@ mod tests {
         thread(&mut code);
         assert_eq!(
             code.insts(),
-            [
-                jump(Some(Condition::NotBelow), away),
-                Inst::XorSelf { dst: Reg::Rax },
-                Inst::Return
-            ]
+            [jump(Some(Condition::NotBelow), away), Inst::XorSelf { dst: Reg::Rax }, Inst::Return]
         );
     }
 }

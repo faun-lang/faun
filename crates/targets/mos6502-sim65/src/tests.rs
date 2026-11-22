@@ -80,31 +80,24 @@ const EXAMPLE_SIZES: &[(&str, usize)] = &[
 const ARITHMETIC_SIZES: [usize; 3] = [209, 247, 245];
 
 fn code(program: &Program) -> Vec<u8> {
-    TARGET
-        .compile_machine_ir(program)
-        .expect("scalar compilation")
+    TARGET.compile_machine_ir(program).expect("scalar compilation")
 }
 
 #[test]
 fn byte_arithmetic_uses_the_6502_carry_and_early_exit_loop() {
     // White Flame's fifteen-byte loop: initialize A, enter at the multiplier
     // shift, and leave as soon as its remaining bits are zero.
-    const BYTE_MULTIPLY: &[u8] = &[
-        0xA9, 0x00, 0xF0, 0x05, 0x18, 0x65, T0, 0x06, T0, 0x46, T1, 0xB0, 0xF7, 0xD0, 0xF8,
-    ];
+    const BYTE_MULTIPLY: &[u8] =
+        &[0xA9, 0x00, 0xF0, 0x05, 0x18, 0x65, T0, 0x06, T0, 0x46, T1, 0xB0, 0xF7, 0xD0, 0xF8];
     let product = code(&faun_core::programs::arithmetic::byte_products());
     assert!(
-        product
-            .windows(BYTE_MULTIPLY.len())
-            .any(|bytes| bytes == BYTE_MULTIPLY),
+        product.windows(BYTE_MULTIPLY.len()).any(|bytes| bytes == BYTE_MULTIPLY),
         "low-byte products should use the fifteen-byte loop"
     );
 
     let average = code(&faun_core::programs::arithmetic::widened_byte_average());
     assert!(
-        average
-            .windows(6)
-            .any(|bytes| { matches!(bytes, [0x18, 0x65, _, 0x6A, 0x85, _]) }),
+        average.windows(6).any(|bytes| { matches!(bytes, [0x18, 0x65, _, 0x6A, 0x85, _]) }),
         "a widened byte sum should rotate its carry directly into the quotient"
     );
 }
@@ -117,9 +110,7 @@ fn narrow_equality_does_not_compare_known_zero_high_bytes() {
         "the fixture should compare its byte result"
     );
     assert!(
-        !code
-            .windows(4)
-            .any(|bytes| bytes == [0xA9, 0x00, 0xC9, 0x00]),
+        !code.windows(4).any(|bytes| bytes == [0xA9, 0x00, 0xC9, 0x00]),
         "equal known high bytes need no comparison"
     );
 }
@@ -146,9 +137,7 @@ fn a_byte_an_arm_leaves_with_is_read_whole() {
          )",
     )
     .expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let prepared = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(shared::execute(&prepared), (0, "223\n".to_owned()));
 }
 
@@ -187,10 +176,7 @@ fn it_holds_what_a_program_holds() {
     let refused = TARGET.accepts(&wide(70_000)).unwrap_err();
     assert!(refused.contains("holds 16 bits, and 70000"), "{refused}");
     let refused = TARGET.accepts(&narrow(32)).unwrap_err();
-    assert!(
-        refused.contains("holds 16 bits, and a value here needs 32"),
-        "{refused}"
-    );
+    assert!(refused.contains("holds 16 bits, and a value here needs 32"), "{refused}");
 }
 
 /// Setting the stack pointer costs three bytes, and there is no cheaper way
@@ -203,20 +189,12 @@ fn only_a_program_that_calls_something_sets_the_stack() {
     // ldx #$FF, txs.
     const SETS_IT: &[u8] = &[0xA2, 0xFF, 0x9A];
     let held = |program: &Program| {
-        let image = TARGET
-            .compile_machine_ir(program)
-            .expect("scalar compilation");
+        let image = TARGET.compile_machine_ir(program).expect("scalar compilation");
         let code = 12 + crate::globals_offset(program) + program.globals().len();
         image[code..].starts_with(SETS_IT)
     };
-    assert!(
-        !held(&shared::read(shared::EXIT_ZERO).expect("a program")),
-        "one that calls nothing"
-    );
-    assert!(
-        held(&faun_core::programs::calls_a_function()),
-        "one that calls something"
-    );
+    assert!(!held(&shared::read(shared::EXIT_ZERO).expect("a program")), "one that calls nothing");
+    assert!(held(&faun_core::programs::calls_a_function()), "one that calls something");
     // A hook is reached by `jsr` like anything else, so asking the simulator
     // for something counts as calling something.
     assert!(held(&faun_core::programs::hello_world()), "one that writes");
@@ -238,13 +216,9 @@ fn run_reporting(program: &Program) -> (Option<i32>, String, String) {
             .as_nanos()
     ));
     std::fs::create_dir_all(&dir).expect("a directory to run in");
-    let prepared = TARGET
-        .prepare(program)
-        .expect("a program this machine holds");
+    let prepared = TARGET.prepare(program).expect("a program this machine holds");
     let image = TARGET.emit(&prepared);
-    let path = TARGET
-        .write(&image, &dir.join("program"))
-        .expect("somewhere to write it");
+    let path = TARGET.write(&image, &dir.join("program")).expect("somewhere to write it");
     let mut child = Command::new(RUNNER.expect("a simulator"))
         .arg(&path)
         .stdin(Stdio::null())
@@ -467,9 +441,8 @@ fn frames_too_deep_for_memory_without_a_cycle_are_refused() {
     const LINKS: u64 = 4;
     const KEPT: u64 = 60;
     let code = |filler: usize| {
-        let image = TARGET
-            .compile_machine_ir(&chain(LINKS, KEPT, filler))
-            .expect("a chain that fits");
+        let image =
+            TARGET.compile_machine_ir(&chain(LINKS, KEPT, filler)).expect("a chain that fits");
         image.len() - filler
     };
     // Without the data, how much image the rest takes; the frames' top is

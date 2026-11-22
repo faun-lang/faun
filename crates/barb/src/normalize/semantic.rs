@@ -72,22 +72,14 @@ impl Rewrite<'_> {
         } else {
             return None;
         };
-        let add = Float {
-            operation: Operation::Add,
-            ..float
-        };
-        let function = self
-            .recognised
-            .floats
-            .iter()
-            .enumerate()
-            .find_map(|(at, found)| {
-                let id = FnId::at(at);
-                (*found == Some(add)
-                    && self.program.params(id) == self.program.params(called)
-                    && self.program.function(id).result == self.program.function(called).result)
-                    .then_some(id)
-            })?;
+        let add = Float { operation: Operation::Add, ..float };
+        let function = self.recognised.floats.iter().enumerate().find_map(|(at, found)| {
+            let id = FnId::at(at);
+            (*found == Some(add)
+                && self.program.params(id) == self.program.params(called)
+                && self.program.function(id).result == self.program.function(called).result)
+                .then_some(id)
+        })?;
         let args = self.program.terms.hold_atoms([value, value].into_iter());
         Some(self.push(Expr::Call(function, args), scope))
     }

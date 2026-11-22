@@ -69,9 +69,7 @@ impl Program {
         if let Some(expected) = self.layout
             && expected != actual
         {
-            return Err(format!(
-                "program requires layout {expected:?}, not {actual:?}"
-            ));
+            return Err(format!("program requires layout {expected:?}, not {actual:?}"));
         }
         Ok(())
     }
@@ -90,10 +88,8 @@ impl Program {
     /// The shape whose leaves are `classes`: one already held where one is,
     /// since an object and every read of it name one shape.
     pub fn shape(&mut self, classes: &[Class]) -> ShapeId {
-        if let Some(found) = self
-            .shapes
-            .ids()
-            .find(|&id| &self.shaped[self.shapes[id].range()] == classes)
+        if let Some(found) =
+            self.shapes.ids().find(|&id| &self.shaped[self.shapes[id].range()] == classes)
         {
             return found;
         }
@@ -137,9 +133,7 @@ impl Program {
     /// If `function` is invalid or `at` is outside its signature.
     #[must_use]
     pub fn parameter_name(&self, function: FunctionId, at: usize) -> &str {
-        self.parameter_names(function)
-            .nth(at)
-            .expect("a parameter in the function signature")
+        self.parameter_names(function).nth(at).expect("a parameter in the function signature")
     }
 
     /// The name a symbol stands for.
@@ -157,9 +151,7 @@ impl Program {
     /// instructions cannot fall through.
     #[must_use]
     pub fn outgoing(&self, region: RegionId) -> &[ValueId] {
-        self.region(region)
-            .terminator
-            .map_or(&[], |term| self.values(term.values))
+        self.region(region).terminator.map_or(&[], |term| self.values(term.values))
     }
 
     #[must_use]
@@ -172,10 +164,7 @@ impl Program {
     pub fn use_counts(&self) -> Vec<usize> {
         let mut counts = vec![0; self.values_count()];
         let operands = self.ops.iter().flat_map(|op| self.operands(op));
-        let exits = self
-            .regions
-            .ids()
-            .flat_map(|r| self.outgoing(r).iter().copied());
+        let exits = self.regions.ids().flat_map(|r| self.outgoing(r).iter().copied());
         for value in operands.chain(exits) {
             counts[value.index()] += 1;
         }
@@ -188,7 +177,6 @@ impl Program {
     ///
     /// # Panics
     /// If an operand range is out of bounds.
-    #[expect(clippy::too_many_lines, reason = "one exhaustive arm per operation")]
     pub fn operands<'a>(&'a self, op: &'a Op) -> impl Iterator<Item = ValueId> + 'a {
         let (first, rest): (Option<ValueId>, &[ValueId]) = match op {
             Op::Constant { .. }
@@ -197,28 +185,14 @@ impl Program {
             | Op::BufferEmpty { .. }
             | Op::BufferKnown { .. } => (None, &[]),
             Op::Cell { fields, .. }
-            | Op::BufferPush {
-                operands: fields, ..
-            }
-            | Op::BufferAppend {
-                operands: fields, ..
-            }
-            | Op::BufferReplace {
-                operands: fields, ..
-            }
-            | Op::BufferPrepend {
-                operands: fields, ..
-            }
-            | Op::BufferExtend {
-                operands: fields, ..
-            }
+            | Op::BufferPush { operands: fields, .. }
+            | Op::BufferAppend { operands: fields, .. }
+            | Op::BufferReplace { operands: fields, .. }
+            | Op::BufferPrepend { operands: fields, .. }
+            | Op::BufferExtend { operands: fields, .. }
             | Op::Call { args: fields, .. }
-            | Op::Float {
-                operands: fields, ..
-            }
-            | Op::Loop {
-                initial: fields, ..
-            } => (None, self.values(*fields)),
+            | Op::Float { operands: fields, .. }
+            | Op::Loop { initial: fields, .. } => (None, self.values(*fields)),
             Op::CellTag { cell: value }
             | Op::CellField { cell: value, .. }
             | Op::BufferRoom { count: value, .. }
@@ -226,26 +200,14 @@ impl Program {
             | Op::Load { address: value, .. }
             | Op::Convert { value }
             | Op::Shift { value, .. }
-            | Op::If {
-                condition: value, ..
-            } => (None, std::slice::from_ref(value)),
+            | Op::If { condition: value, .. } => (None, std::slice::from_ref(value)),
             Op::Binary { left, right, .. }
             | Op::Compare { left, right, .. }
-            | Op::BufferField {
-                buffer: left,
-                start: right,
-                ..
+            | Op::BufferField { buffer: left, start: right, .. }
+            | Op::BufferAt { buffer: left, start: right, .. }
+            | Op::Store { address: left, value: right, .. } => {
+                (Some(*left), std::slice::from_ref(right))
             }
-            | Op::BufferAt {
-                buffer: left,
-                start: right,
-                ..
-            }
-            | Op::Store {
-                address: left,
-                value: right,
-                ..
-            } => (Some(*left), std::slice::from_ref(right)),
         };
         first.into_iter().chain(rest.iter().copied())
     }
@@ -299,11 +261,7 @@ impl Program {
                 };
                 stack.last_mut().expect("the region just read").1 = at + 1;
                 match *op {
-                    Op::If {
-                        then_region,
-                        else_region,
-                        ..
-                    } => {
+                    Op::If { then_region, else_region, .. } => {
                         stack.push((then_region, 0));
                         stack.push((else_region, 0));
                     }
@@ -333,16 +291,14 @@ impl Program {
     /// Whether anything in the program calls a routine by this name.
     #[must_use]
     pub fn reaches(&self, name: &str) -> bool {
-        self.functions
-            .iter()
-            .filter_map(Function::body)
-            .flat_map(|body| self.every(body))
-            .any(|op| match *op {
+        self.functions.iter().filter_map(Function::body).flat_map(|body| self.every(body)).any(
+            |op| match *op {
                 Op::Call { function, .. } => self.functions[function]
                     .external()
                     .is_some_and(|symbol| self.name(symbol) == name),
                 _ => false,
-            })
+            },
+        )
     }
 
     #[must_use]
@@ -432,19 +388,14 @@ impl Program {
         let mut held = vec![body];
         while let Some(region) = held.pop() {
             let region = self.regions[region];
-            if region
-                .terminator
-                .is_some_and(|held| held.exit == Exit::Return)
-            {
+            if region.terminator.is_some_and(|held| held.exit == Exit::Return) {
                 return true;
             }
             for op in &self.ops[region.ops.range()] {
                 match *op {
-                    Op::If {
-                        then_region,
-                        else_region,
-                        ..
-                    } => held.extend([then_region, else_region]),
+                    Op::If { then_region, else_region, .. } => {
+                        held.extend([then_region, else_region]);
+                    }
                     Op::Loop { body, .. } => held.push(body),
                     _ => {}
                 }
@@ -525,11 +476,8 @@ impl Program {
         returns: Returns<&[Class]>,
     ) -> FunctionId {
         let names: Vec<_> = (0..params.len()).map(|at| format!("v{at}")).collect();
-        let params: Vec<_> = names
-            .iter()
-            .zip(params)
-            .map(|(name, &class)| (name.as_str(), class))
-            .collect();
+        let params: Vec<_> =
+            names.iter().zip(params).map(|(name, &class)| (name.as_str(), class)).collect();
         self.external_named(name, &params, returns)
     }
 
@@ -567,11 +515,8 @@ impl Program {
     /// declared after it, or itself. Validation rejects unbuilt declarations.
     pub fn declare(&mut self, name: &str, params: &[Class], returns: &[Class]) -> FunctionId {
         let names: Vec<_> = (0..params.len()).map(|at| format!("v{at}")).collect();
-        let params: Vec<_> = names
-            .iter()
-            .zip(params)
-            .map(|(name, &class)| (name.as_str(), class))
-            .collect();
+        let params: Vec<_> =
+            names.iter().zip(params).map(|(name, &class)| (name.as_str(), class)).collect();
         self.declare_named(name, &params, returns)
     }
 
@@ -585,11 +530,8 @@ impl Program {
         let classes: Vec<_> = params.iter().map(|(_, class)| *class).collect();
         let values = self.mint(&classes);
         let (params, parameters) = self.sign_named(params);
-        let body = self.regions.push(Region {
-            params: values,
-            ops: Range::default(),
-            terminator: None,
-        });
+        let body =
+            self.regions.push(Region { params: values, ops: Range::default(), terminator: None });
         let name = self.symbol(name);
         let returns = self.sign(returns);
         self.functions.push(Function {
@@ -607,11 +549,8 @@ impl Program {
     /// defined before validation, even when nothing calls it yet.
     pub fn declare_never(&mut self, name: &str, params: &[Class]) -> FunctionId {
         let names: Vec<_> = (0..params.len()).map(|at| format!("v{at}")).collect();
-        let params: Vec<_> = names
-            .iter()
-            .zip(params)
-            .map(|(name, &class)| (name.as_str(), class))
-            .collect();
+        let params: Vec<_> =
+            names.iter().zip(params).map(|(name, &class)| (name.as_str(), class)).collect();
         self.declare_never_named(name, &params)
     }
 
@@ -679,8 +618,7 @@ impl Program {
         let classes = self.sign(&classes);
         let names: Vec<_> = params.iter().map(|(name, _)| self.symbol(name)).collect();
         let start = self.parameters.len();
-        self.parameters
-            .extend(names.into_iter().map(|name| Parameter { name }));
+        self.parameters.extend(names.into_iter().map(|name| Parameter { name }));
         (classes, Range::of(start, params.len()))
     }
 

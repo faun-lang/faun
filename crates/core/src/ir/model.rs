@@ -72,11 +72,7 @@ impl Class {
     pub const fn fixed(bits: u16) -> Self {
         Self::Held(Bounds {
             low: 0,
-            high: Some(if bits >= 64 {
-                u64::MAX
-            } else {
-                (1u64 << bits) - 1
-            }),
+            high: Some(if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 }),
         })
     }
 
@@ -506,9 +502,9 @@ impl Class {
     #[must_use]
     pub fn bits(self, word: u16) -> u16 {
         match self {
-            Self::Held(facts) => facts
-                .width()
-                .expect("a number with no greatest has no fixed width"),
+            Self::Held(facts) => {
+                facts.width().expect("a number with no greatest has no fixed width")
+            }
             Self::Cell | Self::Buffer | Self::Word | Self::Address => word,
             Self::Natural => panic!("an arbitrary-precision integer has no fixed width"),
         }

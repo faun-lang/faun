@@ -17,12 +17,7 @@ pub(crate) struct FoldLimits {
 
 impl Default for FoldLimits {
     fn default() -> Self {
-        Self {
-            work: 8_000_000,
-            work_per_function: 1_000_000,
-            max_bytes: 8192,
-            max_depth: 128,
-        }
+        Self { work: 8_000_000, work_per_function: 1_000_000, max_bytes: 8192, max_depth: 128 }
     }
 }
 
@@ -51,11 +46,7 @@ pub(crate) struct Budget {
 impl Budget {
     #[must_use]
     pub(crate) const fn new(limits: FoldLimits) -> Self {
-        Self {
-            remaining: limits.work,
-            limits,
-            depth: 0,
-        }
+        Self { remaining: limits.work, limits, depth: 0 }
     }
 
     /// A budget nothing exhausts, for revisiting what was already built

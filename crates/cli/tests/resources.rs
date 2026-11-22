@@ -9,9 +9,7 @@ use std::path::PathBuf;
 use support::{Directory, Package};
 
 fn example(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../frontend/examples/files")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/examples/files").join(name)
 }
 
 /// A file read and another written, each closed: what was read is what is

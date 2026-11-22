@@ -53,12 +53,9 @@ fn frame(pairs: usize) -> Program {
     let (mut program, main) = Program::new("main");
     program.define(main, |b, _| {
         let zero = b.constant(Class::Word, 0);
-        let held: Vec<_> = (1..pairs)
-            .map(|_| b.binary(Binary::Add, zero, zero))
-            .collect();
-        let total = held[1..]
-            .iter()
-            .fold(held[0], |total, &value| b.binary(Binary::Add, total, value));
+        let held: Vec<_> = (1..pairs).map(|_| b.binary(Binary::Add, zero, zero)).collect();
+        let total =
+            held[1..].iter().fold(held[0], |total, &value| b.binary(Binary::Add, total, value));
         b.ret(&[total]);
     });
     program
@@ -75,8 +72,5 @@ fn checks_actual_spill_plan_before_emission() {
     let oversized = frame(16 + 256);
     validate(&oversized).unwrap();
     let error = Mos6502Sim65.accepts(&oversized).unwrap_err();
-    assert!(
-        error.contains("function `main`: frame exceeds 510 bytes"),
-        "{error}"
-    );
+    assert!(error.contains("function `main`: frame exceeds 510 bytes"), "{error}");
 }

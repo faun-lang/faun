@@ -14,13 +14,8 @@ pub(super) enum Case {
     Monus,
 }
 
-pub(super) const CASES: [Case; 5] = [
-    Case::Chain,
-    Case::Shared,
-    Case::ConstantLeft,
-    Case::Carry,
-    Case::Monus,
-];
+pub(super) const CASES: [Case; 5] =
+    [Case::Chain, Case::Shared, Case::ConstantLeft, Case::Carry, Case::Monus];
 
 impl Case {
     pub(super) fn source(self) -> String {

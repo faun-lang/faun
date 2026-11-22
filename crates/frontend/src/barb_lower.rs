@@ -30,9 +30,7 @@ fn program(checked: &crate::Checked, entry: Symbol) -> Result<barb::Program, Dia
     crate::second_class::check(&specialized, cx)?;
     let program = crate::callbacks::lower(specialized, cx)?;
     let program = p::compile(program, cx)?;
-    Lowerer::new(program, cx, None)
-        .and_then(Lowerer::lower)
-        .map_err(|refusal| cx.told(refusal))
+    Lowerer::new(program, cx, None).and_then(Lowerer::lower).map_err(|refusal| cx.told(refusal))
 }
 
 /// Emit a pattern-compiled package as Barb, starting at its `main! : Host -> []`
@@ -147,10 +145,7 @@ impl<'a> Lowerer<'a> {
             let (key, _) = self.function_ids.iter().find(|(_, id)| **id == function)?;
             self.definition_site(key.name)
         });
-        Refusal {
-            at: definition,
-            ..Refusal::from(refusal.message)
-        }
+        Refusal { at: definition, ..Refusal::from(refusal.message) }
     }
 
     /// Where the first clause defining `name` is written.
@@ -209,31 +204,20 @@ impl<'a> Lowerer<'a> {
                     self.collect_decision(&arm.decision, answer)?;
                 }
             }
-            Decision::Record {
-                owner, decision, ..
-            } => {
+            Decision::Record { owner, decision, .. } => {
                 self.collect_type(owner)?;
                 self.collect_decision(decision, answer)?;
             }
-            Decision::Let {
-                subject, decision, ..
-            } => {
+            Decision::Let { subject, decision, .. } => {
                 self.collect_body(subject, answer)?;
                 self.collect_decision(decision, answer)?;
             }
-            Decision::Guard {
-                condition,
-                otherwise,
-                answer: yes,
-                ..
-            } => {
+            Decision::Guard { condition, otherwise, answer: yes, .. } => {
                 self.collect_body(condition, answer)?;
                 self.collect_decision(otherwise, answer)?;
                 self.collect_decision(yes, answer)?;
             }
-            Decision::Numeral {
-                equal, otherwise, ..
-            } => {
+            Decision::Numeral { equal, otherwise, .. } => {
                 self.collect_type(&Type::Named(self.prelude.bool_, Vec::new()))?;
                 self.collect_decision(equal, answer)?;
                 self.collect_decision(otherwise, answer)?;
@@ -329,10 +313,8 @@ impl<'a> Lowerer<'a> {
         }
         self.collect_type(from)?;
         self.collect_type(to)?;
-        for (source, target) in self
-            .widening_fields(from, to)?
-            .into_iter()
-            .flat_map(|(_, pairs)| pairs)
+        for (source, target) in
+            self.widening_fields(from, to)?.into_iter().flat_map(|(_, pairs)| pairs)
         {
             self.collect_widening(&source, &target)?;
         }
@@ -350,16 +332,11 @@ impl<'a> Lowerer<'a> {
         from.constructors(&self.program.data, &self.cx.symbols)?
             .into_iter()
             .map(|(constructor, fields)| {
-                let (_, widened) = target
-                    .iter()
-                    .find(|(found, _)| *found == constructor)
-                    .ok_or_else(|| {
+                let (_, widened) =
+                    target.iter().find(|(found, _)| *found == constructor).ok_or_else(|| {
                         error("a widened type lacks one of its source's constructors")
                     })?;
-                Ok((
-                    Some(constructor),
-                    fields.into_iter().zip(widened.iter().cloned()).collect(),
-                ))
+                Ok((Some(constructor), fields.into_iter().zip(widened.iter().cloned()).collect()))
             })
             .collect()
     }
@@ -429,10 +406,7 @@ impl<'a> Lowerer<'a> {
                         .map(|(name, fields)| {
                             (
                                 self.cx.symbols.spelling(*name).to_string(),
-                                fields
-                                    .iter()
-                                    .map(|field| self.type_ids[field])
-                                    .collect::<Vec<_>>(),
+                                fields.iter().map(|field| self.type_ids[field]).collect::<Vec<_>>(),
                             )
                         })
                         .collect();
@@ -449,27 +423,21 @@ impl<'a> Lowerer<'a> {
                 }
                 Type::Record(fields) => {
                     let fields = self.named_fields(fields);
-                    self.output
-                        .define_fields(id, &[("Record", fields.as_slice())]);
-                    self.record_constructor_ids
-                        .insert(ty.clone(), self.output.ctor_at(id, 0));
+                    self.output.define_fields(id, &[("Record", fields.as_slice())]);
+                    self.record_constructor_ids.insert(ty.clone(), self.output.ctor_at(id, 0));
                 }
                 Type::Tuple(members) => {
                     let members: Vec<_> =
                         members.iter().map(|member| self.type_ids[member]).collect();
-                    self.output
-                        .define_type(id, &[("Tuple", members.as_slice())]);
-                    self.record_constructor_ids
-                        .insert(ty.clone(), self.output.ctor_at(id, 0));
+                    self.output.define_type(id, &[("Tuple", members.as_slice())]);
+                    self.record_constructor_ids.insert(ty.clone(), self.output.ctor_at(id, 0));
                 }
                 Type::Function(..) => unreachable!("collection refuses a function type"),
             }
         }
         let nat = Type::Named(self.prelude.nat, Vec::new());
         if let Some(&nat) = self.type_ids.get(&nat) {
-            self.output
-                .intern_number(nat, 0)
-                .map_err(|cause| error(cause.to_string()))?;
+            self.output.intern_number(nat, 0).map_err(|cause| error(cause.to_string()))?;
         }
         Ok(())
     }
@@ -486,23 +454,16 @@ impl<'a> Lowerer<'a> {
     /// each named as the program spells it. `Host`'s are the startup values
     /// its target produces, which the target recognizes by those names.
     fn define_record_wrapper(&mut self, ty: &Type, id: TypeId) {
-        let Type::Named(name, _) = ty else {
-            unreachable!("a record wrapper is a named type")
-        };
+        let Type::Named(name, _) = ty else { unreachable!("a record wrapper is a named type") };
         let Type::Record(fields) = self.record_wrappers[ty].clone() else {
             unreachable!("record wrappers map to record types")
         };
         let held = self.named_fields(&fields);
-        let wrapper = self.program.data[name]
-            .wrapper
-            .as_ref()
-            .expect("a record wrapper")
-            .constructor;
+        let wrapper =
+            self.program.data[name].wrapper.as_ref().expect("a record wrapper").constructor;
         let spelled = self.cx.symbols.spelling(wrapper).to_owned();
-        self.output
-            .define_fields(id, &[(spelled.as_str(), held.as_slice())]);
-        self.constructor_ids
-            .insert((wrapper, ty.clone()), self.output.ctor_at(id, 0));
+        self.output.define_fields(id, &[(spelled.as_str(), held.as_slice())]);
+        self.constructor_ids.insert((wrapper, ty.clone()), self.output.ctor_at(id, 0));
     }
 
     fn declare_functions(&mut self) {
@@ -514,10 +475,8 @@ impl<'a> Lowerer<'a> {
                 .enumerate()
                 .map(|(index, parameter)| (format!("v{index}"), self.type_ids[parameter]))
                 .collect();
-            let borrowed: Vec<_> = parameters
-                .iter()
-                .map(|(name, ty)| (name.as_str(), *ty))
-                .collect();
+            let borrowed: Vec<_> =
+                parameters.iter().map(|(name, ty)| (name.as_str(), *ty)).collect();
             let result = self.type_ids[result];
             let name = function_name(&function.key, &self.cx.symbols);
             let id = self.output.declare_named(&name, &borrowed, result);
@@ -528,9 +487,7 @@ impl<'a> Lowerer<'a> {
             self.function_ids.insert(function.key.clone(), id);
         }
         for (from, to) in &self.widenings {
-            let id = self
-                .output
-                .declare("widen", &[self.type_ids[from]], self.type_ids[to]);
+            let id = self.output.declare("widen", &[self.type_ids[from]], self.type_ids[to]);
             self.widen_ids.insert((from.clone(), to.clone()), id);
         }
         for list in &self.unreachables {
@@ -549,8 +506,7 @@ impl<'a> Lowerer<'a> {
     /// way is left in, so folding never runs it.
     fn define_unreachables(&mut self) {
         for id in self.unreachable_ids.values().copied() {
-            self.output
-                .define(id, |builder, parameters| builder.call(id, parameters));
+            self.output.define(id, |builder, parameters| builder.call(id, parameters));
         }
     }
 
@@ -574,37 +530,33 @@ impl<'a> Lowerer<'a> {
                 answer: &to,
             };
             self.output.define(id, |builder, parameters| {
-                builder.match_(
-                    parameters[0],
-                    context.type_ids[&from],
-                    |builder, built, fields| {
-                        let (constructor, pairs) = plan
-                            .iter()
-                            .find(|(constructor, _)| {
-                                constructor.is_none_or(|constructor| {
-                                    context.constructor_ids[&(constructor, from.clone())] == built
-                                })
+                builder.match_(parameters[0], context.type_ids[&from], |builder, built, fields| {
+                    let (constructor, pairs) = plan
+                        .iter()
+                        .find(|(constructor, _)| {
+                            constructor.is_none_or(|constructor| {
+                                context.constructor_ids[&(constructor, from.clone())] == built
                             })
-                            .expect("the plan has every constructor of its source");
-                        let fields = match constructor {
-                            Some(_) => context.arm_fields(builder, &from, fields),
-                            None => fields.to_vec(),
-                        };
-                        let widened: Vec<_> = fields
-                            .iter()
-                            .zip(pairs)
-                            .map(|(field, (source, target))| {
-                                context.widen(builder, *field, source, target)
-                            })
-                            .collect();
-                        match constructor {
-                            Some(constructor) => {
-                                context.construct(builder, *constructor, &to, &widened)
-                            }
-                            None => builder.con(context.record_constructor_ids[&to], &widened),
+                        })
+                        .expect("the plan has every constructor of its source");
+                    let fields = match constructor {
+                        Some(_) => context.arm_fields(builder, &from, fields),
+                        None => fields.to_vec(),
+                    };
+                    let widened: Vec<_> = fields
+                        .iter()
+                        .zip(pairs)
+                        .map(|(field, (source, target))| {
+                            context.widen(builder, *field, source, target)
+                        })
+                        .collect();
+                    match constructor {
+                        Some(constructor) => {
+                            context.construct(builder, *constructor, &to, &widened)
                         }
-                    },
-                )
+                        None => builder.con(context.record_constructor_ids[&to], &widened),
+                    }
+                })
             });
         }
         Ok(())
@@ -681,24 +633,14 @@ impl<'a> Lowerer<'a> {
             })
         });
         // At least the second and below the third.
-        let within = self
-            .output
-            .declare("numeral.within", &[nat, nat, nat], bool_);
+        let within = self.output.declare("numeral.within", &[nat, nat, nat], bool_);
         self.output.define(within, |b, args| {
             let below = b.call(less, &[args[0], args[1]]);
             b.match_(below, bool_, |b, constructor, _| {
-                if constructor == yes {
-                    b.con(no, &[])
-                } else {
-                    b.call(less, &[args[0], args[2]])
-                }
+                if constructor == yes { b.con(no, &[]) } else { b.call(less, &[args[0], args[2]]) }
             })
         });
-        Numerals {
-            equals,
-            less,
-            within,
-        }
+        Numerals { equals, less, within }
     }
 }
 
@@ -751,9 +693,8 @@ impl EmitContext<'_> {
         let [record_value] = fields else {
             unreachable!("a record wrapper is built from one record")
         };
-        builder.match_(*record_value, self.type_ids[record], |builder, _, held| {
-            builder.con(id, held)
-        })
+        builder
+            .match_(*record_value, self.type_ids[record], |builder, _, held| builder.con(id, held))
     }
 
     /// What an arm of `owner` binds: its fields, except that a record
@@ -779,11 +720,7 @@ fn emit_decision(
             within.extend(locals.iter().map(|(local, value)| (*local, values[value])));
             emit_body(context, builder, body, within)
         }
-        Decision::Match {
-            subject,
-            owner,
-            arms,
-        } => {
+        Decision::Match { subject, owner, arms } => {
             let owner_id = context.type_ids[owner];
             builder.match_(values[subject], owner_id, |builder, constructor, fields| {
                 let arm = arms
@@ -800,28 +737,16 @@ fn emit_decision(
                 emit_decision(context, builder, &arm.decision, &nested, outer)
             })
         }
-        Decision::Record {
-            subject,
-            owner,
-            fields,
-            decision,
-        } => builder.match_(
-            values[subject],
-            context.type_ids[owner],
-            |builder, _, atoms| {
+        Decision::Record { subject, owner, fields, decision } => {
+            builder.match_(values[subject], context.type_ids[owner], |builder, _, atoms| {
                 let mut nested = values.clone();
                 for (value, atom) in fields.iter().zip(atoms) {
                     nested.insert(*value, *atom);
                 }
                 emit_decision(context, builder, decision, &nested, outer)
-            },
-        ),
-        Decision::Let {
-            value,
-            subject,
-            locals,
-            decision,
-        } => {
+            })
+        }
+        Decision::Let { value, subject, locals, decision } => {
             let mut within = outer.clone();
             within.extend(locals.iter().map(|(local, value)| (*local, values[value])));
             let worked_out = emit_body(context, builder, subject, within);
@@ -853,12 +778,7 @@ fn emit_decision(
                 }
             })
         }
-        Decision::Numeral {
-            subject,
-            number,
-            equal,
-            otherwise,
-        } => {
+        Decision::Numeral { subject, number, equal, otherwise } => {
             if let Some((run, others, rest)) = dense_run(decision) {
                 return emit_dense(
                     context,
@@ -869,38 +789,21 @@ fn emit_decision(
                     outer,
                 );
             }
-            let equals = context
-                .numerals
-                .expect("a numeral's test is written before it is read")
-                .equals;
+            let equals =
+                context.numerals.expect("a numeral's test is written before it is read").equals;
             let known = numeral(context, builder, number);
             let test = builder.call(equals, &[values[subject], known]);
             emit_if(context, builder, test, (equal, otherwise), values, outer)
         }
-        Decision::Split {
-            subject,
-            count,
-            len,
-            take,
-            drop,
-            front,
-            back,
-            decision,
-        } => {
+        Decision::Split { subject, count, len, take, drop, front, back, decision } => {
             let nat_ty = Type::Named(context.prelude.nat, Vec::new());
             let count = builder
-                .natural(
-                    context.type_ids[&nat_ty],
-                    &num_bigint::BigUint::from(*count),
-                )
+                .natural(context.type_ids[&nat_ty], &num_bigint::BigUint::from(*count))
                 .expect("Nat has a natural's shape");
             let count = builder.known(count);
             let list = values[subject];
-            let (len, take, drop) = (
-                context.function_ids[len],
-                context.function_ids[take],
-                context.function_ids[drop],
-            );
+            let (len, take, drop) =
+                (context.function_ids[len], context.function_ids[take], context.function_ids[drop]);
             let beyond = builder.call(drop, &[list, count]);
             let kept = builder.call(len, &[beyond]);
             let mut nested = values.clone();
@@ -935,13 +838,7 @@ fn dense_run(decision: &Decision) -> Option<(Numbered<'_>, Numbered<'_>, &Decisi
     };
     let mut asked: Numbered<'_> = Vec::new();
     let mut at = decision;
-    while let Decision::Numeral {
-        subject: tested,
-        number,
-        equal,
-        otherwise,
-    } = at
-    {
+    while let Decision::Numeral { subject: tested, number, equal, otherwise } = at {
         if tested != subject {
             break;
         }
@@ -967,10 +864,7 @@ fn dense_run(decision: &Decision) -> Option<(Numbered<'_>, Numbered<'_>, &Decisi
     }
     let run = sorted[best].to_vec();
     let (low, high) = (run[0].0, run[run.len() - 1].0);
-    let others = asked
-        .into_iter()
-        .filter(|(number, _)| *number < low || *number > high)
-        .collect();
+    let others = asked.into_iter().filter(|(number, _)| *number < low || *number > high).collect();
     Some((run, others, at))
 }
 
@@ -987,31 +881,15 @@ fn emit_dense(
     values: &HashMap<Value, Atom>,
     outer: &HashMap<LocalId, Atom>,
 ) -> Atom {
-    let numerals = context
-        .numerals
-        .expect("a numeral's test is written before it is read");
+    let numerals = context.numerals.expect("a numeral's test is written before it is read");
     let first = numeral(context, builder, run[0].0);
     let end = numeral(context, builder, &(run[run.len() - 1].0 + 1u32));
     let within = builder.call(numerals.within, &[values[&subject], first, end]);
     branch(context, builder, within, |builder, holds| {
         if holds {
-            emit_search(
-                context,
-                builder,
-                (subject, numerals.less),
-                run,
-                values,
-                outer,
-            )
+            emit_search(context, builder, (subject, numerals.less), run, values, outer)
         } else {
-            emit_each(
-                context,
-                builder,
-                (subject, numerals.equals),
-                (others, rest),
-                values,
-                outer,
-            )
+            emit_each(context, builder, (subject, numerals.equals), (others, rest), values, outer)
         }
     })
 }
@@ -1035,14 +913,7 @@ fn emit_each(
         if holds {
             emit_decision(context, builder, equal, values, outer)
         } else {
-            emit_each(
-                context,
-                builder,
-                (subject, equals),
-                (later, rest),
-                values,
-                outer,
-            )
+            emit_each(context, builder, (subject, equals), (later, rest), values, outer)
         }
     })
 }
@@ -1076,9 +947,8 @@ fn numeral(
     number: &num_bigint::BigUint,
 ) -> Atom {
     let nat_ty = Type::Named(context.prelude.nat, Vec::new());
-    let known = builder
-        .natural(context.type_ids[&nat_ty], number)
-        .expect("Nat has a natural's shape");
+    let known =
+        builder.natural(context.type_ids[&nat_ty], number).expect("Nat has a natural's shape");
     builder.known(known)
 }
 
@@ -1092,13 +962,7 @@ fn emit_if(
     outer: &HashMap<LocalId, Atom>,
 ) -> Atom {
     branch(context, builder, test, |builder, holds| {
-        emit_decision(
-            context,
-            builder,
-            if holds { yes } else { no },
-            values,
-            outer,
-        )
+        emit_decision(context, builder, if holds { yes } else { no }, values, outer)
     })
 }
 
@@ -1112,11 +976,9 @@ fn branch(
 ) -> Atom {
     let bool_ty = Type::Named(context.prelude.bool_, Vec::new());
     let true_id = context.constructor_ids[&(context.prelude.bool_true, bool_ty.clone())];
-    builder.match_(
-        test,
-        context.type_ids[&bool_ty],
-        |builder, constructor, _| arm(builder, constructor == true_id),
-    )
+    builder.match_(test, context.type_ids[&bool_ty], |builder, constructor, _| {
+        arm(builder, constructor == true_id)
+    })
 }
 
 fn emit_body(
@@ -1148,11 +1010,7 @@ fn emit_bindings(
         }
         Unpack::Fields { .. } => unreachable!("an unpack is emitted by `destructure`"),
     };
-    let p::Bound::Value(Expr {
-        kind: ExprKind::Try(taken),
-        ..
-    }) = &binding.value
-    else {
+    let p::Bound::Value(Expr { kind: ExprKind::Try(taken), .. }) = &binding.value else {
         let value = emit_bound(context, builder, &binding.value, &locals);
         if !matches!(binding.unpack, Unpack::Ignore | Unpack::Bind(_)) {
             return destructure(
@@ -1173,25 +1031,16 @@ fn emit_bindings(
         unreachable!("`?` takes and answers results")
     };
     let ok = context.constructor_ids[&(context.prelude.result_ok, taken.ty.clone())];
-    builder.match_(
-        value,
-        context.type_ids[&taken.ty],
-        |builder, built, fields| {
-            if built == ok {
-                let mut locals = locals.clone();
-                bind(&mut locals, fields[0]);
-                emit_bindings(context, builder, rest, result, locals)
-            } else {
-                let error = context.widen(builder, fields[0], &taken_types[1], &answered_types[1]);
-                context.construct(
-                    builder,
-                    context.prelude.result_err,
-                    context.answer,
-                    &[error],
-                )
-            }
-        },
-    )
+    builder.match_(value, context.type_ids[&taken.ty], |builder, built, fields| {
+        if built == ok {
+            let mut locals = locals.clone();
+            bind(&mut locals, fields[0]);
+            emit_bindings(context, builder, rest, result, locals)
+        } else {
+            let error = context.widen(builder, fields[0], &taken_types[1], &answered_types[1]);
+            context.construct(builder, context.prelude.result_err, context.answer, &[error])
+        }
+    })
 }
 
 /// What a binding binds: its value, or for an `if`, a match on its
@@ -1214,20 +1063,10 @@ fn emit_bound(
         p::Bound::If { condition, yes, no } => {
             let asked = emit_expr(context, builder, condition, locals);
             let true_ = context.constructor_ids[&(context.prelude.bool_true, condition.ty.clone())];
-            builder.match_(
-                asked,
-                context.type_ids[&condition.ty],
-                |builder, built, _| {
-                    let branch = if built == true_ { yes } else { no };
-                    emit_bindings(
-                        context,
-                        builder,
-                        &branch.bindings,
-                        &branch.result,
-                        locals.clone(),
-                    )
-                },
-            )
+            builder.match_(asked, context.type_ids[&condition.ty], |builder, built, _| {
+                let branch = if built == true_ { yes } else { no };
+                emit_bindings(context, builder, &branch.bindings, &branch.result, locals.clone())
+            })
         }
     }
 }
@@ -1268,14 +1107,9 @@ fn destructure_each(
     else {
         return then(builder, locals);
     };
-    destructure(
-        context,
-        builder,
-        value,
-        unpack,
-        locals,
-        &|builder, locals| destructure_each(context, builder, held, fields, locals, then),
-    )
+    destructure(context, builder, value, unpack, locals, &|builder, locals| {
+        destructure_each(context, builder, held, fields, locals, then)
+    })
 }
 
 fn emit_expr(
@@ -1333,10 +1167,8 @@ fn emit_expr(
             builder.con(context.record_constructor_ids[&expression.ty], &fields)
         }
         ExprKind::Tuple(members) => {
-            let members: Vec<_> = members
-                .iter()
-                .map(|member| emit_expr(context, builder, member, locals))
-                .collect();
+            let members: Vec<_> =
+                members.iter().map(|member| emit_expr(context, builder, member, locals)).collect();
             builder.con(context.record_constructor_ids[&expression.ty], &members)
         }
         // The replacements are worked out first, in the order written, then
@@ -1351,23 +1183,19 @@ fn emit_expr(
                 unreachable!("an update builds a record")
             };
             let constructor = context.record_constructor_ids[&expression.ty];
-            builder.match_(
-                record,
-                context.type_ids[&expression.ty],
-                |builder, _, held| {
-                    let rebuilt: Vec<_> = layout
-                        .iter()
-                        .zip(held)
-                        .map(|((name, _), kept)| {
-                            replaced
-                                .iter()
-                                .find(|(found, _)| found == name)
-                                .map_or(*kept, |(_, value)| *value)
-                        })
-                        .collect();
-                    builder.con(constructor, &rebuilt)
-                },
-            )
+            builder.match_(record, context.type_ids[&expression.ty], |builder, _, held| {
+                let rebuilt: Vec<_> = layout
+                    .iter()
+                    .zip(held)
+                    .map(|((name, _), kept)| {
+                        replaced
+                            .iter()
+                            .find(|(found, _)| found == name)
+                            .map_or(*kept, |(_, value)| *value)
+                    })
+                    .collect();
+                builder.con(constructor, &rebuilt)
+            })
         }
         ExprKind::Project(receiver, field) => {
             let atom = emit_expr(context, builder, receiver, locals);
@@ -1382,17 +1210,13 @@ fn emit_expr(
             };
             let decided = context.constructor_ids[&(decided, left.ty.clone())];
             let left_value = emit_expr(context, builder, left, locals);
-            builder.match_(
-                left_value,
-                context.type_ids[&left.ty],
-                |builder, built, _| {
-                    if built == decided {
-                        left_value
-                    } else {
-                        emit_expr(context, builder, right, locals)
-                    }
-                },
-            )
+            builder.match_(left_value, context.type_ids[&left.ty], |builder, built, _| {
+                if built == decided {
+                    left_value
+                } else {
+                    emit_expr(context, builder, right, locals)
+                }
+            })
         }
         ExprKind::DirectCall(key, arguments) => {
             let arguments = arguments
@@ -1423,9 +1247,8 @@ fn emit_projection(
             .iter()
             .position(|(name, _)| *name == field)
             .expect("checked projection names a record field");
-        return builder.match_(receiver, context.type_ids[receiver_ty], |_, _, values| {
-            values[index]
-        });
+        return builder
+            .match_(receiver, context.type_ids[receiver_ty], |_, _, values| values[index]);
     }
     // A record wrapper holds its record's fields itself.
     let Type::Record(fields) = &context.record_wrappers[receiver_ty] else {
@@ -1435,9 +1258,7 @@ fn emit_projection(
         .iter()
         .position(|(name, _)| *name == field)
         .expect("checked projection names a record field");
-    builder.match_(receiver, context.type_ids[receiver_ty], |_, _, values| {
-        values[index]
-    })
+    builder.match_(receiver, context.type_ids[receiver_ty], |_, _, values| values[index])
 }
 
 fn type_name(ty: &Type, symbols: &crate::Symbols) -> String {
@@ -1483,11 +1304,7 @@ fn type_name(ty: &Type, symbols: &crate::Symbols) -> String {
         ),
         Type::Tuple(members) => format!(
             "({})",
-            members
-                .iter()
-                .map(|member| type_name(member, symbols))
-                .collect::<Vec<_>>()
-                .join(", ")
+            members.iter().map(|member| type_name(member, symbols)).collect::<Vec<_>>().join(", ")
         ),
         Type::Record(fields) => format!(
             "{{{}}}",
@@ -1523,9 +1340,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn checked_example(name: &str) -> crate::Checked {
-        let entry = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples")
-            .join(name);
+        let entry = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples").join(name);
         crate::checked_for_test(&entry)
     }
 
@@ -1584,10 +1399,7 @@ mod tests {
         // entry as written, and a routine is asked with the `Host` it was
         // handed, as the source says. What the machine tier makes of it is
         // the driver's test.
-        assert!(
-            rendered.contains("\nHost = Host(args: List<Str>)\n"),
-            "{rendered}"
-        );
+        assert!(rendered.contains("\nHost = Host(args: List<Str>)\n"), "{rendered}");
         assert!(rendered.contains("main!(v0: Host) -> [] ="), "{rendered}");
         assert!(rendered.contains("Host.exit!(v0: Host, v1: U8) -> [] = <elsewhere>"));
         assert!(rendered.contains("Host.exit!(v0, v5)"), "{rendered}");
@@ -1600,10 +1412,7 @@ mod tests {
         let entry = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/main.fn");
         let platform = Platform::new("x86_64-linux", []);
         let refused = crate::lower_to_barb(&entry, &platform).unwrap_err();
-        assert!(
-            refused.to_string().contains("does not provide `exit!`"),
-            "{refused}"
-        );
+        assert!(refused.to_string().contains("does not provide `exit!`"), "{refused}");
     }
 
     #[test]

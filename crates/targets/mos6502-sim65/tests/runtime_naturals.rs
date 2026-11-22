@@ -43,11 +43,7 @@ fn naturals_are_held_past_half_of_memory() {
     p.define(main, |b, _| {
         let far = b.data(&vec![1; 0x7000]);
         let at = b.address_of(far);
-        let byte = b.load(
-            faun_core::ir::Width::Byte,
-            at,
-            faun_core::ir::Offset::Bytes(0),
-        );
+        let byte = b.load(faun_core::ir::Width::Byte, at, faun_core::ir::Offset::Bytes(0));
         let natural = b.convert(Class::Natural, byte);
         let doubled = b.binary(faun_core::ir::Binary::Add, natural, natural);
         let result = b.convert(Class::Word, doubled);

@@ -32,10 +32,7 @@ impl Platform {
     /// beside the standard package, answering for `routines`.
     #[must_use]
     pub fn new(name: impl Into<String>, routines: impl IntoIterator<Item = Routine>) -> Self {
-        Self {
-            name: name.into(),
-            routines: routines.into_iter().collect(),
-        }
+        Self { name: name.into(), routines: routines.into_iter().collect() }
     }
 
     /// What names the target, and its host module.

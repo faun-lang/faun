@@ -109,11 +109,7 @@ fn found(program: &Program, recognised: &Recognised) -> Vec<(FnId, Walk)> {
         for (id, walk) in more {
             taken.insert(id);
             if let Some(answer) = walk.answer {
-                let at = Known {
-                    walked: walk.walked,
-                    acc: walk.acc,
-                    answer,
-                };
+                let at = Known { walked: walk.walked, acc: walk.acc, answer };
                 known.insert(id, at);
             }
             walks.push((id, walk));
@@ -173,29 +169,27 @@ impl Walk {
         if read(program, nil.body, walked) + read(program, cons.body, walked) != 0 {
             return None;
         }
-        (0..arity)
-            .filter(|&acc| acc != walked && params[acc] == list)
-            .find_map(|acc| {
-                // The walk binds the push's fields after its parameters.
-                let rest = arity + recursive;
-                let mut steps = Steps::new((id, walked, acc, rest, empty), recognised, known);
-                let mut scope = vec![None; arity + 2];
-                steps.body(program, cons.body, &mut scope);
-                let (appends, rounds, inner) = steps.builds(program, cons.body)?;
-                Some(Self {
-                    list,
-                    walked,
-                    acc,
-                    empty,
-                    push,
-                    nil,
-                    cons,
-                    appends,
-                    rounds,
-                    inner,
-                    answer: answer(program, nil.body, acc),
-                })
+        (0..arity).filter(|&acc| acc != walked && params[acc] == list).find_map(|acc| {
+            // The walk binds the push's fields after its parameters.
+            let rest = arity + recursive;
+            let mut steps = Steps::new((id, walked, acc, rest, empty), recognised, known);
+            let mut scope = vec![None; arity + 2];
+            steps.body(program, cons.body, &mut scope);
+            let (appends, rounds, inner) = steps.builds(program, cons.body)?;
+            Some(Self {
+                list,
+                walked,
+                acc,
+                empty,
+                push,
+                nil,
+                cons,
+                appends,
+                rounds,
+                inner,
+                answer: answer(program, nil.body, acc),
             })
+        })
     }
 }
 
@@ -335,13 +329,7 @@ impl Steps<'_> {
             [Going::Inner(at)] => Some(self.inners[*at]),
             _ => None,
         };
-        ok.then(|| {
-            (
-                self.appends,
-                self.rounds.into_iter().map(|(expr, ..)| expr).collect(),
-                inner,
-            )
-        })
+        ok.then(|| (self.appends, self.rounds.into_iter().map(|(expr, ..)| expr).collect(), inner))
     }
 
     /// Read `body`, where `scope` says what each local in scope is, where
@@ -448,11 +436,10 @@ impl Steps<'_> {
         for arm in arms {
             let fields = program.fields(arm.ctor).len();
             scope.truncate(level);
-            scope.extend((0..fields).map(|field| {
-                inner
-                    .filter(|_| one)
-                    .map(|at| Held::Field(at, arm.ctor, field))
-            }));
+            scope.extend(
+                (0..fields)
+                    .map(|field| inner.filter(|_| one).map(|at| Held::Field(at, arm.ctor, field))),
+            );
             self.body(program, arm.body, scope);
         }
         scope.truncate(level);
@@ -505,11 +492,7 @@ impl Operations {
                 .map(TypeId::at)
                 .find(|&ty| matches!(super::type_shape(program, ty), TypeShape::Natural { .. }))?,
         };
-        let TypeShape::Natural {
-            empty: zero,
-            push: succ,
-            ..
-        } = super::type_shape(program, count)
+        let TypeShape::Natural { empty: zero, push: succ, .. } = super::type_shape(program, count)
         else {
             return None;
         };
@@ -523,15 +506,7 @@ impl Operations {
         let monus = recognised
             .operation_over(program, super::Operation::Monus, &[count, count], count)
             .unwrap_or_else(|| super::arithmetic::write_monus(program, count));
-        Some(Self {
-            count,
-            zero,
-            succ,
-            length,
-            monus,
-            drop,
-            replace,
-        })
+        Some(Self { count, zero, succ, length, monus, drop, replace })
     }
 }
 
@@ -558,22 +533,10 @@ fn placed(
     // built is the whole, by the time either reads it.
     let mut locals: Vec<_> = (0..arity).map(param).collect();
     locals[walk.acc] = param(walk.walked);
-    let rewriting = Rewriting {
-        walk,
-        ops,
-        placed,
-        locals,
-        inner,
-    };
+    let rewriting = Rewriting { walk, ops, placed, locals, inner };
     let arms = [
-        Arm {
-            ctor: ops.zero,
-            body: rewriting.base(program, arity),
-        },
-        Arm {
-            ctor: ops.succ,
-            body: rewriting.step(program, arity),
-        },
+        Arm { ctor: ops.zero, body: rewriting.base(program, arity) },
+        Arm { ctor: ops.succ, body: rewriting.step(program, arity) },
     ];
     let arms = program.terms.hold_arms(&arms);
     let mut scope = Scope::at(arity);
@@ -592,16 +555,10 @@ fn declared(
     suffix: &str,
     edit: impl FnOnce(&mut Vec<(String, TypeId)>),
 ) -> FnId {
-    let mut params: Vec<(String, TypeId)> = program
-        .parameter_names(id)
-        .map(str::to_owned)
-        .zip(program.params(id).to_vec())
-        .collect();
+    let mut params: Vec<(String, TypeId)> =
+        program.parameter_names(id).map(str::to_owned).zip(program.params(id).to_vec()).collect();
     edit(&mut params);
-    let named: Vec<_> = params
-        .iter()
-        .map(|(name, ty)| (name.as_str(), *ty))
-        .collect();
+    let named: Vec<_> = params.iter().map(|(name, ty)| (name.as_str(), *ty)).collect();
     let function = program.function(id);
     let (name, result) = (function.name, function.result);
     let name = format!("{}.{suffix}", program.name(name));
@@ -626,13 +583,7 @@ type Placing = (usize, usize, FnId);
 impl Rewriting<'_> {
     /// The walk's base case, whose first binding takes `level`.
     fn base(&self, program: &mut Program, level: usize) -> Body {
-        copy::body(
-            program,
-            self.walk.nil.body,
-            self.locals.clone(),
-            level,
-            None,
-        )
+        copy::body(program, self.walk.nil.body, self.locals.clone(), level, None)
     }
 
     /// Where some are left: the element as far from the end as that,
@@ -654,22 +605,10 @@ impl Rewriting<'_> {
         let mut edit = |program: &mut Program, scope: &mut Scope, source: ExprId, expr: Expr| {
             rewritten(program, scope, self, source, expr, (whole, replaced, fewer))
         };
-        let taken = copy::body(
-            program,
-            self.walk.cons.body,
-            inner,
-            level + 2,
-            Some(&mut edit),
-        );
+        let taken = copy::body(program, self.walk.cons.body, inner, level + 2, Some(&mut edit));
         let arms = [
-            Arm {
-                ctor: self.walk.empty,
-                body: self.base(program, level),
-            },
-            Arm {
-                ctor: self.walk.push,
-                body: taken,
-            },
+            Arm { ctor: self.walk.empty, body: self.base(program, level) },
+            Arm { ctor: self.walk.push, body: taken },
         ];
         let arms = program.terms.hold_arms(&arms);
         let answer = copy::push(program, &mut scope, Expr::Match(from, arms));
@@ -710,21 +649,12 @@ fn rewritten(
     if !walk.rounds.contains(&source) {
         return expr;
     }
-    let onto = if rewriting.inner.is_some() {
-        going[walk.walked]
-    } else {
-        whole
-    };
-    let args = program
-        .terms
-        .hold_atoms([onto, replaced, going[walk.acc]].into_iter());
+    let onto = if rewriting.inner.is_some() { going[walk.walked] } else { whole };
+    let args = program.terms.hold_atoms([onto, replaced, going[walk.acc]].into_iter());
     let written = copy::push(program, scope, Expr::Call(rewriting.ops.replace, args));
     going[walk.walked] = written;
     going[walk.acc] = fewer;
-    Expr::Call(
-        rewriting.placed,
-        program.terms.hold_atoms(going.into_iter()),
-    )
+    Expr::Call(rewriting.placed, program.terms.hold_atoms(going.into_iter()))
 }
 
 /// `w` called with nothing built: `w'` on the whole, all of it left. Its

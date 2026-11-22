@@ -71,32 +71,20 @@ fn main() -> ExitCode {
 fn answer(command: Command) -> ExitCode {
     let outcome = match command {
         Command::Check { target, source } => check(&source, target).map(|()| ExitCode::SUCCESS),
-        Command::Build {
-            compiler,
-            source,
-            output,
-            favour,
-            symbols,
-        } => build(&source, compiler, &output, favour, symbols).map(|()| ExitCode::SUCCESS),
-        Command::Run {
-            compiler,
-            source,
-            args,
-        } => run(&source, compiler, &args),
+        Command::Build { compiler, source, output, favour, symbols } => {
+            build(&source, compiler, &output, favour, symbols).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Run { compiler, source, args } => run(&source, compiler, &args),
         Command::Test { compiler, source } => test(&source, compiler).map(|()| ExitCode::SUCCESS),
-        Command::Emit {
-            compiler,
-            stage,
-            source,
-        } => emit(stage, &source, compiler).map(|()| ExitCode::SUCCESS),
-        Command::Bundle {
-            target,
-            source,
-            output,
-        } => bundle::bundle(&source, &output, target).map(|written| {
-            println!("wrote {}", written.display());
-            ExitCode::SUCCESS
-        }),
+        Command::Emit { compiler, stage, source } => {
+            emit(stage, &source, compiler).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Bundle { target, source, output } => {
+            bundle::bundle(&source, &output, target).map(|written| {
+                println!("wrote {}", written.display());
+                ExitCode::SUCCESS
+            })
+        }
         Command::Fetch { source } => fetch(&source).map(|()| ExitCode::SUCCESS),
         Command::Uses { source } => uses(&source).map(|()| ExitCode::SUCCESS),
     };
@@ -142,10 +130,7 @@ fn build(
     let faun_frontend::Package::Application(barb) =
         faun_frontend::check_package_using(source, &compiler.platform(), &fetched(source)?)?
     else {
-        println!(
-            "checked {}, a library with no `main!` to build",
-            source.display()
-        );
+        println!("checked {}, a library with no `main!` to build", source.display());
         return Ok(());
     };
     let image = compiler.compile(*barb, favour, symbols)?;
@@ -165,9 +150,7 @@ fn run(source: &Path, compiler: Compiler, args: &[String]) -> Result<ExitCode, D
         Favour::Speed,
         SymbolTable::Omitted,
     )?;
-    let status = execute(target, runner, &image, |program| {
-        program.args(args).status()
-    })?;
+    let status = execute(target, runner, &image, |program| program.args(args).status())?;
     if let Some(signal) = stopping_signal(status) {
         eprintln!("the program was stopped by signal {signal}");
         let shell = 128 + signal;
@@ -221,9 +204,9 @@ fn test(source: &Path, compiler: Compiler) -> Result<(), Diagnostic> {
         let message = format!("the expectations stopped with {}", output.status);
         let stopped = Diagnostic::new(message);
         return Err(match tests.expectations.get(answered.asked) {
-            Some(location) => stopped
-                .at_location(location.clone())
-                .note("this expectation was being asked"),
+            Some(location) => {
+                stopped.at_location(location.clone()).note("this expectation was being asked")
+            }
             None => stopped,
         });
     }
@@ -237,9 +220,8 @@ fn tell_failures(failed: &[Failure<'_>]) {
         let mut diagnostic = diagnostic.at_location(failure.location.clone());
         match &failure.sides {
             Some((Side::Shown(left), Side::Shown(right))) => {
-                diagnostic = diagnostic
-                    .note(format!("left:  {left}"))
-                    .note(format!("right: {right}"));
+                diagnostic =
+                    diagnostic.note(format!("left:  {left}")).note(format!("right: {right}"));
             }
             Some((Side::Unshown(ty), _) | (_, Side::Unshown(ty))) => {
                 diagnostic =
@@ -256,11 +238,8 @@ fn tell_failures(failed: &[Failure<'_>]) {
 /// error where any failed.
 fn report(failed: &[Failure<'_>], count: usize) -> Result<(), Diagnostic> {
     tell_failures(failed);
-    let counted = if count == 1 {
-        "1 expectation".to_owned()
-    } else {
-        format!("{count} expectations")
-    };
+    let counted =
+        if count == 1 { "1 expectation".to_owned() } else { format!("{count} expectations") };
     let failures = failed.len();
     if failures == 0 {
         let verb = if count == 1 { "holds" } else { "hold" };
@@ -280,10 +259,8 @@ fn runner(target: &dyn Target) -> Result<&'static [&'static str], Diagnostic> {
     match target.name() {
         "wasm32-wasi" => Ok(&["wasmtime", "run", "--dir", "."]),
         "mos6502-sim65" => Ok(&["sim65"]),
-        name => Err(
-            Diagnostic::new(format!("{name} programs do not run on this machine"))
-                .help(format!("cross-compile with `faun build --target {name}`")),
-        ),
+        name => Err(Diagnostic::new(format!("{name} programs do not run on this machine"))
+            .help(format!("cross-compile with `faun build --target {name}`"))),
     }
 }
 
@@ -300,9 +277,7 @@ fn execute<T>(
     let outcome = write(target, image, &directory.join("program")).and_then(|program| {
         let (command, options) = runner
             .split_first()
-            .map_or((program.as_path(), &[][..]), |(bin, flags)| {
-                (Path::new(bin), flags)
-            });
+            .map_or((program.as_path(), &[][..]), |(bin, flags)| (Path::new(bin), flags));
         let mut process = Process::new(command);
         if !runner.is_empty() {
             process.args(options).arg(&program);
@@ -352,24 +327,16 @@ fn uses(source: &Path) -> Result<(), Diagnostic> {
     for used in &packages.tree {
         let indent = "  ".repeat(used.depth + 1);
         let tests = if used.for_tests { " (tests)" } else { "" };
-        let chosen = used
-            .chosen
-            .map(|version| format!(" (uses {version})"))
-            .unwrap_or_default();
+        let chosen = used.chosen.map(|version| format!(" (uses {version})")).unwrap_or_default();
         let shown = if used.shown { " (shown above)" } else { "" };
-        println!(
-            "{indent}{}: {}{tests}{chosen}{shown}",
-            used.name, used.written
-        );
+        println!("{indent}{}: {}{tests}{chosen}{shown}", used.name, used.written);
     }
     Ok(())
 }
 
 /// Write an image through its target, answering the path written.
 fn write(target: &dyn Target, image: &[u8], output: &Path) -> Result<PathBuf, Diagnostic> {
-    target
-        .write(image, output)
-        .map_err(|error| cannot("write", output, &error))
+    target.write(image, output).map_err(|error| cannot("write", output, &error))
 }
 
 /// What the file system refused: to `act` on `path`.

@@ -44,10 +44,7 @@ fn a_library_is_checked_by_the_frontend_alone_and_has_no_barb() {
         faun_frontend::lower_to_barb(&package.entry(), &faun_driver::platform(&X86_64Linux))
             .unwrap_err();
     assert!(refused.message.contains("no `main!` to build"));
-    let wrong = Package::new(
-        "wrong-library",
-        "double : Nat -> Nat\ndouble(n) -> n + True\n",
-    );
+    let wrong = Package::new("wrong-library", "double : Nat -> Nat\ndouble(n) -> n + True\n");
     assert!(
         faun_frontend::check_package(&wrong.entry(), &faun_driver::platform(&X86_64Linux)).is_err()
     );
@@ -161,10 +158,7 @@ fn a_loop_handed_different_strings_is_copied_for_each_where_that_decides_somethi
     assert!(!rendered.contains("List.any"), "{rendered}");
     assert!(!rendered.contains("\nseek("), "{rendered}");
     // Knowing its string decides nothing in `count`, so there is one.
-    let counts = rendered
-        .lines()
-        .filter(|line| line.starts_with("count"))
-        .count();
+    let counts = rendered.lines().filter(|line| line.starts_with("count")).count();
     assert_eq!(counts, 1, "{rendered}");
 }
 
@@ -275,21 +269,13 @@ fn only_the_operators_on_bool_leave_their_right_side_unworked() {
     let rendered = barb.render();
     let body = |name: &str| {
         let header = format!("\n{name}(");
-        let start = rendered
-            .find(&header)
-            .unwrap_or_else(|| panic!("{rendered}"));
+        let start = rendered.find(&header).unwrap_or_else(|| panic!("{rendered}"));
         let rest = &rendered[start + 1..];
         let end = rest.find("\n\n").unwrap_or(rest.len());
         rest[..end].lines().skip(1).collect::<Vec<_>>().join("\n")
     };
-    assert_eq!(
-        body("method"),
-        "  v1 = 0\n  v2 = spin(v1)\n  Bool.or(v0, v2)"
-    );
-    assert_eq!(
-        body("named"),
-        "  v1 = 0\n  v2 = spin(v1)\n  Bool.and(v0, v2)"
-    );
+    assert_eq!(body("method"), "  v1 = 0\n  v2 = spin(v1)\n  Bool.or(v0, v2)");
+    assert_eq!(body("named"), "  v1 = 0\n  v2 = spin(v1)\n  Bool.and(v0, v2)");
     let operator = body("operator");
     assert!(operator.starts_with("  match v0\n"), "{operator}");
     assert!(!operator.contains("Bool.or"), "{operator}");

@@ -20,10 +20,7 @@ fn optimized(package: &Package) -> barb::Program {
 /// The facts a target with float instructions reads, which name the float
 /// operations it answers.
 fn with_floats(program: &barb::Program) -> barb::Facts {
-    program.assuming(&barb::Assumed {
-        floats: true,
-        ..barb::Assumed::default()
-    })
+    program.assuming(&barb::Assumed { floats: true, ..barb::Assumed::default() })
 }
 
 #[test]
@@ -45,9 +42,7 @@ fn rotations_are_recognized_by_equations_with_a_checked_input_range() {
         let program = optimized(&package);
         let facts = program.analyze();
         assert_eq!(
-            program
-                .function_ids()
-                .any(|id| facts.rotation(id).is_some_and(|r| r.bits == 8)),
+            program.function_ids().any(|id| facts.rotation(id).is_some_and(|r| r.bits == 8)),
             recognized
         );
     }
@@ -83,10 +78,7 @@ fn final_tree_facts_identify_the_builder_and_reader_before_lowering() {
         faun_frontend::lower_to_barb(&path, &faun_driver::platform(&X86_64Linux)).unwrap();
     barb::optimize(&mut program);
     let facts = program.analyze();
-    let roles: Vec<_> = program
-        .function_ids()
-        .map(|id| facts.tree_role(id))
-        .collect();
+    let roles: Vec<_> = program.function_ids().map(|id| facts.tree_role(id)).collect();
     assert!(roles.contains(&barb::TreeRole::Builder));
     assert!(roles.contains(&barb::TreeRole::Reader));
 }
@@ -107,11 +99,7 @@ fn float_doubling_is_rewritten_before_machine_lowering() {
     );
     let program = optimized(&package);
     let facts = with_floats(&program);
-    let function = program
-        .functions()
-        .iter()
-        .find(|f| program.name(f.name) == "twice")
-        .unwrap();
+    let function = program.functions().iter().find(|f| program.name(f.name) == "twice").unwrap();
     let mut adds = 0;
     for expr in expressions(&program, function.body().unwrap()) {
         if let barb::Expr::Call(id, _) = expr
@@ -126,12 +114,7 @@ fn float_doubling_is_rewritten_before_machine_lowering() {
 
 fn expressions(program: &barb::Program, body: barb::Body) -> Vec<barb::Expr> {
     let mut result = Vec::new();
-    for id in program
-        .bindings(body.bindings)
-        .iter()
-        .copied()
-        .chain([body.tail])
-    {
+    for id in program.bindings(body.bindings).iter().copied().chain([body.tail]) {
         let expr = program.expr(id);
         result.push(expr);
         if let barb::Expr::Match(_, arms) = expr {
@@ -145,13 +128,8 @@ fn expressions(program: &barb::Program, body: barb::Body) -> Vec<barb::Expr> {
 
 /// Every float operation the standard has, at both formats.
 const FLOATS: [(&str, &str); 2] = [("F64", "Binary64"), ("F32", "Binary32")];
-const OPERATIONS: [(&str, &str); 5] = [
-    ("add", "Add"),
-    ("sub", "Sub"),
-    ("mul", "Mul"),
-    ("div", "Div"),
-    ("sqrt", "Sqrt"),
-];
+const OPERATIONS: [(&str, &str); 5] =
+    [("add", "Add"), ("sub", "Sub"), ("mul", "Mul"), ("div", "Div"), ("sqrt", "Sqrt")];
 
 /// A program asking every float operation of both formats.
 fn every_float_operation() -> Package {
@@ -220,7 +198,7 @@ fn reference_table() -> String {
             .join("_");
         writeln!(
             table,
-            "    (\n        0x{print},\n        Float {{\n            operation: Operation::{operation},\n            format: Format::{format},\n        }},\n    ),"
+            "    (\n        0x{print},\n        Float {{ operation: Operation::{operation}, format: Format::{format} }},\n    ),"
         )
         .unwrap();
     }
@@ -295,16 +273,8 @@ fn every_float_operation_is_recognized_by_its_code() {
                 .find(|&id| program.name(program.function(id).name) == name)
                 .and_then(|id| facts.float(id))
                 .unwrap_or_else(|| panic!("`{name}` is not recognized: {STALE}"));
-            assert_eq!(
-                format!("{:?}", recognized.operation),
-                operation,
-                "{name}: {STALE}"
-            );
-            assert_eq!(
-                format!("{:?}", recognized.format),
-                format,
-                "{name}: {STALE}"
-            );
+            assert_eq!(format!("{:?}", recognized.operation), operation, "{name}: {STALE}");
+            assert_eq!(format!("{:?}", recognized.format), format, "{name}: {STALE}");
         }
     }
 }

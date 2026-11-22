@@ -61,12 +61,7 @@ pub(super) fn allocate(
 ) -> Result<Allocated, String> {
     let code = selected.code(entry, frame_pointers);
     let (liveness, allocation) = registers::allocate(&code)?;
-    lower::lower(
-        selected,
-        &liveness,
-        &allocation,
-        (entry, favour, frame_pointers),
-    )
+    lower::lower(selected, &liveness, &allocation, (entry, favour, frame_pointers))
 }
 
 fn set(held: RegSet) -> codegen::RegSet {
@@ -80,11 +75,8 @@ impl Selected {
     /// Keeping frame pointers, `rbp` holds the frame's and nothing else.
     fn code(&self, entry: FunctionId, frame_pointers: bool) -> Code<Reg> {
         let mut specs = Vec::new();
-        let instructions = self
-            .instructions
-            .iter()
-            .map(|inst| allocated(inst, &mut specs))
-            .collect();
+        let instructions =
+            self.instructions.iter().map(|inst| allocated(inst, &mut specs)).collect();
         let blocks = self
             .blocks
             .iter()
@@ -98,10 +90,7 @@ impl Selected {
         let functions = self
             .functions
             .iter()
-            .map(|function| registers::Function {
-                source: function.source,
-                entry: function.entry,
-            })
+            .map(|function| registers::Function { source: function.source, entry: function.entry })
             .collect();
         Code {
             values: self.widths.len(),
@@ -127,10 +116,9 @@ impl Selected {
 fn allocated(inst: &Inst, specs: &mut Vec<OperandSpec>) -> registers::Inst {
     let count = usize::from(inst.result.is_some()) + inst.operands.len();
     let start = specs.len();
-    specs.extend((0..count).map(|at| {
-        inst.operand_spec(at)
-            .expect("a verified selected instruction")
-    }));
+    specs.extend(
+        (0..count).map(|at| inst.operand_spec(at).expect("a verified selected instruction")),
+    );
     let requirements = inst.opcode.requirements();
     registers::Inst {
         operands: inst.operands,
@@ -146,20 +134,16 @@ fn allocated(inst: &Inst, specs: &mut Vec<OperandSpec>) -> registers::Inst {
 const fn terminator(terminator: Terminator, exits: bool) -> registers::Terminator<Reg> {
     match terminator {
         Terminator::Jump { target, args } => registers::Terminator::Jump { target, args },
-        Terminator::Branch {
-            condition,
-            then_target,
-            then_args,
-            else_target,
-            else_args,
-        } => registers::Terminator::Branch {
-            condition,
-            allowed: super::GPRS,
-            then_target,
-            then_args,
-            else_target,
-            else_args,
-        },
+        Terminator::Branch { condition, then_target, then_args, else_target, else_args } => {
+            registers::Terminator::Branch {
+                condition,
+                allowed: super::GPRS,
+                then_target,
+                then_args,
+                else_target,
+                else_args,
+            }
+        }
         Terminator::Return { values } => registers::Terminator::Return {
             values,
             register: if exits { Reg::Rdi } else { Reg::Rax },

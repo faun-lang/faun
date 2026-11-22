@@ -37,10 +37,12 @@ fn nested_cells_are_legalized_to_managed_objects_and_released() {
         join_routines: false,
     };
     let legalized = legalize(&source, config).unwrap();
-    assert!(legalized.ops.iter().all(|op| !matches!(
-        op,
-        Op::Cell { .. } | Op::CellTag { .. } | Op::CellField { .. }
-    )));
+    assert!(
+        legalized
+            .ops
+            .iter()
+            .all(|op| !matches!(op, Op::Cell { .. } | Op::CellTag { .. } | Op::CellField { .. }))
+    );
     let evaluation = run(&legalized, main, &[], 64);
     assert_eq!(evaluation.returned().unwrap(), &[BigUint::from(42u8)]);
     no_live_objects(&legalized, &evaluation, config);
@@ -93,10 +95,7 @@ fn a_cell_with_no_fields_is_never_allocated() {
         let again = b.cell(1, none, &[]);
         let other = b.cell(2, none, &[]);
         let passed = b.call_one(identity, &[again]);
-        let tags: Vec<_> = [first, passed, other]
-            .iter()
-            .map(|&cell| b.cell_tag(cell))
-            .collect();
+        let tags: Vec<_> = [first, passed, other].iter().map(|&cell| b.cell_tag(cell)).collect();
         let sum = b.binary(Binary::Add, tags[0], tags[1]);
         let sum = b.binary(Binary::Add, sum, tags[2]);
         b.ret(&[sum]);
@@ -204,11 +203,7 @@ fn run(p: &Program, f: FunctionId, args: &[BigUint], word_bits: u16) -> Evaluati
         p,
         f,
         args,
-        evaluate::Config {
-            word_bits,
-            fuel: 100_000_000,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { word_bits, fuel: 100_000_000, ..evaluate::Config::default() },
         &mut TestHost::default(),
     )
     .expect("reference execution")
@@ -248,11 +243,7 @@ fn decoded(p: &Program, evaluation: &Evaluation, bits: u16) -> BigUint {
         "normalized"
     );
     if address >= globals {
-        assert_eq!(
-            word(&bytes[start + w..start + 2 * w]),
-            1,
-            "one returned claim"
-        );
+        assert_eq!(word(&bytes[start + w..start + 2 * w]), 1, "one returned claim");
     }
     BigUint::from_bytes_le(digits)
 }
@@ -285,11 +276,7 @@ fn arithmetic_across_the_immediate_boundary_matches_the_reference() {
                 let zero = b.constant(Class::Word, 0);
                 b.ret(&[zero]);
             });
-            let result = if op.is_ok() {
-                Class::Natural
-            } else {
-                Class::Word
-            };
+            let result = if op.is_ok() { Class::Natural } else { Class::Word };
             let test = p.declare("test", &[Class::Word, Class::Word], &[result]);
             p.define(test, |b, args| {
                 let left = b.convert(Class::Natural, args[0]);
@@ -362,10 +349,7 @@ fn division_by_a_word_across_the_immediate_boundary_matches_the_reference() {
             By::Constant(half + 1),
             By::Constant(most),
             By::Scalar(Class::fixed(8)),
-            By::Scalar(Class::Held(Bounds {
-                low: 1,
-                high: Some(200),
-            })),
+            By::Scalar(Class::Held(Bounds { low: 1, high: Some(200) })),
             By::Scalar(Class::Word),
         ];
         for by in &divisors {
@@ -462,19 +446,10 @@ fn division_by_a_word_across_the_immediate_boundary_matches_the_reference() {
 )]
 fn exact_runtime_arithmetic_and_returned_ownership_at_each_word_size() {
     for bits in [16, 32, 64] {
-        for operation in [
-            Binary::Add,
-            Binary::Sub,
-            Binary::Mul,
-            Binary::Div,
-            Binary::Mod,
-        ] {
+        for operation in [Binary::Add, Binary::Sub, Binary::Mul, Binary::Div, Binary::Mod] {
             let (mut p, test) = base();
-            let arithmetic = p.declare(
-                "arithmetic",
-                &[Class::Natural, Class::Natural],
-                &[Class::Natural],
-            );
+            let arithmetic =
+                p.declare("arithmetic", &[Class::Natural, Class::Natural], &[Class::Natural]);
             p.define(arithmetic, |b, a| {
                 let result = b.binary(operation, a[0], a[1]);
                 b.ret(&[result]);
@@ -524,11 +499,7 @@ fn zero_division_and_monus_alias_paths_keep_returned_values_live() {
                 let (mut p, test) = base();
                 p.define(test, |b, a| {
                     let input = b.convert(Class::Natural, a[0]);
-                    let right = if zero_right {
-                        b.constant(Class::Natural, 0)
-                    } else {
-                        input
-                    };
+                    let right = if zero_right { b.constant(Class::Natural, 0) } else { input };
                     let result = b.binary(operation, input, right);
                     b.ret(&[result]);
                 });
@@ -547,10 +518,7 @@ fn zero_division_and_monus_alias_paths_keep_returned_values_live() {
                 let args = [BigUint::from(65535u32)];
                 let expected = run(&p, test, &args, bits);
                 let actual = run(&scalar, test, &args, bits);
-                assert_eq!(
-                    decoded(&scalar, &actual, bits),
-                    expected.returned().unwrap()[0]
-                );
+                assert_eq!(decoded(&scalar, &actual, bits), expected.returned().unwrap()[0]);
             }
         }
     }
@@ -566,21 +534,16 @@ fn lifetime_program(early_return: bool) -> (Program, FunctionId) {
         let zero = b.constant(Class::Word, 0);
         b.ret(&[zero]);
     });
-    let pair = p.declare(
-        "duplicate borrowed",
-        &[Class::Natural],
-        &[Class::Natural, Class::Natural],
-    );
+    let pair =
+        p.declare("duplicate borrowed", &[Class::Natural], &[Class::Natural, Class::Natural]);
     p.define(pair, |b, a| b.ret(&[a[0], a[0]]));
     let test = p.declare("lifetime", &[Class::Word], &[Class::Word]);
     p.define(test, |b, args| {
         let ancestor = b.convert(Class::Natural, args[0]);
         let pair = b.call(pair, &[ancestor]);
         let zero = b.constant(Class::Word, 0);
-        let result = b.loop_(
-            &[pair[0], pair[1], zero],
-            &[Class::Natural, Class::Natural],
-            |b, state| {
+        let result =
+            b.loop_(&[pair[0], pair[1], zero], &[Class::Natural, Class::Natural], |b, state| {
                 let one = b.constant(Class::Natural, 1);
                 let next = b.binary(Binary::Add, state[0], one);
                 let inner = b.loop_(&[next, zero], &[Class::Natural], |b, carried| {
@@ -621,8 +584,7 @@ fn lifetime_program(early_return: bool) -> (Program, FunctionId) {
                     },
                     |b| b.break_(&[inner[0], inner[0]]),
                 );
-            },
-        );
+            });
         let sum = b.binary(Binary::Add, result[0], result[1]);
         let status = b.convert(Class::Word, sum);
         b.ret(&[status]);
@@ -698,16 +660,10 @@ fn recursive_calls_borrow_parameters_and_transfer_owned_results() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "conversion graph and cross-width differential matrix"
-)]
+#[expect(clippy::too_many_lines, reason = "conversion graph and cross-width differential matrix")]
 fn conversion_aliases_comparisons_and_odd_width_truncation() {
     for bits in [16, 32, 64] {
-        for narrow in [0, 1, 7, 8, 9, 15, 16, 31, 32, 63, 64]
-            .into_iter()
-            .filter(|&n| n <= bits)
-        {
+        for narrow in [0, 1, 7, 8, 9, 15, 16, 31, 32, 63, 64].into_iter().filter(|&n| n <= bits) {
             let (mut p, main) = Program::new("main");
             let test = p.declare("conversions", &[Class::Word], &[Class::Word]);
             p.define(main, |b, _| {
@@ -816,14 +772,8 @@ fn pools_effects_and_nonreturning_platform_boundaries_are_preserved() {
     let scalar = legalize(&p, fixed_heap(64, 256)).unwrap();
     assert_eq!(&scalar.data()[..p.data().len()], p.data());
     assert_eq!(&scalar.globals()[..p.globals().len()], p.globals());
-    assert_eq!(
-        &scalar.spans.as_slice()[..p.spans.len()],
-        p.spans.as_slice()
-    );
-    assert_eq!(
-        scalar.function(exit).definition,
-        p.function(exit).definition
-    );
+    assert_eq!(&scalar.spans.as_slice()[..p.spans.len()], p.spans.as_slice());
+    assert_eq!(scalar.function(exit).definition, p.function(exit).definition);
     assert_eq!(scalar.function(exit).returns, Returns::Never);
     let ops = scalar.ops(scalar.function(scalar.entry()).body().unwrap());
     assert!(matches!(ops.last(), Some(Op::Call { function, .. }) if *function == exit));
@@ -860,10 +810,7 @@ fn nothing_is_released_after_a_call_that_does_not_come_back() {
         let ops = legalized.ops(legalized.function(main).body().unwrap());
         assert!(matches!(ops.last(), Some(Op::Call { function, .. }) if *function == leave));
         let mut host = TestHost::default();
-        let config = evaluate::Config {
-            word_bits: bits,
-            ..evaluate::Config::default()
-        };
+        let config = evaluate::Config { word_bits: bits, ..evaluate::Config::default() };
         let result = evaluate::evaluate(&legalized, main, &[], config, &mut host).unwrap();
         assert_eq!(result.halted().unwrap(), [BigUint::from(42u8)]);
     }
@@ -883,10 +830,7 @@ const fn fixed_heap(word_bits: u16, heap_bytes: usize) -> Config {
 
 #[test]
 fn unsupported_representations_are_errors_not_pointer_reinterpretations() {
-    for (source, target) in [
-        (Class::Address, Class::Natural),
-        (Class::Natural, Class::Address),
-    ] {
+    for (source, target) in [(Class::Address, Class::Natural), (Class::Natural, Class::Address)] {
         let (mut p, main) = Program::new("main");
         p.define(main, |b, _| {
             let value = b.constant(source, 1);
@@ -904,11 +848,7 @@ fn unsupported_representations_are_errors_not_pointer_reinterpretations() {
         let zero = b.constant(Class::Word, 0);
         b.ret(&[zero]);
     });
-    assert!(
-        legalize(&p, fixed_heap(16, 256))
-            .unwrap_err()
-            .contains("held as words")
-    );
+    assert!(legalize(&p, fixed_heap(16, 256)).unwrap_err().contains("held as words"));
     assert!(legalize(&split(&p, 16), fixed_heap(16, 256)).is_ok());
 }
 
@@ -995,10 +935,7 @@ fn exhaustion_preserves_effect_order_and_exits_instead_of_returning_zero() {
             &scalar,
             main,
             &[],
-            evaluate::Config {
-                word_bits: bits,
-                ..evaluate::Config::default()
-            },
+            evaluate::Config { word_bits: bits, ..evaluate::Config::default() },
             &mut host,
         )
         .unwrap();
@@ -1015,9 +952,7 @@ fn source_host_arguments_are_not_implicitly_truncated() {
     let (nat, add) = (library.nat, library.add);
     let world = tests::host(&mut library.program, nat);
     let main =
-        library
-            .program
-            .declare_named("main!", &[("host", world.host), ("argc", nat)], world.never);
+        library.program.declare_named("main!", &[("host", world.host), ("argc", nat)], world.never);
     // The count is a word because the target says so of a parameter named
     // for it, when lowering.
     library.program.define(main, |b, args| {
@@ -1027,23 +962,15 @@ fn source_host_arguments_are_not_implicitly_truncated() {
     });
     library.program.set_entry(main);
     let error = tests::machine(library.program, &routines).unwrap_err();
-    assert!(
-        error.contains("host arguments must be proven to fit"),
-        "{error}"
-    );
-    assert!(
-        error.contains("no bound was found for what `main!` hands it"),
-        "{error}"
-    );
+    assert!(error.contains("host arguments must be proven to fit"), "{error}");
+    assert!(error.contains("no bound was found for what `main!` hands it"), "{error}");
 
     // A status known to be small fits even a narrow word.
     let routines = crate::platform::Routines::builtin().with_word(16);
     let mut library = barb::fixture::Library::new();
     let one = library.number(1);
     let world = tests::host(&mut library.program, library.nat);
-    let main = library
-        .program
-        .declare_named("main!", &[("host", world.host)], world.never);
+    let main = library.program.declare_named("main!", &[("host", world.host)], world.never);
     library.program.define(main, |b, args| {
         let one = b.known(one);
         b.call(world.exit, &[args[0], one])
@@ -1154,11 +1081,7 @@ fn a_buffer_prepended_answers_the_reference_and_leaks_nothing() {
                 let answer = decoded(&scalar, &actual, bits);
                 assert_eq!(answer, expected, "{bits} {reversed} {shared}");
                 // What is left is the answer, which is past half a word.
-                assert_eq!(
-                    live_objects(&scalar, &actual, config),
-                    1,
-                    "{bits} {reversed} {shared}"
-                );
+                assert_eq!(live_objects(&scalar, &actual, config), 1, "{bits} {reversed} {shared}");
             }
         }
     }

@@ -87,10 +87,7 @@ fn bits(class: Class) -> u16 {
 fn entry_argv(program: &Program) -> Option<ValueId> {
     let entry = program.entry();
     (program.parameter_names(entry).nth(1) == Some("argv")).then(|| {
-        let body = program
-            .function(entry)
-            .body()
-            .expect("the entry has a body");
+        let body = program.function(entry).body().expect("the entry has a body");
         program.values(program.region(body).params)[1]
     })
 }
@@ -98,10 +95,7 @@ fn entry_argv(program: &Program) -> Option<ValueId> {
 fn entry_argc(program: &Program) -> Option<ValueId> {
     let entry = program.entry();
     (program.parameter_names(entry).next() == Some("argc")).then(|| {
-        let body = program
-            .function(entry)
-            .body()
-            .expect("the entry has a body");
+        let body = program.function(entry).body().expect("the entry has a body");
         program.values(program.region(body).params)[0]
     })
 }
@@ -121,10 +115,8 @@ pub(crate) fn lower(program: &Program) -> Code {
     let plan = Plan::new(program);
 
     let after_writes = IOVECS + IOVEC_LEN * len32(plan.writes);
-    let read = plan.reads.then_some(ReadScratch {
-        iovec: after_writes,
-        byte: after_writes + IOVEC_LEN,
-    });
+    let read =
+        plan.reads.then_some(ReadScratch { iovec: after_writes, byte: after_writes + IOVEC_LEN });
     // Keep following words aligned, so an object in the data has an even
     // address, as a natural's must; the read buffer itself is one byte.
     let data_start = after_writes + read.map_or(0, |_| IOVEC_LEN + 4);
@@ -200,11 +192,7 @@ fn held_bits(program: &Program) -> Vec<u16> {
     let mut held = Vec::with_capacity(program.values_count());
     for at in 0..program.values_count() {
         let class = program.class(ValueId::at(at));
-        let bits = if class == Class::Natural {
-            WORD_BITS
-        } else {
-            bits(class)
-        };
+        let bits = if class == Class::Natural { WORD_BITS } else { bits(class) };
         held.push(bits);
     }
     held
@@ -236,9 +224,7 @@ fn low_bits_read(program: &Program) -> Vec<u16> {
         ops.extend(program.walk_within(body));
     }
     for (op, results) in ops.into_iter().rev() {
-        let wanted = results
-            .first()
-            .map_or(WORD_BITS, |result| low[result.index()]);
+        let wanted = results.first().map_or(WORD_BITS, |result| low[result.index()]);
         for (value, bits) in low_bits_of_operands(program, op, results, wanted) {
             let held = &mut low[value.index()];
             *held = (*held).max(bits);
@@ -262,15 +248,8 @@ fn low_bits_of_operands(
             left,
             right,
         } => vec![(left, wanted), (right, wanted)],
-        Op::Shift {
-            direction: Direction::Up,
-            value,
-            ..
-        } => vec![(value, wanted)],
-        _ => program
-            .operands(op)
-            .map(|value| (value, WORD_BITS))
-            .collect(),
+        Op::Shift { direction: Direction::Up, value, .. } => vec![(value, wanted)],
+        _ => program.operands(op).map(|value| (value, WORD_BITS)).collect(),
     }
 }
 
@@ -305,11 +284,7 @@ fn regions_within(program: &Program, region: RegionId) -> Vec<RegionId> {
         at += 1;
         for op in program.ops(region) {
             match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => found.extend([then_region, else_region]),
+                Op::If { then_region, else_region, .. } => found.extend([then_region, else_region]),
                 Op::Loop { body, .. } => found.push(body),
                 _ => {}
             }
@@ -383,10 +358,9 @@ impl Plan {
                 }
             }
             let called = match *op {
-                Op::Call { function, .. } => program
-                    .function(function)
-                    .external()
-                    .map(|symbol| program.name(symbol)),
+                Op::Call { function, .. } => {
+                    program.function(function).external().map(|symbol| program.name(symbol))
+                }
                 _ => None,
             };
             let wanted = match called {
@@ -414,11 +388,7 @@ impl Plan {
                 self.wanted.push(import);
             }
             match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => {
+                Op::If { then_region, else_region, .. } => {
                     self.walk(program, then_region);
                     self.walk(program, else_region);
                 }
@@ -451,11 +421,7 @@ enum FunctionRole {
 
 impl FunctionRole {
     fn at(index: usize, entry: FunctionId) -> Self {
-        if index == entry.index() {
-            Self::Entry
-        } else {
-            Self::Function
-        }
+        if index == entry.index() { Self::Entry } else { Self::Function }
     }
 }
 
@@ -519,15 +485,9 @@ impl Lowering<'_> {
     /// nought, and every exit from somewhere a `return` would not end the
     /// program.
     fn needs_proc_exit(&self) -> bool {
-        self.program
-            .functions()
-            .iter()
-            .enumerate()
-            .any(|(id, function)| {
-                function
-                    .body()
-                    .is_some_and(|body| self.exits(body, FunctionRole::at(id, self.entry)))
-            })
+        self.program.functions().iter().enumerate().any(|(id, function)| {
+            function.body().is_some_and(|body| self.exits(body, FunctionRole::at(id, self.entry)))
+        })
     }
 
     /// Whether a region holds an exit this target has to make a call for.
@@ -536,11 +496,7 @@ impl Lowering<'_> {
     /// the routine.
     fn exits(&self, region: RegionId, role: FunctionRole) -> bool {
         let status = role == FunctionRole::Entry
-            && self
-                .program
-                .region(region)
-                .terminator
-                .is_some_and(|t| t.exit == Exit::Return)
+            && self.program.region(region).terminator.is_some_and(|t| t.exit == Exit::Return)
             && self
                 .program
                 .outgoing(region)
@@ -555,21 +511,16 @@ impl Lowering<'_> {
                         .is_some_and(|symbol| self.program.name(symbol) == "exit!")
                         && !(role == FunctionRole::Entry && self.leaves_with_nought(args))
                 }
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => self.exits(then_region, role) || self.exits(else_region, role),
+                Op::If { then_region, else_region, .. } => {
+                    self.exits(then_region, role) || self.exits(else_region, role)
+                }
                 Op::Loop { body, .. } => self.exits(body, role),
                 _ => false,
             })
     }
 
     fn leaves_with_nought(&self, args: Range) -> bool {
-        self.program
-            .values(args)
-            .first()
-            .is_some_and(|&value| self.constant(value) == Some(0))
+        self.program.values(args).first().is_some_and(|&value| self.constant(value) == Some(0))
     }
 
     /// `_start` returns nothing of its own, whatever the entry's signature
@@ -608,12 +559,7 @@ impl Lowering<'_> {
                 (params, len32(function.returns.classes().len()))
             };
             let (code, named) = self.finish_body();
-            bodies.push(Body {
-                params,
-                locals: named.max(params) - params,
-                returns,
-                code,
-            });
+            bodies.push(Body { params, locals: named.max(params) - params, returns, code });
         }
         bodies
     }
@@ -629,31 +575,19 @@ impl Lowering<'_> {
 
         let mut data = Vec::new();
         if vectors.iter().any(|&byte| byte != 0) {
-            data.push(Segment {
-                offset: IOVECS,
-                bytes: vectors,
-            });
+            data.push(Segment { offset: IOVECS, bytes: vectors });
         }
         if let Some(read) = self.read {
             let mut iovec = Vec::with_capacity(8);
             iovec.extend_from_slice(&read.byte.to_le_bytes());
             iovec.extend_from_slice(&1u32.to_le_bytes());
-            data.push(Segment {
-                offset: read.iovec,
-                bytes: iovec,
-            });
+            data.push(Segment { offset: read.iovec, bytes: iovec });
         }
         let mut blob = self.program.data().to_vec();
-        blob.resize(
-            usize::try_from(self.globals_offset()).expect("an offset"),
-            0,
-        );
+        blob.resize(usize::try_from(self.globals_offset()).expect("an offset"), 0);
         blob.extend_from_slice(self.program.globals());
         if !blob.is_empty() {
-            data.push(Segment {
-                offset: data_start,
-                bytes: blob,
-            });
+            data.push(Segment { offset: data_start, bytes: blob });
         }
         data
     }
@@ -669,11 +603,8 @@ impl Lowering<'_> {
         let ending = self.role == FunctionRole::Entry && self.depth == 0 && terminator.is_none();
         let last = program.ops(region).len();
         for (at, (op, results)) in program.walk(region).enumerate() {
-            let position = if ending && at + 1 == last {
-                Position::EntryEnd
-            } else {
-                Position::Interior
-            };
+            let position =
+                if ending && at + 1 == last { Position::EntryEnd } else { Position::Interior };
             self.instruction(op, results, position);
         }
         if let Some(terminator) = terminator {
@@ -683,10 +614,7 @@ impl Lowering<'_> {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one call per op; the length is the patterns"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one call per op; the length is the patterns")]
     fn instruction(&mut self, op: &Op, results: &[ValueId], position: Position) {
         let program = self.program;
         match op {
@@ -737,11 +665,7 @@ impl Lowering<'_> {
                 };
                 self.binary(opcode, *left, *right, results[0]);
             }
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } => {
+            Op::Shift { direction, value, by } => {
                 self.push(*value);
                 self.constant_i32(i32::from(*by));
                 self.body.byte(match direction {
@@ -750,11 +674,7 @@ impl Lowering<'_> {
                 });
                 self.set(results[0]);
             }
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } => {
+            Op::Compare { relation, left, right } => {
                 let opcode = match relation {
                     Relation::Equal => I32_EQ,
                     Relation::Less => I32_LT_U,
@@ -764,17 +684,12 @@ impl Lowering<'_> {
                 };
                 self.binary(opcode, *left, *right, results[0]);
             }
-            Op::Load {
-                width,
-                address,
-                offset,
-            } => self.load_at(*width, *address, *offset, results[0]),
-            Op::Store {
-                width,
-                address,
-                offset,
-                value,
-            } => self.store_at(*width, *address, *offset, *value),
+            Op::Load { width, address, offset } => {
+                self.load_at(*width, *address, *offset, results[0]);
+            }
+            Op::Store { width, address, offset, value } => {
+                self.store_at(*width, *address, *offset, *value);
+            }
             Op::Convert { value } => {
                 self.push(*value);
                 let kept = bits(self.program.class(results[0]));
@@ -804,19 +719,15 @@ impl Lowering<'_> {
                 let imports = len32(self.imports.len());
                 self.call(
                     imports
-                        + self.plan.functions[function.index()]
-                            .expect("an internal callee")
-                            .index,
+                        + self.plan.functions[function.index()].expect("an internal callee").index,
                 );
                 for &result in results.iter().rev() {
                     self.set(result);
                 }
             }
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => self.conditional(*condition, *then_region, *else_region, results),
+            Op::If { condition, then_region, else_region } => {
+                self.conditional(*condition, *then_region, *else_region, results);
+            }
             Op::Loop { initial, body } => {
                 self.repeat(program.values(*initial), *body, results);
             }
@@ -876,11 +787,7 @@ impl Lowering<'_> {
         self.open();
         self.push(left);
         self.push(right);
-        self.body.byte(if op == Binary::Div {
-            I32_DIV_U
-        } else {
-            I32_REM_U
-        });
+        self.body.byte(if op == Binary::Div { I32_DIV_U } else { I32_REM_U });
         self.body.byte(ELSE);
         if op == Binary::Div {
             self.constant_i32(0);
@@ -1005,19 +912,14 @@ impl Lowering<'_> {
     fn count(&mut self, result: ValueId) {
         self.constant_i32(ARGC);
         self.constant_i32(NWRITTEN);
-        let sizes = self
-            .import("args_sizes_get")
-            .expect("a count imports args_sizes_get");
+        let sizes = self.import("args_sizes_get").expect("a count imports args_sizes_get");
         self.call(sizes);
         self.body.byte(DROP);
         self.constant_i32(ARGC);
         // Only as much of the count as anything reads, where nothing but
         // the program does: the vector reads all of it.
-        let read = if entry_argv(self.program).is_some() {
-            WORD_BITS
-        } else {
-            self.low[result.index()]
-        };
+        let read =
+            if entry_argv(self.program).is_some() { WORD_BITS } else { self.low[result.index()] };
         let width = match read {
             0..=8 => Width::Byte,
             9..=16 => Width::Bits16,
@@ -1057,9 +959,7 @@ impl Lowering<'_> {
         self.constant_i32(WORD);
         self.body.byte(I32_MUL);
         self.body.byte(I32_ADD);
-        let get = self
-            .import("args_get")
-            .expect("the arguments import args_get");
+        let get = self.import("args_get").expect("the arguments import args_get");
         self.call(get);
         self.body.byte(DROP); // The errno, which there is nobody to tell.
     }
@@ -1077,8 +977,7 @@ impl Lowering<'_> {
         };
         self.body.byte(opcode);
         self.body.uleb(align);
-        self.body
-            .uleb(u32::try_from(bytes).expect("a non-negative offset in range"));
+        self.body.uleb(u32::try_from(bytes).expect("a non-negative offset in range"));
     }
 
     fn platform_named(
@@ -1148,11 +1047,7 @@ impl Lowering<'_> {
             self.store(iovec, args[1]);
             self.store(iovec + 4, args[2]);
         }
-        let import = if name == "write_fd!" {
-            "fd_write"
-        } else {
-            "fd_read"
-        };
+        let import = if name == "write_fd!" { "fd_write" } else { "fd_read" };
         self.push(args[0]);
         self.constant_i32(iovec.cast_signed());
         self.constant_i32(1);

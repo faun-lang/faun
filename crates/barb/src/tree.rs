@@ -18,9 +18,7 @@ pub enum TreeRole {
 }
 
 pub(super) fn analyze(program: &Program, recognized: &super::facts::Recognised) -> Vec<TreeRole> {
-    (0..program.functions().len())
-        .map(|at| role(program, recognized, FnId::at(at)))
-        .collect()
+    (0..program.functions().len()).map(|at| role(program, recognized, FnId::at(at))).collect()
 }
 
 fn scalar(program: &Program, ty: TypeId, remaining: usize) -> bool {
@@ -30,10 +28,9 @@ fn scalar(program: &Program, ty: TypeId, remaining: usize) -> bool {
     match type_shape(program, ty) {
         TypeShape::Natural { .. } | TypeShape::Enumeration | TypeShape::Unit { .. } => true,
         TypeShape::Wrapper { field, .. } => scalar(program, field, remaining - 1),
-        TypeShape::Product { constructor } => program
-            .fields(constructor)
-            .iter()
-            .all(|&field| scalar(program, field, remaining - 1)),
+        TypeShape::Product { constructor } => {
+            program.fields(constructor).iter().all(|&field| scalar(program, field, remaining - 1))
+        }
         _ => false,
     }
 }
@@ -56,18 +53,11 @@ fn tree(program: &Program, ty: TypeId) -> bool {
 fn candidate(program: &Program, id: FnId) -> Option<(TreeRole, TypeId)> {
     let result = program.function(id).result;
     let params = program.params(id);
-    if tree(program, result)
-        && params
-            .iter()
-            .all(|&ty| scalar(program, ty, program.types().len()))
+    if tree(program, result) && params.iter().all(|&ty| scalar(program, ty, program.types().len()))
     {
         Some((TreeRole::Builder, result))
     } else if scalar(program, result, program.types().len()) {
-        let trees: Vec<_> = params
-            .iter()
-            .copied()
-            .filter(|&ty| tree(program, ty))
-            .collect();
+        let trees: Vec<_> = params.iter().copied().filter(|&ty| tree(program, ty)).collect();
         (trees.len() == 1
             && params
                 .iter()
@@ -87,15 +77,7 @@ fn role(program: &Program, recognized: &super::facts::Recognised, id: FnId) -> T
     let Some((role, tree)) = candidate else {
         return TreeRole::Other;
     };
-    let mut scan = Scan {
-        program,
-        recognized,
-        id,
-        tree,
-        role,
-        recurses: false,
-        constructs: false,
-    };
+    let mut scan = Scan { program, recognized, id, tree, role, recurses: false, constructs: false };
     if scan.body(body, params.to_vec()).is_some()
         && (role == TreeRole::Reader || scan.recurses && scan.constructs)
     {

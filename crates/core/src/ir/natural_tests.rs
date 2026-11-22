@@ -96,19 +96,12 @@ fn run(
     bits: u16,
 ) -> (Evaluation, Vec<BigUint>) {
     super::validate(p).unwrap();
-    let mut host = Observer {
-        word: usize::from(bits / 8),
-        ..Observer::default()
-    };
+    let mut host = Observer { word: usize::from(bits / 8), ..Observer::default() };
     let evaluation = evaluate::evaluate(
         p,
         function,
         args,
-        evaluate::Config {
-            word_bits: bits,
-            fuel: 20_000_000,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { word_bits: bits, fuel: 20_000_000, ..evaluate::Config::default() },
         &mut host,
     )
     .unwrap();
@@ -173,10 +166,7 @@ fn static_layout_configuration_and_pruning() {
             assert_eq!(read_word(&bytes[..word]), u64::from(span.len));
             assert_eq!(read_word(&bytes[word..2 * word]), u64::MAX >> (64 - bits));
             let len = usize::try_from(read_word(&bytes[2 * word..3 * word])).unwrap();
-            assert_eq!(
-                BigUint::from_bytes_le(&bytes[3 * word..3 * word + len * word]),
-                expected
-            );
+            assert_eq!(BigUint::from_bytes_le(&bytes[3 * word..3 * word + len * word]), expected);
         }
     }
 }
@@ -193,11 +183,7 @@ fn every_helper_subset_resolves_exactly_its_requested_handles() {
         let (p, library, _) = program(config(32), needs);
         super::validate(&p).unwrap();
         for helper in Helper::ALL {
-            assert_eq!(
-                library.get(helper).is_some(),
-                needs.contains(helper),
-                "{mask}: {helper:?}"
-            );
+            assert_eq!(library.get(helper).is_some(), needs.contains(helper), "{mask}: {helper:?}");
         }
     }
 }
@@ -266,11 +252,7 @@ fn generated_regions_fit_the_narrow_calling_convention() {
             assert!(f.params.len() <= 4);
             assert!(f.returns.classes().len() <= 1);
             let Some(body) = f.body() else { continue };
-            assert!(
-                region_values(&p, body) <= 128,
-                "{} fits frame slots",
-                p.name(f.name)
-            );
+            assert!(region_values(&p, body) <= 128, "{} fits frame slots", p.name(f.name));
             for op in p.every(body) {
                 match *op {
                     Op::Loop { body, initial } => {
@@ -291,11 +273,9 @@ fn region_values(p: &Program, region: super::RegionId) -> usize {
             .map(|(op, results)| {
                 results.len()
                     + match *op {
-                        Op::If {
-                            then_region,
-                            else_region,
-                            ..
-                        } => region_values(p, then_region) + region_values(p, else_region),
+                        Op::If { then_region, else_region, .. } => {
+                            region_values(p, then_region) + region_values(p, else_region)
+                        }
                         Op::Loop { body, .. } => region_values(p, body),
                         _ => 0,
                     }
@@ -327,10 +307,7 @@ fn samples(bits: u16) -> Vec<(BigUint, BigUint)> {
     let digit = n(1) << usize::from(bits);
     let half = &digit >> 1usize;
     let square = &digit * &digit;
-    pairs.push((
-        &half * &square + (&half - n(1)) * &square * &digit,
-        &half * &square + n(1),
-    ));
+    pairs.push((&half * &square + (&half - n(1)) * &square * &digit, &half * &square + n(1)));
     let mut seed = 0x917d_5a32_0ed6_c41bu64;
     let mut next = || {
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
@@ -370,11 +347,7 @@ fn all_arithmetic_matches_biguint_at_every_word_width() {
                 let args = [data_address(&p, *da), data_address(&p, *dc)];
                 let (evaluation, seen) = run(&p, check, &args, bits);
                 assert!(evaluation.returned().is_some(), "{bits} {op:?} {a} {c}");
-                assert_eq!(
-                    seen,
-                    [expected, a.clone(), c.clone()],
-                    "{bits} {op:?} {a} {c}"
-                );
+                assert_eq!(seen, [expected, a.clone(), c.clone()], "{bits} {op:?} {a} {c}");
                 free_heap(&evaluation.globals, usize::from(bits / 8));
             }
         }
@@ -386,20 +359,9 @@ fn all_arithmetic_matches_biguint_at_every_word_width() {
 #[test]
 fn division_by_a_word_carries_no_long_division() {
     for bits in [16, 32, 64] {
-        let (p, _, _) = program(
-            config(bits),
-            Needs::from([Helper::DivWord, Helper::ModWord]),
-        );
-        for long in [
-            "nat.divmod",
-            "nat.estimate",
-            "nat.multiply_out",
-            "nat.add_back",
-        ] {
-            assert!(
-                !p.functions().iter().any(|f| p.name(f.name) == long),
-                "{bits}: {long}"
-            );
+        let (p, _, _) = program(config(bits), Needs::from([Helper::DivWord, Helper::ModWord]));
+        for long in ["nat.divmod", "nat.estimate", "nat.multiply_out", "nat.add_back"] {
+            assert!(!p.functions().iter().any(|f| p.name(f.name) == long), "{bits}: {long}");
         }
     }
 }
@@ -439,23 +401,20 @@ fn division_by_a_word_matches_biguint() {
 /// which it borrows.
 fn word_division_checks(p: &mut Program, lib: &Library) -> Vec<(Binary, FunctionId)> {
     let observer = observer(p);
-    [
-        (Binary::Div, Helper::DivWord),
-        (Binary::Mod, Helper::ModWord),
-    ]
-    .into_iter()
-    .map(|(op, helper)| {
-        let check = p.declare("check", &[ADDRESS, WORD], &[WORD]);
-        p.define(check, |b, args| {
-            let out = b.call_one(lib.require(helper), args);
-            observe_and_release(b, lib, observer, out);
-            b.call(observer, &[args[0]]);
-            let zero = b.constant(WORD, 0);
-            b.ret(&[zero]);
-        });
-        (op, check)
-    })
-    .collect()
+    [(Binary::Div, Helper::DivWord), (Binary::Mod, Helper::ModWord)]
+        .into_iter()
+        .map(|(op, helper)| {
+            let check = p.declare("check", &[ADDRESS, WORD], &[WORD]);
+            p.define(check, |b, args| {
+                let out = b.call_one(lib.require(helper), args);
+                observe_and_release(b, lib, observer, out);
+                b.call(observer, &[args[0]]);
+                let zero = b.constant(WORD, 0);
+                b.ret(&[zero]);
+            });
+            (op, check)
+        })
+        .collect()
 }
 
 /// A heap that starts with a single small arena and asks for more as it
@@ -487,11 +446,7 @@ fn a_heap_grown_a_run_at_a_time_answers_the_same() {
                 let args = [data_address(&p, *da), data_address(&p, *dc)];
                 let (evaluation, seen) = run(&p, check, &args, bits);
                 assert!(evaluation.returned().is_some(), "{bits} {op:?} {a} {c}");
-                assert_eq!(
-                    seen,
-                    [model(op, a, c), a.clone(), c.clone()],
-                    "{bits} {op:?} {a} {c}"
-                );
+                assert_eq!(seen, [model(op, a, c), a.clone(), c.clone()], "{bits} {op:?} {a} {c}");
             }
         }
     }
@@ -618,12 +573,7 @@ fn comparison_and_explicit_low_word_conversion() {
                 std::cmp::Ordering::Greater => 2,
             };
             assert_eq!(answer.returned().unwrap(), [BigUint::from(order)]);
-            let (answer, _) = run(
-                &p,
-                lib.require(Helper::ToWord),
-                &[data_address(&p, da)],
-                bits,
-            );
+            let (answer, _) = run(&p, lib.require(Helper::ToWord), &[data_address(&p, da)], bits);
             assert_eq!(answer.returned().unwrap(), [&a & &mask]);
         }
     }
@@ -634,17 +584,11 @@ fn comparison_and_explicit_low_word_conversion() {
 /// immediates beside each other, an immediate beside an object, two
 /// objects, with the immediate case written and with it left to the call.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "a generated check beside its pairs of each kind"
-)]
+#[expect(clippy::too_many_lines, reason = "a generated check beside its pairs of each kind")]
 fn a_comparison_written_in_place_answers_as_the_order_does() {
     for bits in [16, 32, 64] {
         for inline_small in [true, false] {
-            let conf = Config {
-                inline_small,
-                ..config(bits)
-            };
+            let conf = Config { inline_small, ..config(bits) };
             let (mut p, lib, _) = program(conf, Needs::from([Helper::Compare, Helper::FromWord]));
             let observer = observer(&mut p);
             let check = p.declare("check", &[WORD, WORD], &[WORD]);
@@ -693,10 +637,7 @@ fn a_comparison_written_in_place_answers_as_the_order_does() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "generated loop beside its repeated-reuse assertions"
-)]
+#[expect(clippy::too_many_lines, reason = "generated loop beside its repeated-reuse assertions")]
 fn word_promotion_aliases_and_long_running_heap_reuse() {
     for bits in [16, 32, 64] {
         let word = usize::from(bits / 8);
@@ -708,10 +649,8 @@ fn word_promotion_aliases_and_long_running_heap_reuse() {
             inline_counts: false,
             join_routines: false,
         };
-        let (mut p, lib, _) = program(
-            conf,
-            Needs::from([Helper::FromWord, Helper::ToWord, Helper::Add]),
-        );
+        let (mut p, lib, _) =
+            program(conf, Needs::from([Helper::FromWord, Helper::ToWord, Helper::Add]));
         let observer = observer(&mut p);
         let check = p.declare("reuse", &[WORD], &[WORD]);
         p.define(check, |b, args| {
@@ -809,16 +748,9 @@ fn exhaustion_halts_without_corrupting_the_heap() {
         });
         let (evaluation, seen) = run(&p, check, &[past_half(bits, 1)], bits);
         assert_eq!(evaluation.halted().unwrap(), [BigUint::from(2u8)]);
-        assert_eq!(
-            seen,
-            [past_half(bits, 1)],
-            "effects before OOM happen exactly once"
-        );
+        assert_eq!(seen, [past_half(bits, 1)], "effects before OOM happen exactly once");
         assert_eq!(evaluation.globals.len(), 4 * word);
-        assert_eq!(
-            read_word(&evaluation.globals[..word]),
-            u64::try_from(4 * word).unwrap()
-        );
+        assert_eq!(read_word(&evaluation.globals[..word]), u64::try_from(4 * word).unwrap());
         assert_eq!(read_word(&evaluation.globals[word..2 * word]), 1);
     }
 }
@@ -1039,14 +971,7 @@ fn coalescing_stops_at_live_blocks_and_later_reuses_the_joined_run() {
             let blocks = partition(&evaluation.globals, word);
             if remove_middle {
                 assert!(evaluation.returned().is_some());
-                assert_eq!(
-                    seen,
-                    [
-                        &magnitude + &magnitude,
-                        past_half(bits, 9),
-                        past_half(bits, 4)
-                    ]
-                );
+                assert_eq!(seen, [&magnitude + &magnitude, past_half(bits, 9), past_half(bits, 4)]);
                 assert_eq!(blocks, [(6 * word, 0), (6 * word, 0), (4 * word, 0)]);
                 free_heap(&evaluation.globals, word);
             } else {
@@ -1261,11 +1186,7 @@ fn isolated_family(bits: u16, op: Option<Binary>) {
         b.ret(&[zero]);
     });
     let (evaluation, seen) = run(&p, entry, &[], bits);
-    assert!(
-        evaluation.returned().is_some(),
-        "{bits} {op:?}: {:?}",
-        evaluation.halted()
-    );
+    assert!(evaluation.returned().is_some(), "{bits} {op:?}: {:?}", evaluation.halted());
     let expected = op.map_or_else(|| BigUint::from(513u32), |op| model(op, &left, &right));
     assert_eq!(seen, [expected]);
     free_heap(&evaluation.globals, usize::from(bits / 8));
@@ -1274,13 +1195,8 @@ fn isolated_family(bits: u16, op: Option<Binary>) {
 #[test]
 fn isolated_sub_div_mod_mul_and_promotion_include_all_dependencies() {
     for bits in [16, 32, 64] {
-        for op in [
-            Some(Binary::Sub),
-            Some(Binary::Div),
-            Some(Binary::Mod),
-            Some(Binary::Mul),
-            None,
-        ] {
+        for op in [Some(Binary::Sub), Some(Binary::Div), Some(Binary::Mod), Some(Binary::Mul), None]
+        {
             isolated_family(bits, op);
         }
     }

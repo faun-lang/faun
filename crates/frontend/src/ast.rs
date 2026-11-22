@@ -37,10 +37,7 @@ impl Span {
     }
 
     pub(crate) const fn through(self, end: Self) -> Self {
-        Self {
-            start: self.start,
-            end: end.end,
-        }
+        Self { start: self.start, end: end.end }
     }
 }
 
@@ -235,19 +232,9 @@ pub struct SignatureDecl {
 pub enum Constraint {
     /// `a.add : (a, a) -> a`, a method every type `a` stands for must have; or
     /// `a.zero : a`, a value it must supply, read as `a.zero`.
-    Member {
-        span: Span,
-        variable: Name,
-        member: Name,
-        parameters: Vec<Type>,
-        result: Type,
-    },
+    Member { span: Span, variable: Name, member: Name, parameters: Vec<Type>, result: Type },
     /// `Summable(a)`: a named conjunction of requirements, applied.
-    Alias {
-        span: Span,
-        name: Name,
-        arguments: Vec<Type>,
-    },
+    Alias { span: Span, name: Name, arguments: Vec<Type> },
 }
 
 impl Constraint {
@@ -283,9 +270,14 @@ pub enum Type {
         open: bool,
     },
     /// `(A, B)`: a positional product of two or more.
-    Tuple { span: Span, members: Vec<Self> },
+    Tuple {
+        span: Span,
+        members: Vec<Self>,
+    },
     /// `_`: in a function's signature, whatever its clauses make it.
-    Hole { span: Span },
+    Hole {
+        span: Span,
+    },
 }
 
 impl Type {
@@ -394,9 +386,7 @@ impl Numeral {
     #[must_use]
     pub fn digits(self, source: &str) -> &str {
         let text = self.text(source);
-        text.strip_prefix("0x")
-            .or_else(|| text.strip_prefix("0b"))
-            .unwrap_or(text)
+        text.strip_prefix("0x").or_else(|| text.strip_prefix("0b")).unwrap_or(text)
     }
 }
 
@@ -554,16 +544,8 @@ impl Expr {
                 arms.iter().flat_map(Arm::exprs).try_for_each(visit)
             }
             ExprKind::Arms(arms) => arms.iter().flat_map(Arm::exprs).try_for_each(visit),
-            ExprKind::Else {
-                condition,
-                otherwise: out,
-                rest,
-            }
-            | ExprKind::Leave {
-                condition,
-                out,
-                rest,
-            } => {
+            ExprKind::Else { condition, otherwise: out, rest }
+            | ExprKind::Leave { condition, out, rest } => {
                 visit(condition)?;
                 visit(out)?;
                 rest.exprs().try_for_each(visit)

@@ -24,11 +24,7 @@ fn main() {
     let mut trials = Vec::new();
     for file in markdown(&root) {
         let text = fs::read_to_string(&file).expect("a Markdown file is readable");
-        let shown = file
-            .strip_prefix(&root)
-            .unwrap_or(&file)
-            .display()
-            .to_string();
+        let shown = file.strip_prefix(&root).unwrap_or(&file).display().to_string();
         for (line, code) in blocks(&text) {
             let name = format!("{shown}:{line}");
             trials.push(Trial::test(name.clone(), move || holds(&name, &code)));
@@ -87,10 +83,8 @@ fn blocks(text: &str) -> Vec<(usize, String)> {
 
 /// Run `code` with `faun test`, in a directory of its own.
 fn holds(name: &str, code: &str) -> Result<(), Failed> {
-    let slug: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
+    let slug: String =
+        name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
     let directory = std::env::temp_dir().join(format!("faun-docs-{}-{slug}", std::process::id()));
     fs::create_dir_all(&directory).map_err(|error| format!("cannot write a scratch: {error}"))?;
     let entry = directory.join("main.fn");

@@ -168,11 +168,9 @@ pub fn allocate<R: Register>(code: &Code<R>) -> Result<(Liveness, Allocation<R>)
 pub const fn successors<R: Copy>(terminator: Terminator<R>) -> [Option<BlockId>; 2] {
     match terminator {
         Terminator::Jump { target, .. } => [Some(target), None],
-        Terminator::Branch {
-            then_target,
-            else_target,
-            ..
-        } => [Some(then_target), Some(else_target)],
+        Terminator::Branch { then_target, else_target, .. } => {
+            [Some(then_target), Some(else_target)]
+        }
         Terminator::Return { .. } | Terminator::Halt => [None, None],
     }
 }
@@ -185,9 +183,7 @@ impl Point {
     ///
     /// Past four billion points.
     pub fn at(index: usize) -> Result<Self, String> {
-        Ok(Self(
-            u32::try_from(index).map_err(|_| "selected function has over 4G points")?,
-        ))
+        Ok(Self(u32::try_from(index).map_err(|_| "selected function has over 4G points")?))
     }
 
     /// # Panics
@@ -309,18 +305,13 @@ struct PointState<R> {
 impl Liveness {
     fn build<R: Register>(code: &Code<R>) -> Result<Self, String> {
         let (blocks, points) = number_points(code)?;
-        let mut liveness = Self {
-            at: (0..points).map(|_| LiveSet::default()).collect(),
-            blocks,
-        };
+        let mut liveness = Self { at: (0..points).map(|_| LiveSet::default()).collect(), blocks };
         let mut by_function = vec![Vec::new(); function_count(code)];
         for (id, block) in code.blocks.iter_enumerated() {
             by_function[block.owner.index()].push(id);
         }
-        let mut numbering = Numbering {
-            local: vec![None; code.values],
-            position: vec![0; code.blocks.len()],
-        };
+        let mut numbering =
+            Numbering { local: vec![None; code.values], position: vec![0; code.blocks.len()] };
         for function in &by_function {
             liveness.solve_function(code, function, &mut numbering);
         }
@@ -395,20 +386,11 @@ fn number_points<R: Register>(code: &Code<R>) -> Result<(Vec<BlockPoints>, usize
             let early = Point::at(cursor)?;
             let late = Point::at(cursor + 1)?;
             cursor += 2;
-            instructions.push(InstPoints {
-                instruction,
-                early,
-                late,
-            });
+            instructions.push(InstPoints { instruction, early, late });
         }
         let terminator = Point::at(cursor)?;
         cursor += 1;
-        blocks.push(BlockPoints {
-            block: id,
-            entry,
-            instructions,
-            terminator,
-        });
+        blocks.push(BlockPoints { block: id, entry, instructions, terminator });
     }
     Ok((blocks, cursor))
 }
@@ -531,16 +513,10 @@ fn visit_terminator_values<R: Register>(
                 visit(value);
             }
         }
-        Terminator::Branch {
-            condition,
-            then_args,
-            else_args,
-            ..
-        } => {
+        Terminator::Branch { condition, then_args, else_args, .. } => {
             visit(condition);
-            for &value in code.operands[then_args.range()]
-                .iter()
-                .chain(&code.operands[else_args.range()])
+            for &value in
+                code.operands[then_args.range()].iter().chain(&code.operands[else_args.range()])
             {
                 visit(value);
             }
@@ -566,11 +542,7 @@ struct Placement<R> {
 
 impl<R: Register> Placement<R> {
     fn new(values: usize) -> Self {
-        Self {
-            locations: vec![None; values],
-            occupants: [None; 64],
-            placed: Vec::new(),
-        }
+        Self { locations: vec![None; values], occupants: [None; 64], placed: Vec::new() }
     }
 
     fn get(&self, value: VReg) -> Option<Location<R>> {
@@ -777,18 +749,12 @@ impl<'a, R: Register> Allocator<'a, R> {
     ) -> Vec<(VReg, Location<R>)> {
         let Some((state, args)) = predecessors.iter().find_map(|&(from, args)| {
             let exit = self.liveness.blocks[from.index()].terminator;
-            self.states[exit.index()]
-                .as_ref()
-                .map(|state| (state, args))
+            self.states[exit.index()].as_ref().map(|state| (state, args))
         }) else {
             return Vec::new();
         };
         let held = |value: VReg| {
-            state
-                .values
-                .iter()
-                .find(|&&(held, _)| held == value)
-                .map(|&(_, location)| location)
+            state.values.iter().find(|&&(held, _)| held == value).map(|&(_, location)| location)
         };
         let block = self.code.blocks[layout.block];
         let params = &self.code.block_params[block.params.range()];
@@ -798,10 +764,8 @@ impl<'a, R: Register> Allocator<'a, R> {
             .filter_map(|value| Some((value, held(value)?)))
             .collect();
         let specs = &self.code.block_param_specs[block.params.range()];
-        for ((&param, &arg), spec) in params
-            .iter()
-            .zip(&self.code.operands[args.range()])
-            .zip(specs)
+        for ((&param, &arg), spec) in
+            params.iter().zip(&self.code.operands[args.range()]).zip(specs)
         {
             // A parameter starts where its argument was only in the bank it
             // is best in: a loop's would otherwise stay wherever its entry
@@ -855,20 +819,14 @@ impl<'a, R: Register> Allocator<'a, R> {
         self.expire_to(points.early);
         self.fill_live(points.early, &[], inst.scratch)?;
         let operands = &self.code.operands[inst.operands.range()];
-        let before: Vec<_> = operands
-            .iter()
-            .map(|&value| self.placement.get(value))
-            .collect();
+        let before: Vec<_> = operands.iter().map(|&value| self.placement.get(value)).collect();
         let def_offset = usize::from(inst.result.is_some());
         let mut protected = Vec::new();
         let mut tied = None;
         let mut assigned = vec![None; operands.len()];
 
         for (at, &value) in operands.iter().enumerate() {
-            let spec = self
-                .code
-                .spec(&inst, def_offset + at)
-                .expect("verified operand");
+            let spec = self.code.spec(&inst, def_offset + at).expect("verified operand");
             if let Constraint::Fixed(reg) = spec.constraint {
                 if assigned.iter().zip(operands).any(|(&location, &other)| {
                     location == Some(Location::Register(reg)) && other != value
@@ -882,10 +840,7 @@ impl<'a, R: Register> Allocator<'a, R> {
             }
         }
         for (at, &value) in operands.iter().enumerate() {
-            let spec = self
-                .code
-                .spec(&inst, def_offset + at)
-                .expect("verified operand");
+            let spec = self.code.spec(&inst, def_offset + at).expect("verified operand");
             if matches!(spec.constraint, Constraint::Fixed(_)) {
                 continue;
             }
@@ -905,33 +860,27 @@ impl<'a, R: Register> Allocator<'a, R> {
                 }
                 Constraint::Fixed(_) => unreachable!(),
             }
-            let reserved = assigned
-                .iter()
-                .flatten()
-                .fold(inst.scratch.0, |set, location| {
-                    if let Location::Register(reg) = location {
-                        set | RegSet::of(&[*reg]).0
-                    } else {
-                        set
-                    }
-                });
+            let reserved = assigned.iter().flatten().fold(inst.scratch.0, |set, location| {
+                if let Location::Register(reg) = location {
+                    set | RegSet::of(&[*reg]).0
+                } else {
+                    set
+                }
+            });
             self.busy.0 |= reserved;
             // Repeated operands may need several physical copies, even in
             // different banks. Never reuse an earlier copy for another value.
-            let reused = assigned
-                .iter()
-                .zip(operands)
-                .find_map(|(&location, &other)| {
-                    if other == value
-                        && let Some(Location::Register(reg)) = location
-                        && allowed.contains(reg)
-                        && fixed.is_none_or(|fixed| fixed == reg)
-                    {
-                        Some(reg)
-                    } else {
-                        None
-                    }
-                });
+            let reused = assigned.iter().zip(operands).find_map(|(&location, &other)| {
+                if other == value
+                    && let Some(Location::Register(reg)) = location
+                    && allowed.contains(reg)
+                    && fixed.is_none_or(|fixed| fixed == reg)
+                {
+                    Some(reg)
+                } else {
+                    None
+                }
+            });
             let reg = if let Some(reg) = reused {
                 reg
             } else if let Some(reg) = fixed {
@@ -1021,11 +970,7 @@ impl<'a, R: Register> Allocator<'a, R> {
                 }
             }
         }
-        self.fill_live(
-            points.late,
-            &result.into_iter().collect::<Vec<_>>(),
-            requirements.scratch,
-        )?;
+        self.fill_live(points.late, &result.into_iter().collect::<Vec<_>>(), requirements.scratch)?;
         self.record(block, points.late);
         self.busy = RegSet::EMPTY;
         Ok(())
@@ -1038,16 +983,11 @@ impl<'a, R: Register> Allocator<'a, R> {
         self.fill_live(layout.terminator, &[], RegSet::EMPTY)?;
         let mut protected = Vec::new();
         match block.terminator {
-            Terminator::Branch {
-                condition, allowed, ..
-            } => {
+            Terminator::Branch { condition, allowed, .. } => {
                 self.put_in_some_register(condition, &protected, RegSet(!allowed.0))?;
                 protected.push(condition);
             }
-            Terminator::Return {
-                values,
-                register: result_reg,
-            } => {
+            Terminator::Return { values, register: result_reg } => {
                 for &value in &self.code.operands[values.range()] {
                     self.put_in_register(value, result_reg, &protected)?;
                     protected.push(value);
@@ -1069,10 +1009,8 @@ impl<'a, R: Register> Allocator<'a, R> {
         if live.iter().all(|value| self.placement.get(value).is_some()) {
             return Ok(());
         }
-        let mut unplaced: Vec<_> = live
-            .iter()
-            .filter(|&value| self.placement.get(value).is_none())
-            .collect();
+        let mut unplaced: Vec<_> =
+            live.iter().filter(|&value| self.placement.get(value).is_none()).collect();
         unplaced.sort_by_cached_key(|&value| self.ahead(value));
         for value in unplaced {
             self.put_anywhere(value, protected, reserved)?;
@@ -1097,9 +1035,7 @@ impl<'a, R: Register> Allocator<'a, R> {
         }
         // A register is worth taking from a value read further ahead.
         if let Some(reg) = self.furthest(protected, reserved)
-            && self
-                .register_occupant(reg)
-                .is_some_and(|held| self.ahead(held) > self.ahead(value))
+            && self.register_occupant(reg).is_some_and(|held| self.ahead(held) > self.ahead(value))
         {
             return self.put_in_register(value, reg, protected);
         }
@@ -1113,16 +1049,14 @@ impl<'a, R: Register> Allocator<'a, R> {
     /// made where the loop's start holds what it becomes goes round without
     /// moving.
     fn awaited(&self, value: VReg) -> Option<R> {
-        self.handed_to[value.index()]
-            .iter()
-            .find_map(|&(target, param)| {
-                let entry = self.liveness.blocks[target.index()].entry;
-                let state = self.states[entry.index()].as_ref()?;
-                match state.values.iter().find(|&&(held, _)| held == param)?.1 {
-                    Location::Register(reg) => Some(reg),
-                    Location::Spill(_) => None,
-                }
-            })
+        self.handed_to[value.index()].iter().find_map(|&(target, param)| {
+            let entry = self.liveness.blocks[target.index()].entry;
+            let state = self.states[entry.index()].as_ref()?;
+            match state.values.iter().find(|&&(held, _)| held == param)?.1 {
+                Location::Register(reg) => Some(reg),
+                Location::Spill(_) => None,
+            }
+        })
     }
 
     /// How far from where allocation is `value` is next read.
@@ -1145,8 +1079,7 @@ impl<'a, R: Register> Allocator<'a, R> {
                         .is_none_or(|held| !protected.contains(&held))
             })
             .max_by_key(|&candidate| {
-                self.register_occupant(candidate)
-                    .map_or(u32::MAX, |held| self.ahead(held))
+                self.register_occupant(candidate).map_or(u32::MAX, |held| self.ahead(held))
             })
     }
 
@@ -1161,9 +1094,8 @@ impl<'a, R: Register> Allocator<'a, R> {
         {
             return Ok(reg);
         }
-        let reg = self
-            .free_register_for(value, reserved)
-            .or_else(|| self.furthest(protected, reserved));
+        let reg =
+            self.free_register_for(value, reserved).or_else(|| self.furthest(protected, reserved));
         let reg = reg.ok_or_else(|| "instruction needs more registers than exist".to_owned())?;
         self.put_in_register(value, reg, protected)?;
         Ok(reg)
@@ -1174,9 +1106,7 @@ impl<'a, R: Register> Allocator<'a, R> {
             && held != value
         {
             if protected.contains(&held) {
-                return Err(format!(
-                    "fixed register {reg:?} holds two simultaneous operands"
-                ));
+                return Err(format!("fixed register {reg:?} holds two simultaneous operands"));
             }
             // Where `value` is going is taken, so the other cannot wait there.
             let busy = self.busy;
@@ -1234,9 +1164,7 @@ impl<'a, R: Register> Allocator<'a, R> {
                 && let Some(value) = self.register_occupant(reg)
             {
                 if protected.contains(&value) {
-                    return Err(format!(
-                        "scratch register {reg:?} conflicts with an operand"
-                    ));
+                    return Err(format!("scratch register {reg:?} conflicts with an operand"));
                 }
                 let spilled = self.spill(value)?;
                 self.placement.set(value, spilled);
@@ -1271,12 +1199,7 @@ impl<'a, R: Register> Allocator<'a, R> {
         let values = self.liveness.at[point.index()]
             .iter()
             .map(|value| {
-                (
-                    value,
-                    self.placement
-                        .get(value)
-                        .expect("every live value has a location"),
-                )
+                (value, self.placement.get(value).expect("every live value has a location"))
             })
             .collect();
         self.states[point.index()] = Some(PointState { block, values });
@@ -1332,10 +1255,7 @@ impl<'a, R: Register> Allocator<'a, R> {
                         continue;
                     }
                     if !self.liveness.at[layout.terminator.index()].contains(value) {
-                        return Err(format!(
-                            "edge does not carry live-through v{}",
-                            value.index()
-                        ));
+                        return Err(format!("edge does not carry live-through v{}", value.index()));
                     }
                     let copy = ParallelCopy::between(
                         place(self.location(layout.terminator, value)?),
@@ -1351,10 +1271,8 @@ impl<'a, R: Register> Allocator<'a, R> {
                     target,
                     moves: plan.moves().to_vec(),
                 });
-                self.edges = self
-                    .edges
-                    .checked_add(1)
-                    .ok_or_else(|| "edge count overflow".to_owned())?;
+                self.edges =
+                    self.edges.checked_add(1).ok_or_else(|| "edge count overflow".to_owned())?;
                 self.edge_cost.instructions = self
                     .edge_cost
                     .instructions
@@ -1376,9 +1294,8 @@ impl<'a, R: Register> Allocator<'a, R> {
     )]
     fn verify_states(&self) -> Result<(), String> {
         for (at, state) in self.states.iter().enumerate() {
-            let state = state
-                .as_ref()
-                .ok_or_else(|| format!("allocation has no state at p{at}"))?;
+            let state =
+                state.as_ref().ok_or_else(|| format!("allocation has no state at p{at}"))?;
             let live = &self.liveness.at[at];
             if state.values.len() != live.len()
                 || state.values.iter().any(|(value, _)| !live.contains(*value))
@@ -1430,10 +1347,7 @@ impl<'a, R: Register> Allocator<'a, R> {
                 }
                 let mut tied = None;
                 for (at, &location) in allocated.iter().enumerate() {
-                    let spec = self
-                        .code
-                        .spec(&inst, def_offset + at)
-                        .expect("verified operand");
+                    let spec = self.code.spec(&inst, def_offset + at).expect("verified operand");
                     let constraint = spec.constraint;
                     verify_allowed(location, spec.allowed)?;
                     verify_constraint(location, constraint, tied)?;
@@ -1446,9 +1360,7 @@ impl<'a, R: Register> Allocator<'a, R> {
                     if requirements.scratch.contains(reg)
                         && allocated.contains(&Location::Register(reg))
                     {
-                        return Err(format!(
-                            "scratch register {reg:?} is an instruction operand"
-                        ));
+                        return Err(format!("scratch register {reg:?} is an instruction operand"));
                     }
                     if requirements.scratch.contains(reg)
                         && self.states[points.early.index()]
@@ -1474,18 +1386,13 @@ impl<'a, R: Register> Allocator<'a, R> {
                             return Err("tied input and result have different locations".to_owned());
                         }
                     } else {
-                        let constraint = self
-                            .code
-                            .spec(&inst, 0)
-                            .expect("selected result")
-                            .constraint;
+                        let constraint =
+                            self.code.spec(&inst, 0).expect("selected result").constraint;
                         verify_constraint(location, constraint, None)?;
                     }
                 }
-                for &(value, location) in &self.states[points.late.index()]
-                    .as_ref()
-                    .expect("point state")
-                    .values
+                for &(value, location) in
+                    &self.states[points.late.index()].as_ref().expect("point state").values
                 {
                     if Some(value) != inst.result
                         && matches!(location, Location::Register(reg) if requirements.clobbers.contains(reg))
@@ -1498,15 +1405,10 @@ impl<'a, R: Register> Allocator<'a, R> {
                 }
             }
             match block.terminator {
-                Terminator::Branch {
-                    condition, allowed, ..
-                } => {
+                Terminator::Branch { condition, allowed, .. } => {
                     verify_allowed(self.location(layout.terminator, condition)?, allowed)?;
                 }
-                Terminator::Return {
-                    values,
-                    register: result_reg,
-                } => {
+                Terminator::Return { values, register: result_reg } => {
                     for &value in &self.code.operands[values.range()] {
                         verify_constraint(
                             self.location(layout.terminator, value)?,
@@ -1604,9 +1506,7 @@ fn verify_allowed<R: Register>(location: Location<R>, allowed: RegSet) -> Result
     if matches!(location, Location::Register(reg) if allowed.contains(reg)) {
         Ok(())
     } else {
-        Err(format!(
-            "allocation location {location:?} is outside {allowed:?}"
-        ))
+        Err(format!("allocation location {location:?} is outside {allowed:?}"))
     }
 }
 
@@ -1633,10 +1533,7 @@ fn preferred_sets<R: Register>(code: &Code<R>) -> Vec<RegSet> {
         }
     }
     for block in &code.blocks {
-        if let Terminator::Branch {
-            condition, allowed, ..
-        } = block.terminator
-        {
+        if let Terminator::Branch { condition, allowed, .. } = block.terminator {
             uses[condition.index()].0 &= allowed.0;
         }
     }
@@ -1648,11 +1545,7 @@ fn preferred_sets<R: Register>(code: &Code<R>) -> Vec<RegSet> {
         .zip(uses)
         .map(|(definition, uses)| {
             let common = definition.0 & uses.0;
-            if common == 0 {
-                definition
-            } else {
-                RegSet(common)
-            }
+            if common == 0 { definition } else { RegSet(common) }
         })
         .collect();
     let mut reads = vec![0u8; code.values];
@@ -1730,11 +1623,7 @@ fn preferred_registers<R: Register>(code: &Code<R>) -> Vec<Option<R>> {
         }
     }
     for block in &code.blocks {
-        let Terminator::Return {
-            values,
-            register: result,
-        } = block.terminator
-        else {
+        let Terminator::Return { values, register: result } = block.terminator else {
             continue;
         };
         for &value in &code.operands[values.range()] {
@@ -1789,13 +1678,9 @@ fn handed_hazards<R: Register>(
     for block in &code.blocks {
         let edges: &[(BlockId, Range)] = &match block.terminator {
             Terminator::Jump { target, args } => vec![(target, args)],
-            Terminator::Branch {
-                then_target,
-                then_args,
-                else_target,
-                else_args,
-                ..
-            } => vec![(then_target, then_args), (else_target, else_args)],
+            Terminator::Branch { then_target, then_args, else_target, else_args, .. } => {
+                vec![(then_target, then_args), (else_target, else_args)]
+            }
             Terminator::Return { .. } | Terminator::Halt => Vec::new(),
         };
         for &(target, args) in edges {
@@ -1829,11 +1714,8 @@ fn tie_hazards<R: Register>(code: &Code<R>, liveness: &Liveness, hazards: &mut [
     }
     loop {
         let mut learned = handed_hazards(code, liveness, &entries, hazards);
-        for points in liveness
-            .blocks
-            .iter()
-            .rev()
-            .flat_map(|layout| layout.instructions.iter().rev())
+        for points in
+            liveness.blocks.iter().rev().flat_map(|layout| layout.instructions.iter().rev())
         {
             let inst = code.instructions[points.instruction];
             let (Some(result), Some(&tied)) =
@@ -1899,16 +1781,9 @@ fn hand_back<R: Register>(code: &Code<R>, preferred: &mut [Option<R>]) -> bool {
     for block in &code.blocks {
         let edges = match block.terminator {
             Terminator::Jump { target, args } => [Some((target, args)), None],
-            Terminator::Branch {
-                then_target,
-                then_args,
-                else_target,
-                else_args,
-                ..
-            } => [
-                Some((then_target, then_args)),
-                Some((else_target, else_args)),
-            ],
+            Terminator::Branch { then_target, then_args, else_target, else_args, .. } => {
+                [Some((then_target, then_args)), Some((else_target, else_args))]
+            }
             Terminator::Return { .. } | Terminator::Halt => [None, None],
         };
         for (target, args) in edges.into_iter().flatten() {
@@ -1961,11 +1836,7 @@ fn function_spill_slots<R: Register>(
     for layout in &liveness.blocks {
         let owner = code.blocks[layout.block].owner;
         for points in &layout.instructions {
-            note_moves(
-                &mut frame,
-                owner,
-                &operand_moves[points.instruction.index()],
-            );
+            note_moves(&mut frame, owner, &operand_moves[points.instruction.index()]);
         }
     }
     for edge in edge_moves {
@@ -1996,9 +1867,8 @@ fn widen_for_stores<R: Register>(
     for &(point, _, SpillSlot(slot)) in stores {
         let owner = owner_at(code, liveness, point)
             .ok_or_else(|| "spill store has no owning function".to_owned())?;
-        let needed = slot
-            .checked_add(1)
-            .ok_or_else(|| "spill frame exceeds 4G slots".to_owned())?;
+        let needed =
+            slot.checked_add(1).ok_or_else(|| "spill frame exceeds 4G slots".to_owned())?;
         let held = &mut spill_slots[owner.index()];
         *held = (*held).max(needed);
     }
@@ -2007,19 +1877,13 @@ fn widen_for_stores<R: Register>(
 
 /// How many functions an index by function source needs room for.
 fn function_count<R>(code: &Code<R>) -> usize {
-    code.functions
-        .iter()
-        .map(|function| function.source.index())
-        .max()
-        .map_or(0, |last| last + 1)
+    code.functions.iter().map(|function| function.source.index()).max().map_or(0, |last| last + 1)
 }
 
 /// The function whose block holds `point`: blocks take consecutive runs of
 /// points in order, so it is the last block beginning at or before it.
 fn owner_at<R>(code: &Code<R>, liveness: &Liveness, point: Point) -> Option<FunctionId> {
-    let after = liveness
-        .blocks
-        .partition_point(|layout| layout.entry.index() <= point.index());
+    let after = liveness.blocks.partition_point(|layout| layout.entry.index() <= point.index());
     let layout = &liveness.blocks[after.checked_sub(1)?];
     (point.index() <= layout.terminator.index()).then(|| code.blocks[layout.block].owner)
 }
@@ -2061,10 +1925,7 @@ fn frame_note<R: Copy>(frame: &mut [(bool, Option<u32>)], owner: FunctionId, pla
     let held = &mut frame[owner.index()];
     if let Place::Frame(slot) = place {
         held.0 = true;
-        held.1 = Some(
-            held.1
-                .map_or_else(|| slot.number(), |last| last.max(slot.number())),
-        );
+        held.1 = Some(held.1.map_or_else(|| slot.number(), |last| last.max(slot.number())));
     }
 }
 
@@ -2094,9 +1955,7 @@ fn verify_constraint<R: Register>(
     if valid {
         Ok(())
     } else {
-        Err(format!(
-            "allocation location {location:?} violates {constraint:?}"
-        ))
+        Err(format!("allocation location {location:?} violates {constraint:?}"))
     }
 }
 
@@ -2114,13 +1973,9 @@ fn predecessors<R: Register>(code: &Code<R>, liveness: &Liveness) -> Vec<Vec<(Bl
 fn edges<R: Copy>(terminator: Terminator<R>) -> Vec<(BlockId, Range)> {
     match terminator {
         Terminator::Jump { target, args } => vec![(target, args)],
-        Terminator::Branch {
-            then_target,
-            then_args,
-            else_target,
-            else_args,
-            ..
-        } => vec![(then_target, then_args), (else_target, else_args)],
+        Terminator::Branch { then_target, then_args, else_target, else_args, .. } => {
+            vec![(then_target, then_args), (else_target, else_args)]
+        }
         Terminator::Return { .. } | Terminator::Halt => Vec::new(),
     }
 }
@@ -2152,9 +2007,7 @@ fn build_segments<R: Register>(
         let Some(state) = state else { continue };
         let point = Point::at(point_at)?;
         let same_block = point_at > 0
-            && states[point_at - 1]
-                .as_ref()
-                .is_some_and(|before| before.block == state.block);
+            && states[point_at - 1].as_ref().is_some_and(|before| before.block == state.block);
         for &(value, location) in &state.values {
             let previous = latest[value.index()]
                 .filter(|&at| same_block && segments[at].end.index() == point_at);
@@ -2173,12 +2026,7 @@ fn build_segments<R: Register>(
                 });
             }
             latest[value.index()] = Some(segments.len());
-            segments.push(Segment {
-                value,
-                start: point,
-                end: Point::at(point_at + 1)?,
-                location,
-            });
+            segments.push(Segment { value, start: point, end: Point::at(point_at + 1)?, location });
         }
     }
     segments.sort_unstable_by_key(|segment| (segment.value, segment.start.0));
@@ -2207,12 +2055,8 @@ impl<R: Register> Allocation<R> {
     /// The transitions made at `point`.
     #[must_use]
     pub fn transitions_at(&self, point: Point) -> &[Transition<R>] {
-        let start = self
-            .transitions
-            .partition_point(|transition| transition.at.0 < point.0);
-        let end = self
-            .transitions
-            .partition_point(|transition| transition.at.0 <= point.0);
+        let start = self.transitions.partition_point(|transition| transition.at.0 < point.0);
+        let end = self.transitions.partition_point(|transition| transition.at.0 <= point.0);
         &self.transitions[start..end]
     }
 
@@ -2251,11 +2095,7 @@ impl<R: Register> Allocation<R> {
             if let Location::Spill(SpillSlot(slot)) = segment.location {
                 let owner = owner_at(code, liveness, segment.start)
                     .ok_or_else(|| "spill segment has no owning function".to_owned())?;
-                if self
-                    .spill_slots
-                    .get(owner.index())
-                    .is_none_or(|&slots| slot >= slots)
-                {
+                if self.spill_slots.get(owner.index()).is_none_or(|&slots| slot >= slots) {
                     return Err("allocation refers past its spill frame".to_owned());
                 }
             }
@@ -2263,18 +2103,11 @@ impl<R: Register> Allocation<R> {
         for &(point, _, SpillSlot(slot)) in &self.stores {
             let owner = owner_at(code, liveness, point)
                 .ok_or_else(|| "spill store has no owning function".to_owned())?;
-            if self
-                .spill_slots
-                .get(owner.index())
-                .is_none_or(|&slots| slot >= slots)
-            {
+            if self.spill_slots.get(owner.index()).is_none_or(|&slots| slot >= slots) {
                 return Err("allocation stores past its spill frame".to_owned());
             }
         }
-        if !self
-            .transitions
-            .is_sorted_by_key(|transition| transition.at.0)
-        {
+        if !self.transitions.is_sorted_by_key(|transition| transition.at.0) {
             return Err("allocation transitions are out of point order".to_owned());
         }
         for transition in &self.transitions {
@@ -2354,10 +2187,7 @@ mod tests {
     }
 
     /// `count` values made, then each read once in the order `reads` gives.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one straight-line function built by hand"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one straight-line function built by hand")]
     fn made_then_read(count: usize, reads: &[usize]) -> Code<Two> {
         let mut code = Code {
             values: count,
@@ -2368,10 +2198,7 @@ mod tests {
             block_params: Vec::new(),
             block_param_specs: Vec::new(),
             blocks: Pool::default(),
-            functions: vec![Function {
-                source: FunctionId::at(0),
-                entry: BlockId::at(0),
-            }],
+            functions: vec![Function { source: FunctionId::at(0), entry: BlockId::at(0) }],
             registers: vec![Two::A, Two::B],
             copies: None,
         };

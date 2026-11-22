@@ -34,10 +34,7 @@ fn corpus() -> [(&'static str, Program); 19] {
         ("a byte", programs::stores_a_byte()),
         ("a global", programs::counts_in_a_global()),
         ("writing the heap", programs::writes_from_the_heap()),
-        (
-            "a computed length",
-            programs::writes_a_length_it_worked_out(),
-        ),
+        ("a computed length", programs::writes_a_length_it_worked_out()),
         ("eight bits", programs::wraps_at_eight_bits()),
         ("less", programs::less(7, 9)),
         ("two worked out", programs::compares_two_worked_out_values()),
@@ -89,22 +86,15 @@ pub(super) fn execute_with_input(program: &Program, input: &[u8]) -> (i32, Strin
 /// Emit once, then run that artifact for each argument/input case. Exercise
 /// raw emission after explicitly establishing its preconditions; integration
 /// tests separately cover the checked compilation wrappers.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one test artifact's write/run/cleanup lifecycle"
-)]
 fn execute_cases(program: &Program, cases: &[(u16, &[u8])]) -> Vec<(i32, String)> {
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
     faun_core::ir::validate(program).expect("a well-formed program");
-    TARGET
-        .accepts(program)
-        .expect("a program this machine holds");
+    TARGET.accepts(program).expect("a program this machine holds");
     let _lock = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
     let dir = scratch("faun");
-    let path = TARGET
-        .write(&TARGET.emit(program), &dir.join("program"))
-        .expect("somewhere to write it");
+    let path =
+        TARGET.write(&TARGET.emit(program), &dir.join("program")).expect("somewhere to write it");
     let answers = cases
         .iter()
         .map(|&(argc, input)| {
@@ -131,15 +121,9 @@ fn execute_cases(program: &Program, cases: &[(u16, &[u8])]) -> Vec<(i32, String)
                 .expect("input for the program");
             let output = child.wait_with_output().expect("a machine to finish");
             let code = output.status.code().unwrap_or_else(|| {
-                panic!(
-                    "the program was signalled: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                )
+                panic!("the program was signalled: {}", String::from_utf8_lossy(&output.stderr))
             });
-            (
-                code,
-                String::from_utf8(output.stdout).expect("what it wrote, as text"),
-            )
+            (code, String::from_utf8(output.stdout).expect("what it wrote, as text"))
         })
         .collect();
     fs::remove_dir_all(&dir).expect("the scratch directory to go");
@@ -163,9 +147,8 @@ fn execute_among(program: &Program, files: &Directory) -> (i32, Directory) {
     for (name, bytes) in files {
         fs::write(work.join(name), bytes).expect("a file to start with");
     }
-    let path = TARGET
-        .write(&TARGET.emit(program), &dir.join("program"))
-        .expect("somewhere to write it");
+    let path =
+        TARGET.write(&TARGET.emit(program), &dir.join("program")).expect("somewhere to write it");
     let mut command = RUNNER.map_or_else(
         || Command::new(&path),
         |runner| {
@@ -177,11 +160,8 @@ fn execute_among(program: &Program, files: &Directory) -> (i32, Directory) {
             command
         },
     );
-    let output = command
-        .current_dir(&work)
-        .stdin(Stdio::null())
-        .output()
-        .expect("a machine to run it");
+    let output =
+        command.current_dir(&work).stdin(Stdio::null()).output().expect("a machine to run it");
     let code = output.status.code().expect("a program that exits");
     let left = fs::read_dir(&work)
         .expect("the files it left")
@@ -216,9 +196,7 @@ fn scratch(prefix: &str) -> PathBuf {
 #[test]
 fn it_opens_files_beneath_where_it_runs() {
     let program = read(include_str!("files.fn")).expect("a program that opens files");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     let input: Directory = [("input.txt".to_owned(), b"from the file\n".to_vec())].into();
     let (code, left) = execute_among(&program, &input);
     assert_eq!(code, 0);
@@ -230,10 +208,7 @@ fn it_opens_files_beneath_where_it_runs() {
     .into();
     assert_eq!(left, expected);
     // Nothing to read: the first open fails, and nothing is made.
-    assert_eq!(
-        execute_among(&program, &Directory::new()),
-        (2, Directory::new())
-    );
+    assert_eq!(execute_among(&program, &Directory::new()), (2, Directory::new()));
 }
 
 #[test]
@@ -278,12 +253,7 @@ fn target_runs_managed_products_across_calls_and_matches() {
             .iter()
             .filter_map(faun_core::ir::Function::body)
             .flat_map(|body| program.every(body))
-            .any(|op| {
-                matches!(
-                    op,
-                    Op::Cell { .. } | Op::CellTag { .. } | Op::CellField { .. }
-                )
-            })
+            .any(|op| matches!(op, Op::Cell { .. } | Op::CellTag { .. } | Op::CellField { .. }))
     };
     assert!(has_cells(&machine));
     assert!(
@@ -322,23 +292,10 @@ fn forwarded_managed_fields_survive_both_calls() {
     faun_core::ir::validate(&machine).unwrap();
     let optimized = faun_core::ir::optimize(&machine);
     let body = optimized.function(main).body().unwrap();
-    assert_eq!(
-        optimized
-            .every(body)
-            .filter(|op| matches!(op, Op::Cell { .. }))
-            .count(),
-        1
-    );
-    assert!(
-        !optimized
-            .every(body)
-            .any(|op| matches!(op, Op::CellField { .. }))
-    );
+    assert_eq!(optimized.every(body).filter(|op| matches!(op, Op::Cell { .. })).count(), 1);
+    assert!(!optimized.every(body).any(|op| matches!(op, Op::CellField { .. })));
     let prepared = TARGET.prepare(&optimized).unwrap();
-    assert_eq!(
-        execute_counts(&prepared, &[1, 2]),
-        [(2, String::new()), (4, String::new())]
-    );
+    assert_eq!(execute_counts(&prepared, &[1, 2]), [(2, String::new()), (4, String::new())]);
 }
 
 /// Products held flat cross calls as arguments and results, meet at a join,
@@ -389,15 +346,10 @@ const PRODUCTS: &str = "import std.host {Host}
 #[test]
 fn products_cross_calls_joins_and_cells_as_their_fields() {
     let program = read(PRODUCTS).expect("a program holding products");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program any target holds");
+    let prepared = TARGET.prepare(&program).expect("a program any target holds");
     // One argument: the flag is set, so the triple is rotated to
     // T(P(False True) True). Two: it is kept as T(P(True False) True).
-    assert_eq!(
-        execute_counts(&prepared, &[1, 2]),
-        [(4, String::new()), (0, String::new())]
-    );
+    assert_eq!(execute_counts(&prepared, &[1, 2]), [(4, String::new()), (0, String::new())]);
 }
 
 /// Numbers inside a product are as wide as what is built into them, so a
@@ -427,14 +379,8 @@ const NUMBER_PAIR: &str = "import std.host {Host}
 #[test]
 fn a_pair_of_small_numbers_is_two_small_words() {
     let program = read(NUMBER_PAIR).expect("a program holding a pair of numbers");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program any target holds");
-    assert!(
-        !prepared.render().contains("allocate"),
-        "{}",
-        prepared.render()
-    );
+    let prepared = TARGET.prepare(&program).expect("a program any target holds");
+    assert!(!prepared.render().contains("allocate"), "{}", prepared.render());
     assert_eq!(status(&prepared), 3);
 }
 
@@ -470,14 +416,8 @@ const LIST: &str = "import std.host {Host}
 #[test]
 fn a_list_built_at_run_time_is_a_buffer() {
     let program = read(LIST).expect("a program building a list");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program any target holds");
-    assert!(
-        prepared.render().contains("seq.reserve"),
-        "{}",
-        prepared.render()
-    );
+    let prepared = TARGET.prepare(&program).expect("a program any target holds");
+    assert!(prepared.render().contains("seq.reserve"), "{}", prepared.render());
     assert_eq!(status(&prepared), 4);
 }
 
@@ -499,14 +439,8 @@ const LENGTH: &str = "import std.host {Host}
 #[test]
 fn a_list_is_counted_by_the_length_it_holds() {
     let program = read(LENGTH).expect("a program counting a list");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program any target holds");
-    assert!(
-        !prepared.render().contains("List.len"),
-        "{}",
-        prepared.render()
-    );
+    let prepared = TARGET.prepare(&program).expect("a program any target holds");
+    assert!(!prepared.render().contains("List.len"), "{}", prepared.render());
     assert_eq!(status(&prepared), 5);
 }
 
@@ -520,9 +454,7 @@ fn prepared_programs_carry_more_across_a_boundary_than_a_target_passes() {
         held.push(abi::region(kind, 3));
     }
     for program in held {
-        let prepared = TARGET
-            .prepare(&program)
-            .expect("a program any target holds");
+        let prepared = TARGET.prepare(&program).expect("a program any target holds");
         assert_eq!(status(&prepared), 0);
     }
 }
@@ -558,13 +490,7 @@ fn target_supplies_named_entry_parameters() {
     });
     faun_core::ir::validate(&program).unwrap();
     let answers = execute_counts(&program, &[1, 4, 9]);
-    assert_eq!(
-        answers
-            .iter()
-            .map(|(status, _)| *status)
-            .collect::<Vec<_>>(),
-        [1, 4, 9]
-    );
+    assert_eq!(answers.iter().map(|(status, _)| *status).collect::<Vec<_>>(), [1, 4, 9]);
 }
 
 /// A startup value nothing reads is not an entry parameter, so the target
@@ -577,10 +503,7 @@ fn an_unread_startup_value_is_never_produced() {
          main!(host) -> host.exit!(U8.of_nat(host.args.len()))",
     )
     .expect("a program reading argc");
-    assert_eq!(
-        reads.parameter_names(reads.entry()).collect::<Vec<_>>(),
-        ["argc"]
-    );
+    assert_eq!(reads.parameter_names(reads.entry()).collect::<Vec<_>>(), ["argc"]);
     let ignores = read(EXIT_ZERO).expect("a program ignoring argc");
     assert_eq!(ignores.parameter_names(ignores.entry()).count(), 0);
 }
@@ -609,10 +532,9 @@ pub(super) fn bytes(program: &Program) -> Vec<u8> {
 /// machine, and every target has to answer the same.
 fn running() -> Vec<(&'static str, Program, i32)> {
     let mut held = built();
-    for (name, leave, answer) in [
-        ("an arm that comes back", false, 2),
-        ("an arm that leaves", true, 1),
-    ] {
+    for (name, leave, answer) in
+        [("an arm that comes back", false, 2), ("an arm that leaves", true, 1)]
+    {
         let mut barb = programs::an_arm_that_leaves(leave);
         barb::optimize(&mut barb);
         let machine = faun_core::lower_to_machine_ir(&barb, &TARGET.routines()).expect("a program");
@@ -629,34 +551,14 @@ fn running() -> Vec<(&'static str, Program, i32)> {
 fn built() -> Vec<(&'static str, Program, i32)> {
     vec![
         ("two and two", programs::two_and_two(), 4),
-        (
-            "a long arm first",
-            programs::a_branch_over_a_long_arm(40, true),
-            40,
-        ),
-        (
-            "a long arm last",
-            programs::a_branch_over_a_long_arm(40, false),
-            40,
-        ),
+        ("a long arm first", programs::a_branch_over_a_long_arm(40, true), 40),
+        ("a long arm last", programs::a_branch_over_a_long_arm(40, false), 40),
         ("a global", programs::counts_in_a_global(), 3),
         ("eight bits", programs::wraps_at_eight_bits(), 4),
-        (
-            "values across a call",
-            programs::values_survive_a_call(),
-            45,
-        ),
-        (
-            "a comparison",
-            programs::compares_two_worked_out_values(),
-            1,
-        ),
+        ("values across a call", programs::values_survive_a_call(), 45),
+        ("a comparison", programs::compares_two_worked_out_values(), 1),
         ("a flag it read", programs::branches_on_a_flag_it_read(), 7),
-        (
-            "a total into an arm",
-            programs::carries_a_total_into_an_arm(3),
-            3,
-        ),
+        ("a total into an arm", programs::carries_a_total_into_an_arm(3), 3),
     ]
 }
 
@@ -895,9 +797,7 @@ const LISTED: &[(&str, &str, i32)] = &[
 #[test]
 fn lists_of_lists_are_put_before_one_another() {
     let program = read(LIST_OF_LISTS).expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let prepared = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(status(&prepared), 43);
 }
 
@@ -905,9 +805,7 @@ fn lists_of_lists_are_put_before_one_another() {
 fn the_standard_list_answers_what_a_program_says() {
     for (name, text, answer) in LISTED {
         let program = read(text).unwrap_or_else(|error| panic!("{name}: {error}\n{text}"));
-        let prepared = TARGET
-            .prepare(&program)
-            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        let prepared = TARGET.prepare(&program).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(status(&prepared), *answer, "{name}");
     }
 }
@@ -958,11 +856,7 @@ fn lists_of_every_element_hold_what_they_were_given() {
 
          named : List({name: Str, size: Nat}) -> Bool
          named(held) -> held.map(|r| r.name) == [\"a1\", \"b\"] & held.map(|r| r.size) == [1, 2]";
-    for (first, second) in [
-        ("bools", "bytes"),
-        ("pairs", "nested"),
-        ("strings", "records"),
-    ] {
+    for (first, second) in [("bools", "bytes"), ("pairs", "nested"), ("strings", "records")] {
         let text = format!(
             "import std.host {{Host}}
 
@@ -975,9 +869,7 @@ fn lists_of_every_element_hold_what_they_were_given() {
              {KINDS}"
         );
         let program = read(&text).unwrap_or_else(|e| panic!("{first}: {e}"));
-        let program = TARGET
-            .prepare(&program)
-            .unwrap_or_else(|e| panic!("{first}: {e}"));
+        let program = TARGET.prepare(&program).unwrap_or_else(|e| panic!("{first}: {e}"));
         assert_eq!(status(&program), 3, "{first} and {second}");
     }
 }
@@ -1007,9 +899,7 @@ fn a_list_of_small_tags_reads_back_its_packed_fields() {
          )",
     )
     .expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let prepared = TARGET.prepare(&program).expect("a program this machine holds");
     // 7 + 258 + 68 + 200 + 3 + 1 = 537, 537 % 32 = 25; replacing the 200
     // by 258 + 68 makes 663, 663 % 32 = 23; and they compare as they should.
     assert_eq!(status(&prepared), 25 + 23 + 64);
@@ -1030,9 +920,7 @@ fn a_shift_down_read_narrow_keeps_what_it_moves_down() {
          )",
     )
     .expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let prepared = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(status(&prepared), 2);
 }
 
@@ -1070,9 +958,7 @@ fn a_wide_number_is_not_nought_where_its_low_bits_are() {
          )",
     )
     .expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let prepared = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(status(&prepared), 8);
 }
 
@@ -1115,9 +1001,7 @@ fn a_list_set_where_nothing_else_holds_it_is_written_in_place() {
          past : Nat -> Bool
          past(n) -> [n].set(n, 5).is_err()";
     let program = read(text).expect("a program");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(status(&program), 15);
 }
 
@@ -1132,18 +1016,13 @@ fn it_stores_narrower_than_a_word() {
 fn it_reads_standard_input() {
     // The primitive a program's reading is built on, one byte at a time.
     let program = programs::external::reads_bytes();
-    assert_eq!(
-        execute_with_input(&program, &[0, 127, 255]),
-        (0, String::new())
-    );
+    assert_eq!(execute_with_input(&program, &[0, 127, 255]), (0, String::new()));
 
     // All of it, as a program asks: what goes to standard error is not
     // what goes to standard output.
     let text = fs::read_to_string(written().join("stdin.fn")).expect("the stdin example");
     let source = read(&text).expect("a source program that reads its input");
-    let source = TARGET
-        .prepare(&source)
-        .expect("a program this machine holds");
+    let source = TARGET.prepare(&source).expect("a program this machine holds");
     assert_eq!(execute_with_input(&source, b"AB"), (6, "AB".to_owned()));
     assert_eq!(execute_with_input(&source, b""), (4, String::new()));
 
@@ -1180,13 +1059,9 @@ fn an_if_works_out_only_the_branch_it_chooses() {
          )",
     )
     .expect("a program choosing a branch");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [5, 99]);
 }
 
@@ -1212,13 +1087,9 @@ fn a_test_binds_where_it_holds() {
          )",
     )
     .expect("a program testing what it has");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2, 3])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2, 3]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [1 + 3 + 2, 20 + 2 + 3, 1 + 3 + 4]);
 }
 
@@ -1244,13 +1115,9 @@ fn an_expect_goes_on_or_leaves() {
          )",
     )
     .expect("a program leaving early");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [7, 20]);
 }
 
@@ -1287,13 +1154,9 @@ fn patterns_name_wholes_compare_and_bind_from_guards() {
          )",
     )
     .expect("a program naming wholes, comparing and binding from guards");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [12, 122]);
 }
 
@@ -1329,13 +1192,9 @@ fn an_arm_may_leave() {
          )",
     )
     .expect("a program whose arms leave");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [29, 12]);
 }
 
@@ -1374,13 +1233,9 @@ fn arms_answer_by_the_first_that_matches() {
          )",
     )
     .expect("a program choosing by arms");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [11, 105]);
 }
 
@@ -1417,13 +1272,9 @@ fn a_branch_whose_value_goes_on_may_leave() {
          )",
     )
     .expect("a program leaving from branches");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [17, 53]);
 }
 
@@ -1457,13 +1308,9 @@ fn a_way_that_never_answers_meets_one_that_does() {
          )",
     )
     .expect("a program whose ways never answer");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2, 3, 4])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2, 3, 4]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [2, 8, 6, 5]);
 }
 
@@ -1487,13 +1334,9 @@ fn a_name_bound_again_shadows_to_the_end_of_its_block() {
          )",
     )
     .expect("a program binding names again");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    let answers: Vec<_> =
+        execute_counts(&program, &[1, 2]).into_iter().map(|(status, _)| status).collect();
     assert_eq!(answers, [12, 45]);
 }
 
@@ -1530,9 +1373,7 @@ fn a_walk_keeps_its_effects_in_order() {
          )",
     )
     .expect("a program walking by recursion");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     let answers = execute_counts(&program, &[1, 2]);
     assert_eq!(answers, [(46, "1;3;".to_owned()), (46, "1;3;".to_owned())]);
 }
@@ -1553,9 +1394,7 @@ fn it_greets_whom_it_is_handed() {
          )",
     )
     .expect("a program reading its arguments");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     let counts = [1, 2, 3];
     let greeted: Vec<_> = counts
         .iter()
@@ -1581,13 +1420,8 @@ fn it_is_handed_strings_beside_a_list_of_numbers() {
          )",
     )
     .expect("a program reading its arguments");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    assert_eq!(
-        execute_counts(&program, &[2]),
-        [((2 + 5 + 2) % 8, "Hello, dummy!\n".to_owned())]
-    );
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    assert_eq!(execute_counts(&program, &[2]), [((2 + 5 + 2) % 8, "Hello, dummy!\n".to_owned())]);
 }
 
 /// Advent of Code 2015, day one, on an input far longer than a stack of
@@ -1599,9 +1433,7 @@ fn a_long_walk_goes_round_rather_than_down() {
     let path = crates().join("frontend/examples/aoc/201501.fn");
     let text = fs::read_to_string(&path).expect("the day one example");
     let program = read(&text).expect("the day one example compiles");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     let input = "(()".repeat(steps);
     assert_eq!(
         execute_with_input(&program, input.as_bytes()),
@@ -1644,18 +1476,13 @@ fn a_list_built_on_the_way_out_goes_round_rather_than_down() {
          )"
     );
     let program = read(&text).expect("the walks compile");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     // Every element doubled, the odd half, and the odd ones summed, kept
     // below the statuses WASI refuses.
     let half = length / 2;
     let odd_sum = half.pow(2);
     let status = (length + half + odd_sum) % 100;
-    assert_eq!(
-        execute(&program),
-        (i32::try_from(status).expect("a byte"), String::new())
-    );
+    assert_eq!(execute(&program), (i32::try_from(status).expect("a byte"), String::new()));
 }
 
 /// A walk inside another, for more steps of the outer than a stack of
@@ -1747,19 +1574,14 @@ fn a_walk_inside_another_goes_round_rather_than_down() {
          )"
     );
     let program = read(&text).expect("the walks compile");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     // Every other start marks one node and adds a group, and the last even
     // start is the first past the limit. Three deep, every start counts
     // twice, or, skipping, only every eighth does.
     let two = rounds + rounds - 2;
     let three = 2 * rounds + 2 * ((rounds - 1) / 8 + 1);
     let status = (two + three) % 100;
-    assert_eq!(
-        execute(&program),
-        (i32::try_from(status).expect("a byte"), String::new())
-    );
+    assert_eq!(execute(&program), (i32::try_from(status).expect("a byte"), String::new()));
 }
 
 /// Counted walks, a count taken down and a position below a bound kept,
@@ -1792,9 +1614,7 @@ fn a_counted_walk_answers_the_same_either_side_of_its_copy() {
          )"
     );
     let program = read(&text).expect("the walks compile");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     let counts = [1, 2, 3];
     let expected: Vec<(i32, String)> = counts
         .iter()
@@ -1813,20 +1633,13 @@ fn a_counted_walk_answers_the_same_either_side_of_its_copy() {
 /// something else, or read at a position not counted up, which keeps it
 /// built. Every one answers what the list built answers.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "five readers, each beside what the list built answers"
-)]
+#[expect(clippy::too_many_lines, reason = "five readers, each beside what the list built answers")]
 fn a_list_read_by_position_answers_as_the_list_built() {
     // Each reader, how it is handed its list, and what the list built
     // answers for `n` elements. The 6502 holds two of them at a time.
     type Answer = fn(u64) -> u64;
     fn get(xs: &[u64], i: u64, or: u64) -> u64 {
-        usize::try_from(i)
-            .ok()
-            .and_then(|i| xs.get(i))
-            .copied()
-            .unwrap_or(or)
+        usize::try_from(i).ok().and_then(|i| xs.get(i)).copied().unwrap_or(or)
     }
     let readers: [(&str, &str, Answer); 5] = [
         (
@@ -1850,9 +1663,7 @@ fn a_list_read_by_position_answers_as_the_list_built() {
             "pairs(List.range(n).map(|i| i * 11 % 7), 0, 0)",
             |n| {
                 let xs: Vec<u64> = (0..n).map(|i| i * 11 % 7).collect();
-                (0..=n)
-                    .step_by(2)
-                    .fold(0, |sum, i| sum * 3 + get(&xs, i, 5))
+                (0..=n).step_by(2).fold(0, |sum, i| sum * 3 + get(&xs, i, 5))
             },
         ),
         (
@@ -1886,17 +1697,10 @@ fn a_list_read_by_position_answers_as_the_list_built() {
             |n| (0..n).fold(0, |sum, i| sum * 7 % 1_000_003 + (n - 1 - i) + 2),
         ),
     ];
-    let at_once = if TARGET.word() == 16 {
-        1
-    } else {
-        readers.len()
-    };
+    let at_once = if TARGET.word() == 16 { 1 } else { readers.len() };
     for some in readers.chunks(at_once) {
         let definitions: Vec<&str> = some.iter().map(|(definition, _, _)| *definition).collect();
-        let calls: Vec<String> = some
-            .iter()
-            .map(|(_, call, _)| format!("${{{call}}}"))
-            .collect();
+        let calls: Vec<String> = some.iter().map(|(_, call, _)| format!("${{{call}}}")).collect();
         let text = format!(
             "import std.host {{Host}}
 
@@ -1912,18 +1716,14 @@ fn a_list_read_by_position_answers_as_the_list_built() {
             calls.join(" ")
         );
         let program = read(&text).expect("the readers compile");
-        let program = TARGET
-            .prepare(&program)
-            .expect("a program this machine holds");
+        let program = TARGET.prepare(&program).expect("a program this machine holds");
         let counts = [1, 2, 3];
         let expected: Vec<(i32, String)> = counts
             .iter()
             .map(|&count| {
                 let n = 3 + u64::from(count);
-                let answers: Vec<String> = some
-                    .iter()
-                    .map(|(_, _, answer)| answer(n).to_string())
-                    .collect();
+                let answers: Vec<String> =
+                    some.iter().map(|(_, _, answer)| answer(n).to_string()).collect();
                 (0, format!("{}\n", answers.join(" ")))
             })
             .collect();
@@ -1935,10 +1735,6 @@ fn a_list_read_by_position_answers_as_the_list_built() {
 /// complete application exceeds sim65's 64 KiB code space; the larger
 /// targets also run its expectations and both hundred-step stdin solvers.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one example's kernel, expectations and stdin cases, with a smaller fixture for sim65"
-)]
 fn the_animated_lights_run_on_each_target() {
     let text = include_str!("../../../frontend/examples/aoc/201518.fn");
     let kernel = text.replace(
@@ -1953,9 +1749,7 @@ fn the_animated_lights_run_on_each_target() {
     )",
     );
     let program = read(&kernel).expect("the day 18 row kernel compiles");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(
         execute_counts(&program, &[1, 2, 3, 4]),
         [13, 2, 13, 2].map(|status| (status, String::new()))
@@ -1966,15 +1760,11 @@ fn the_animated_lights_run_on_each_target() {
 
     let path = crates().join("frontend/examples/aoc/201518.fn");
     let program = faun::expectations_at(&path, &TARGET).expect("the day 18 expectations compile");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(execute(&program), (0, String::new()));
 
     let program = read(text).expect("the day 18 example compiles");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     for (input, expected) in [
         ("##\n##\n", "Ok({part1: 4, part2: 4})\n"),
         ("..\n..\n", "Ok({part1: 0, part2: 4})\n"),
@@ -2010,9 +1800,7 @@ fn the_medicine_replacements_run_on_each_target() {
     )",
     );
     let program = read(&kernel).expect("the day 19 replacement kernel compiles");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(
         execute_counts(&program, &[1, 2, 3, 4]),
         [0, 1, 2, 3].map(|status| (status, String::new()))
@@ -2023,34 +1811,18 @@ fn the_medicine_replacements_run_on_each_target() {
 
     let path = crates().join("frontend/examples/aoc/201519.fn");
     let program = faun::expectations_at(&path, &TARGET).expect("the day 19 expectations compile");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(execute(&program), (0, String::new()));
 
     let program = read(text).expect("the day 19 example compiles");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     for (input, expected) in [
-        (
-            "e => H\ne => O\nH => HO\nH => OH\nO => HH\n\nHOH\n",
-            "Ok({part1: 4, part2: 3})\n",
-        ),
-        (
-            "e => H\ne => O\nH => HO\nH => OH\nO => HH\n\nHOHOHO\n",
-            "Ok({part1: 7, part2: 6})\n",
-        ),
+        ("e => H\ne => O\nH => HO\nH => OH\nO => HH\n\nHOH\n", "Ok({part1: 4, part2: 3})\n"),
+        ("e => H\ne => O\nH => HO\nH => OH\nO => HH\n\nHOHOHO\n", "Ok({part1: 7, part2: 6})\n"),
         ("e => AAA\nAA => B\n\nAAA", "Ok({part1: 2, part2: 1})\n"),
-        (
-            "e => H\nH => HH\nH => HH\n\nHH",
-            "Ok({part1: 1, part2: 2})\n",
-        ),
+        ("e => H\nH => HH\nH => HH\n\nHH", "Ok({part1: 1, part2: 2})\n"),
         ("e => AB\nAB => C\n\nC", "Ok({part1: 0, part2: 2})\n"),
-        (
-            "e => H\nH => AB\nX => AB\n\nAB",
-            "Ok({part1: 0, part2: 2})\n",
-        ),
+        ("e => H\nH => AB\nX => AB\n\nAB", "Ok({part1: 0, part2: 2})\n"),
         ("e => A\nA => B\nB => A\n\nC", "Err(Unfabricable)\n"),
         ("H -> O\n\nH", "Err(MalformedRule)\n"),
     ] {
@@ -2088,9 +1860,7 @@ fn the_medicine_queue_orders_estimated_costs() {
          )",
     );
     let program = read(&text).expect("the medicine queue compiles");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(
         execute_counts(&program, &[1, 2, 3, 4, 5, 6]),
         std::array::from_fn::<_, 6, _>(|_| (0, String::new()))
@@ -2117,13 +1887,8 @@ fn it_runs_a_packages_expectations() {
 
                 main!(host) -> host.exit!(9)";
     let program = faun::expectations(text, &TARGET).expect("the expectations compile");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    assert_eq!(
-        execute(&program),
-        (0, "3-\u{1f}[1, 2, 3]\u{1f}[3, 2, 1]\u{1e}".to_owned())
-    );
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    assert_eq!(execute(&program), (0, "3-\u{1f}[1, 2, 3]\u{1f}[3, 2, 1]\u{1e}".to_owned()));
 }
 
 /// Generated builder lambdas share a span but keep their own identities,
@@ -2147,9 +1912,7 @@ fn generated_callbacks_keep_their_identities() {
                     host.exit!(0)
                   )"#;
     let program = read(text).expect("generated callbacks lower to first-order IR");
-    let program = TARGET
-        .prepare(&program)
-        .expect("the target holds the program");
+    let program = TARGET.prepare(&program).expect("the target holds the program");
     assert_eq!(
         execute_counts(&program, &[1, 3]),
         [(0, "5 4 True\n".to_owned()), (0, "11 6 True\n".to_owned())]
@@ -2162,9 +1925,7 @@ fn generated_callbacks_keep_their_identities() {
 fn the_standard_library_holds_its_expectations() {
     let program = faun::expectations_at(::faun_frontend::standard_path(), &TARGET)
         .expect("the standard expectations compile");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     assert_eq!(execute(&program), (0, String::new()));
 }
 
@@ -2174,9 +1935,8 @@ fn it_runs_every_example() {
         let path = entry.expect("an example").path();
         let text = fs::read_to_string(&path).expect("an example to read");
         let program = read(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let program = TARGET
-            .prepare(&program)
-            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let program =
+            TARGET.prepare(&program).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         if path.file_stem().and_then(|name| name.to_str()) == Some("hello") {
             assert_eq!(execute(&program), (0, "Hello, world!\n".to_owned()));
         } else {
@@ -2190,13 +1950,10 @@ fn it_compiles_to_the_sizes_recorded() {
     let corpus = corpus();
     assert_eq!(corpus.len(), CORPUS_SIZES.len());
     let held =
-        corpus
-            .into_iter()
-            .zip(CORPUS_SIZES)
-            .map(|((name, program), &(expected_name, size))| {
-                assert_eq!(name, expected_name, "size baselines must match the corpus");
-                (name, program, size)
-            });
+        corpus.into_iter().zip(CORPUS_SIZES).map(|((name, program), &(expected_name, size))| {
+            assert_eq!(name, expected_name, "size baselines must match the corpus");
+            (name, program, size)
+        });
     let examples = EXAMPLE_SIZES.iter().map(|&(name, size)| {
         let text = fs::read_to_string(written().join(format!("{name}.fn"))).expect("an example");
         let program = read(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -2209,10 +1966,7 @@ fn it_compiles_to_the_sizes_recorded() {
             (actual != size).then_some((name, actual, size))
         })
         .collect();
-    assert!(
-        changed.is_empty(),
-        "(program, actual, expected): {changed:?}"
-    );
+    assert!(changed.is_empty(), "(program, actual, expected): {changed:?}");
 }
 
 #[test]
@@ -2311,14 +2065,7 @@ fn it_runs_a_program_built_rather_than_written() {
     let barb = programs::two_and_two_in_barb();
     let machine = faun_core::ir::lower(&barb, &TARGET.routines()).expect("a representable program");
     // Recognized addition becomes an instruction; only the entry survives.
-    assert_eq!(
-        machine
-            .functions()
-            .iter()
-            .filter_map(faun_core::ir::Function::body)
-            .count(),
-        1
-    );
+    assert_eq!(machine.functions().iter().filter_map(faun_core::ir::Function::body).count(), 1);
     assert_eq!(status(&machine), 4);
 }
 
@@ -2339,9 +2086,7 @@ fn guarded_argc_expressions_fold_constants_but_compute_runtime_inputs() {
             .flat_map(|body| program.walk_within(body))
             .collect();
         assert!(
-            instructions
-                .iter()
-                .any(|(op, _)| matches!(op, Op::Binary { .. })),
+            instructions.iter().any(|(op, _)| matches!(op, Op::Binary { .. })),
             "{case:?}: runtime arithmetic must survive folding"
         );
         assert!(
@@ -2381,9 +2126,7 @@ fn a_sixty_four_bit_words_arithmetic_wraps_in_the_machine() {
         (0..program.values_count()).all(|at| program.class(ValueId::at(at)) != Class::Natural),
         "a word's arithmetic should not need runtime naturals"
     );
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     let answers = execute_counts(&program, &[1, 3]);
     let statuses: Vec<_> = answers.iter().map(|(status, _)| *status).collect();
     assert_eq!(statuses, [31, 18]);
@@ -2409,22 +2152,10 @@ fn a_narrower_words_of_nat_reads_the_low_bits() {
     )
     .expect("a program of words");
     let body = program.function(program.entry()).body().expect("a body");
-    let remainders = program
-        .every(body)
-        .filter(|op| {
-            matches!(
-                op,
-                Op::Binary {
-                    op: Binary::Mod,
-                    ..
-                }
-            )
-        })
-        .count();
+    let remainders =
+        program.every(body).filter(|op| matches!(op, Op::Binary { op: Binary::Mod, .. })).count();
     assert_eq!(remainders, 0, "keeping the low bits should not divide");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     let answers = execute_counts(&program, &[1, 3]);
     let statuses: Vec<_> = answers.iter().map(|(status, _)| *status).collect();
     let expected: Vec<_> = [1u128, 3]
@@ -2476,13 +2207,8 @@ fn a_number_past_every_word_is_worked_out_and_written() {
          )",
     )
     .expect("a program with an unbounded number");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    assert_eq!(
-        execute(&program),
-        (0, "265252859812191058636308480000000\n".to_owned())
-    );
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
+    assert_eq!(execute(&program), (0, "265252859812191058636308480000000\n".to_owned()));
 }
 
 /// A function holding more at once than an index register reaches in a
@@ -2505,17 +2231,13 @@ fn a_frame_holds_more_than_an_index_reaches() {
         // A call, which each held value outlives, so none can sit anywhere
         // a callee might write.
         let echoed = b.call_one(echo, &[argc]);
-        let total = held
-            .iter()
-            .fold(echoed, |total, &value| b.binary(Binary::Add, total, value));
+        let total = held.iter().fold(echoed, |total, &value| b.binary(Binary::Add, total, value));
         // A status wasmtime passes on is below 126.
         let modulus = b.constant(Class::Word, 97);
         let status = b.binary(Binary::Mod, total, modulus);
         b.ret(&[status]);
     });
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     // One argument: one, and one to two hundred, is 20101.
     let expected = (1 + HELD * (HELD + 1) / 2) % 97;
     assert_eq!(execute(&program).0, i32::try_from(expected).unwrap());
@@ -2544,9 +2266,7 @@ fn a_number_wider_than_the_word_is_held_as_words() {
          )",
     )
     .expect("a program with numbers wider than a small word");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
+    let program = TARGET.prepare(&program).expect("a program this machine holds");
     // One argument: 70001, twice 140002, thrice 210003, less once 140002,
     // over seven 30000.
     assert_eq!(execute(&program).0, 7);
@@ -2573,9 +2293,7 @@ fn a_long_known_string_is_laid_out_once() {
             "a".repeat(length)
         );
         let program = read(&source).expect("a program holding a long string");
-        TARGET
-            .prepare(&program)
-            .expect("a program this machine holds")
+        TARGET.prepare(&program).expect("a program this machine holds")
     };
     let (short, long) = (program(1000), program(4000));
     let grown = bytes(&long).len() - bytes(&short).len();
@@ -2588,11 +2306,7 @@ fn runnable_expression_example_uses_runtime_arguments() {
     let program = read(include_str!("examples/expressions.fn")).unwrap();
     let counts = [1, 2, 3, 31, 32, 33];
     for (argc, (status, stdout)) in counts.into_iter().zip(execute_counts(&program, &counts)) {
-        let expected = if argc < 32 {
-            2 * i32::from(argc) + 2
-        } else {
-            0
-        };
+        let expected = if argc < 32 { 2 * i32::from(argc) + 2 } else { 0 };
         assert_eq!(status, expected, "argc={argc}");
         assert!(stdout.is_empty());
     }
@@ -2640,16 +2354,10 @@ fn source_zero_width_scalars_cross_calls_and_joins() {
                 .any(|at| { program.class(ValueId::at(at)) == Class::fixed(0) })
         );
         // Unoptimized, the host is handed on whole, arguments and all.
-        let program = TARGET
-            .prepare(&program)
-            .expect("a program this machine holds");
+        let program = TARGET.prepare(&program).expect("a program this machine holds");
         let counts = [1, 2, 3, 33];
         for (argc, (status, stdout)) in counts.into_iter().zip(execute_counts(&program, &counts)) {
-            assert_eq!(
-                status,
-                i32::from(argc == 1),
-                "argc={argc}, optimized={optimized}"
-            );
+            assert_eq!(status, i32::from(argc == 1), "argc={argc}, optimized={optimized}");
             assert!(stdout.is_empty());
         }
     }
@@ -2671,24 +2379,14 @@ fn runtime_arithmetic_boundaries_and_odd_widths() {
             Binary::Or,
             Binary::Xor,
         ] {
-            assert_eq!(
-                status(&programs::arithmetic::boundaries(bits, op)),
-                0,
-                "{bits} {op:?}"
-            );
+            assert_eq!(status(&programs::arithmetic::boundaries(bits, op)), 0, "{bits} {op:?}");
         }
     }
     // Through the machine passes, because a shift is what they make of a
     // product by a power of two and nothing writes one directly.
-    assert_eq!(
-        status(&optimized(&programs::arithmetic::shifts_by_powers_of_two())),
-        0
-    );
+    assert_eq!(status(&optimized(&programs::arithmetic::shifts_by_powers_of_two())), 0);
     assert_eq!(status(&programs::arithmetic::doubles_across_bytes()), 0);
-    assert_eq!(
-        status(&programs::arithmetic::doubles_then_reads_the_same_number()),
-        0
-    );
+    assert_eq!(status(&programs::arithmetic::doubles_then_reads_the_same_number()), 0);
     assert_eq!(status(&programs::arithmetic::byte_products()), 0);
     assert_eq!(status(&programs::arithmetic::widened_byte_average()), 0);
     assert_eq!(status(&programs::arithmetic::odd_conversion()), 0);
@@ -2718,9 +2416,7 @@ fn runtime_shifts_by_a_distance() {
                 pairs.push((max >> top, top));
             }
             let program = programs::arithmetic::cases(bits, op, &pairs);
-            let prepared = TARGET
-                .prepare(&program)
-                .expect("a program this machine holds");
+            let prepared = TARGET.prepare(&program).expect("a program this machine holds");
             assert_eq!(status(&prepared), 0, "{bits} {op:?}");
         }
     }
@@ -2775,30 +2471,13 @@ fn runtime_arithmetic_varied_inputs() {
             (left, u64::from(seed))
         })
         .collect();
-    for op in [
-        Binary::Mul,
-        Binary::Div,
-        Binary::Mod,
-        Binary::And,
-        Binary::Or,
-        Binary::Xor,
-    ] {
+    for op in [Binary::Mul, Binary::Div, Binary::Mod, Binary::And, Binary::Or, Binary::Xor] {
         let inputs: Vec<_> = pairs
             .iter()
-            .map(|&(a, b)| {
-                if op == Binary::Mul {
-                    (a & 255, b & 255)
-                } else {
-                    (a, b)
-                }
-            })
+            .map(|&(a, b)| if op == Binary::Mul { (a & 255, b & 255) } else { (a, b) })
             .collect();
         for chunk in inputs.chunks(8) {
-            assert_eq!(
-                status(&programs::arithmetic::cases(16, op, chunk)),
-                0,
-                "{op:?} {chunk:?}"
-            );
+            assert_eq!(status(&programs::arithmetic::cases(16, op, chunk)), 0, "{op:?} {chunk:?}");
         }
     }
 }
@@ -2842,17 +2521,11 @@ fn it_compiles_the_ladder_to_the_sizes_recorded() {
         .filter_map(|((name, barb), &(expected, size))| {
             assert_eq!(name, expected, "size baselines must match the ladder");
             let program = lowered(barb, &routines);
-            let actual = TARGET
-                .compile_machine_ir(&program)
-                .expect("compilation")
-                .len();
+            let actual = TARGET.compile_machine_ir(&program).expect("compilation").len();
             (actual != size).then_some((name, actual, size))
         })
         .collect();
-    assert!(
-        changed.is_empty(),
-        "(program, actual, expected): {changed:?}"
-    );
+    assert!(changed.is_empty(), "(program, actual, expected): {changed:?}");
 }
 
 /// And what each of them answers, since a size nothing checks the meaning of
@@ -2872,11 +2545,7 @@ fn the_ladder_answers_what_its_programs_say() {
     for (name, barb) in programs::ladder::every() {
         let program = lowered(barb, &routines);
         for (&argc, (status, stdout)) in COUNTS.iter().zip(execute_counts(&program, COUNTS)) {
-            let said = if name == "a greeting" {
-                "Hello, world!"
-            } else {
-                ""
-            };
+            let said = if name == "a greeting" { "Hello, world!" } else { "" };
             assert_eq!(stdout, said, "{name}, argc={argc}");
             let answer = match name {
                 "the count" => i32::from(argc),
@@ -2915,9 +2584,7 @@ fn lowered(mut barb: barb::Program, routines: &faun_core::platform::Routines) ->
 fn runtime_arithmetic_size_ratchets() {
     // One runtime call, full-result comparison, startup and image headers.
     // Detect reintroduced value-counting regions above the targets.
-    for (op, expected) in [Binary::Mul, Binary::Div, Binary::Mod]
-        .into_iter()
-        .zip(ARITHMETIC_SIZES)
+    for (op, expected) in [Binary::Mul, Binary::Div, Binary::Mod].into_iter().zip(ARITHMETIC_SIZES)
     {
         let program = programs::arithmetic::cases(16, op, &[(65535, 1)]);
         assert_eq!(bytes(&program).len(), expected, "{op:?}");

@@ -32,9 +32,7 @@ fn checked(source: &Program) -> Program {
 }
 
 fn count(p: &Program, wanted: impl Fn(&Op) -> bool) -> usize {
-    p.every(p.function(p.entry()).body().unwrap())
-        .filter(|op| wanted(op))
-        .count()
+    p.every(p.function(p.entry()).body().unwrap()).filter(|op| wanted(op)).count()
 }
 
 #[test]
@@ -52,30 +50,9 @@ fn identical_element_addresses_share_arithmetic_but_not_literal_instructions() {
         b.ret(&[sum]);
     });
     let held = checked(&p);
-    assert_eq!(
-        count(&held, |op| matches!(
-            op,
-            Op::Binary {
-                op: Binary::Mul,
-                ..
-            }
-        )),
-        1
-    );
-    assert_eq!(
-        count(&held, |op| matches!(
-            op,
-            Op::Binary {
-                op: Binary::Add,
-                ..
-            }
-        )),
-        2
-    );
-    assert_eq!(
-        count(&held, |op| matches!(op, Op::Constant { value: 56 })),
-        2
-    );
+    assert_eq!(count(&held, |op| matches!(op, Op::Binary { op: Binary::Mul, .. })), 1);
+    assert_eq!(count(&held, |op| matches!(op, Op::Binary { op: Binary::Add, .. })), 2);
+    assert_eq!(count(&held, |op| matches!(op, Op::Constant { value: 56 })), 2);
 }
 
 #[test]
@@ -102,16 +79,7 @@ fn sibling_arms_and_their_join_do_not_share_local_values() {
             b.ret(&[sum]);
         });
         let held = checked(&p);
-        assert_eq!(
-            count(&held, |op| matches!(
-                op,
-                Op::Binary {
-                    op: Binary::Mul,
-                    ..
-                }
-            )),
-            3
-        );
+        assert_eq!(count(&held, |op| matches!(op, Op::Binary { op: Binary::Mul, .. })), 3);
     }
 }
 
@@ -170,10 +138,7 @@ fn widths_are_part_of_an_expressions_identity() {
 #[test]
 fn float_expressions_share_only_with_the_same_operand_order() {
     use barb::float::{Float, Format, Operation};
-    let subtract = Float {
-        format: Format::Binary64,
-        operation: Operation::Sub,
-    };
+    let subtract = Float { format: Format::Binary64, operation: Operation::Sub };
     let (mut p, main) = Program::new("main");
     p.define(main, |b, _| {
         let a = b.constant(Class::fixed(64), 1.0f64.to_bits());

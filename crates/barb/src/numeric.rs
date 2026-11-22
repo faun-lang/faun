@@ -102,10 +102,7 @@ pub(super) struct Term {
 
 impl Default for Term {
     fn default() -> Self {
-        Self {
-            expr: 0,
-            kind: Kind::Copy(0),
-        }
+        Self { expr: 0, kind: Kind::Copy(0) }
     }
 }
 
@@ -125,11 +122,7 @@ pub(super) enum Kind {
         resets: Vec<(usize, Bounds)>,
     },
     /// A constructor applied: each argument stored in its slot.
-    Build {
-        args: Vec<Var>,
-        slots: usize,
-        built: Built,
-    },
+    Build { args: Vec<Var>, slots: usize, built: Built },
     /// A call: of a recognized operation, a sequence operation, or a
     /// definition answering what it answers. `float` is the pattern a
     /// machine's float operation may answer, and the wrapper slots it is
@@ -200,10 +193,7 @@ pub(super) enum Field {
 }
 
 /// Read every definition of `program` into numbers.
-#[expect(
-    clippy::too_many_lines,
-    reason = "every definition read, then what comes in from outside"
-)]
+#[expect(clippy::too_many_lines, reason = "every definition read, then what comes in from outside")]
 pub(super) fn extract(
     program: &Program,
     recognised: &Recognised,
@@ -247,11 +237,7 @@ pub(super) fn extract(
                     Answer::Body(reading.block(body))
                 }
             };
-            Function {
-                counts,
-                handed,
-                answer,
-            }
+            Function { counts, handed, answer }
         })
         .collect();
     divisors.sort_unstable();
@@ -373,11 +359,7 @@ impl Reading<'_> {
     }
 
     fn atoms(&self, args: super::Range) -> Vec<Var> {
-        self.program
-            .atoms(args)
-            .iter()
-            .map(|atom| atom.0.index())
-            .collect()
+        self.program.atoms(args).iter().map(|atom| atom.0.index()).collect()
     }
 
     fn term(&mut self, id: ExprId) -> Term {
@@ -397,10 +379,7 @@ impl Reading<'_> {
                 told: self.told.contains(&id),
             },
         };
-        Term {
-            expr: id.index(),
-            kind,
-        }
+        Term { expr: id.index(), kind }
     }
 
     fn constant(&self, value: super::ConstId) -> Kind {
@@ -409,11 +388,8 @@ impl Reading<'_> {
             super::ConstantView::Natural(number) => u128::try_from(number.to_biguint()).ok(),
             _ => None,
         };
-        let mut found = Constants {
-            program: self.program,
-            stores: Vec::new(),
-            outside: Vec::new(),
-        };
+        let mut found =
+            Constants { program: self.program, stores: Vec::new(), outside: Vec::new() };
         found.fields(constant);
         Kind::Const {
             value: constant_bounds(self.program, constant),
@@ -454,10 +430,7 @@ impl Reading<'_> {
         let function = self.program.function(called);
         let float = function.float.and_then(|float| {
             let (wrappers, _) = super::floats::wrapped(self.program, function.result)?;
-            let pattern = Bounds {
-                low: 0,
-                high: Some(float.format.greatest()),
-            };
+            let pattern = Bounds { low: 0, high: Some(float.format.greatest()) };
             let slots = wrappers
                 .into_iter()
                 .map(|wrapper| super::ranges::slot(self.program, wrapper, 0))
@@ -530,8 +503,7 @@ impl Constants<'_> {
         };
         for (at, field) in ctor.fields().into_iter().enumerate() {
             let place = super::ranges::slot(self.program, ctor.constructor(), at);
-            self.stores
-                .push((place, constant_bounds(self.program, field)));
+            self.stores.push((place, constant_bounds(self.program, field)));
             self.fields(field);
         }
     }
@@ -540,10 +512,7 @@ impl Constants<'_> {
     /// of anything else is read element by element, as a constructor's
     /// fields are; a long one is not, so its fields could hold anything.
     fn spine_fields(&mut self, owner: TypeId, spine: super::SpineView<'_>) {
-        let Shape::Spine {
-            cons, recursive, ..
-        } = shape(self.program, owner)
-        else {
+        let Shape::Spine { cons, recursive, .. } = shape(self.program, owner) else {
             self.outside.push(owner);
             return;
         };
@@ -561,10 +530,7 @@ impl Constants<'_> {
         let element = usize::from(recursive == 0);
         self.stores.push((
             super::ranges::slot(self.program, cons, element),
-            Bounds {
-                low: u64::from(low),
-                high: Some(u64::from(high)),
-            },
+            Bounds { low: u64::from(low), high: Some(u64::from(high)) },
         ));
     }
 
@@ -623,9 +589,7 @@ fn told(program: &Program, body: Body, params: usize) -> HashSet<ExprId> {
         match program.expr(expr) {
             Expr::Atom(_) => found.wanted.extend(found.aliases.get(&expr)),
             Expr::Match(_, arms) => {
-                found
-                    .wanted
-                    .extend(program.arms(arms).iter().map(|arm| arm.body.tail));
+                found.wanted.extend(program.arms(arms).iter().map(|arm| arm.body.tail));
             }
             _ => {}
         }
@@ -673,8 +637,7 @@ impl Told<'_> {
                 }
                 for arm in arms {
                     let level = self.scope.len();
-                    self.scope
-                        .resize(level + self.program.fields(arm.ctor).len(), None);
+                    self.scope.resize(level + self.program.fields(arm.ctor).len(), None);
                     self.body(arm.body);
                     self.scope.truncate(level);
                 }

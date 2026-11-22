@@ -38,21 +38,14 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            word_bits: 64,
-            fuel: 100_000,
-            max_natural_bits: 1_048_576,
-        }
+        Self { word_bits: 64, fuel: 100_000, max_natural_bits: 1_048_576 }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidConfig,
-    LayoutMismatch {
-        expected: super::Layout,
-        actual: super::Layout,
-    },
+    LayoutMismatch { expected: super::Layout, actual: super::Layout },
     InvalidProgram(&'static str),
     FuelExhausted,
     SizeLimit,
@@ -149,9 +142,7 @@ pub trait Host {
 pub struct RejectHost;
 impl Host for RejectHost {
     fn call(&mut self, name: &str, _: &[BigUint], _: &mut Memory<'_>) -> Result<HostResult, Error> {
-        Err(Error::Host(format!(
-            "unsupported platform routine `{name}`"
-        )))
+        Err(Error::Host(format!("unsupported platform routine `{name}`")))
     }
 }
 
@@ -183,10 +174,7 @@ impl Memory<'_> {
             .checked_sub(base)
             .and_then(|n| usize::try_from(n).ok())
             .ok_or(Error::InvalidMemory)?;
-        let end = start
-            .checked_add(len)
-            .filter(|&end| end <= size)
-            .ok_or(Error::InvalidMemory)?;
+        let end = start.checked_add(len).filter(|&end| end <= size).ok_or(Error::InvalidMemory)?;
         Ok((origin, start..end))
     }
 
@@ -231,21 +219,10 @@ impl Memory<'_> {
 // holds only its own function's values, numbered when it is first called:
 // sized to the whole program, every call would cost every value.
 enum Task {
-    Region {
-        id: RegionId,
-        at: usize,
-    },
-    If {
-        results: Range,
-    },
-    Loop {
-        body: RegionId,
-        results: Range,
-    },
-    Call {
-        results: Option<Range>,
-        returns: Returns<Range>,
-    },
+    Region { id: RegionId, at: usize },
+    If { results: Range },
+    Loop { body: RegionId, results: Range },
+    Call { results: Option<Range>, returns: Returns<Range> },
 }
 
 /// What an external call answers, in the interpreter's own numbers when
@@ -309,9 +286,7 @@ pub fn evaluate(
     if !matches!(config.word_bits, 16 | 32 | 64) || config.max_natural_bits == 0 {
         return Err(Error::InvalidConfig);
     }
-    let actual = super::Layout {
-        word_bits: config.word_bits,
-    };
+    let actual = super::Layout { word_bits: config.word_bits };
     if let Some(expected) = program.layout()
         && expected != actual
     {
@@ -330,10 +305,7 @@ pub fn evaluate(
         cells: Vec::new(),
         buffers: Vec::new(),
         tasks: Vec::new(),
-        counts: Counts {
-            calls: vec![0; program.functions.len()],
-            ..Counts::default()
-        },
+        counts: Counts { calls: vec![0; program.functions.len()], ..Counts::default() },
     };
     let args: Vec<Number> = args.iter().map(Number::from).collect();
     if let Some(outcome) = machine.call(function, &args, None)? {
@@ -404,18 +376,11 @@ fn place(
 
 impl<H: Host> Machine<'_, H> {
     fn ids(&self, range: Range) -> Result<&[ValueId], Error> {
-        self.program
-            .operands
-            .get(range.range())
-            .ok_or_else(|| invalid("operand range"))
+        self.program.operands.get(range.range()).ok_or_else(|| invalid("operand range"))
     }
 
     fn class(&self, id: ValueId) -> Result<Class, Error> {
-        self.program
-            .classes
-            .get(id)
-            .copied()
-            .ok_or_else(|| invalid("value id"))
+        self.program.classes.get(id).copied().ok_or_else(|| invalid("value id"))
     }
 
     fn width(&self, class: Class) -> Result<Option<u16>, Error> {
@@ -440,11 +405,7 @@ impl<H: Host> Machine<'_, H> {
     }
 
     fn convert(&self, class: Class, value: Number) -> Result<Number, Error> {
-        let value = if let Some(bits) = self.width(class)? {
-            value.low(bits)
-        } else {
-            value
-        };
+        let value = if let Some(bits) = self.width(class)? { value.low(bits) } else { value };
         self.fit(class, &value)?;
         Ok(value)
     }
@@ -475,10 +436,7 @@ impl<H: Host> Machine<'_, H> {
         }
         let program = self.program;
         let ids = |range: Range| {
-            program
-                .operands
-                .get(range.range())
-                .ok_or_else(|| invalid("operand range"))
+            program.operands.get(range.range()).ok_or_else(|| invalid("operand range"))
         };
         let mut size = 0u32;
         let mut pending = vec![body];
@@ -494,11 +452,9 @@ impl<H: Host> Machine<'_, H> {
                 let (op, results) = self.instruction(index)?;
                 place(&mut self.places, function, &mut size, ids(results)?)?;
                 match op {
-                    Op::If {
-                        then_region,
-                        else_region,
-                        ..
-                    } => pending.extend([then_region, else_region]),
+                    Op::If { then_region, else_region, .. } => {
+                        pending.extend([then_region, else_region]);
+                    }
                     Op::Loop { body, .. } => pending.push(body),
                     _ => {}
                 }
@@ -514,10 +470,7 @@ impl<H: Host> Machine<'_, H> {
 
     fn bind(&mut self, range: Range, values: &[Number]) -> Result<(), Error> {
         let program = self.program;
-        let ids = program
-            .operands
-            .get(range.range())
-            .ok_or_else(|| invalid("operand range"))?;
+        let ids = program.operands.get(range.range()).ok_or_else(|| invalid("operand range"))?;
         if ids.len() != values.len() {
             return Err(invalid("result arity"));
         }
@@ -532,11 +485,8 @@ impl<H: Host> Machine<'_, H> {
     }
 
     fn signature(&self, range: Range, values: &[Number]) -> Result<(), Error> {
-        let classes = self
-            .program
-            .signature
-            .get(range.range())
-            .ok_or_else(|| invalid("signature range"))?;
+        let classes =
+            self.program.signature.get(range.range()).ok_or_else(|| invalid("signature range"))?;
         if classes.len() != values.len() {
             return Err(invalid("signature arity"));
         }
@@ -547,11 +497,7 @@ impl<H: Host> Machine<'_, H> {
     }
 
     fn region(&mut self, id: RegionId, args: &[Number]) -> Result<(), Error> {
-        let region = self
-            .program
-            .regions
-            .get(id)
-            .ok_or_else(|| invalid("region id"))?;
+        let region = self.program.regions.get(id).ok_or_else(|| invalid("region id"))?;
         self.bind(region.params, args)?;
         self.tasks.push(Task::Region { id, at: 0 });
         Ok(())
@@ -563,11 +509,7 @@ impl<H: Host> Machine<'_, H> {
         args: &[Number],
         results: Option<Range>,
     ) -> Result<Option<Outcome>, Error> {
-        let function = self
-            .program
-            .functions
-            .get(id)
-            .ok_or_else(|| invalid("function id"))?;
+        let function = self.program.functions.get(id).ok_or_else(|| invalid("function id"))?;
         self.signature(function.params, args)?;
         self.counts.calls[id.index()] += 1;
         match function.definition {
@@ -577,20 +519,14 @@ impl<H: Host> Machine<'_, H> {
                 let size = self.size(id, body)?;
                 self.slots.resize(base + size, None);
                 self.frames.push(Frame { function: id, base });
-                self.tasks.push(Task::Call {
-                    results,
-                    returns: function.returns,
-                });
+                self.tasks.push(Task::Call { results, returns: function.returns });
                 self.region(body, args)?;
                 Ok(None)
             }
             Definition::External => {
                 if results.is_none() {
-                    self.config.fuel = self
-                        .config
-                        .fuel
-                        .checked_sub(1)
-                        .ok_or(Error::FuelExhausted)?;
+                    self.config.fuel =
+                        self.config.fuel.checked_sub(1).ok_or(Error::FuelExhausted)?;
                 }
                 let answer = self.external(function.name, function.returns, args)?;
                 self.answered(answer, results)
@@ -611,9 +547,9 @@ impl<H: Host> Machine<'_, H> {
                 self.bind(results, &values)?;
                 Ok(None)
             }
-            (Answer::Return(values), None) => Ok(Some(Outcome::Returned(
-                values.iter().map(Number::to_big).collect(),
-            ))),
+            (Answer::Return(values), None) => {
+                Ok(Some(Outcome::Returned(values.iter().map(Number::to_big).collect())))
+            }
         }
     }
 
@@ -631,20 +567,11 @@ impl<H: Host> Machine<'_, H> {
             let Some(Task::Region { id, at }) = self.tasks.pop() else {
                 return Err(invalid("missing region continuation"));
             };
-            self.config.fuel = self
-                .config
-                .fuel
-                .checked_sub(1)
-                .ok_or(Error::FuelExhausted)?;
-            let region = *self
-                .program
-                .regions
-                .get(id)
-                .ok_or_else(|| invalid("region id"))?;
+            self.config.fuel = self.config.fuel.checked_sub(1).ok_or(Error::FuelExhausted)?;
+            let region = *self.program.regions.get(id).ok_or_else(|| invalid("region id"))?;
             if at == region.ops.len() {
-                let terminator = region
-                    .terminator
-                    .ok_or_else(|| invalid("missing region terminator"))?;
+                let terminator =
+                    region.terminator.ok_or_else(|| invalid("missing region terminator"))?;
                 let values = self.values(terminator.values)?;
                 if let Some(values) = self.leave(terminator.exit, values)? {
                     let values = values.iter().map(Number::to_big).collect();
@@ -667,16 +594,8 @@ impl<H: Host> Machine<'_, H> {
     }
 
     fn instruction(&self, index: usize) -> Result<(Op, Range), Error> {
-        let op = self
-            .program
-            .ops
-            .get(index)
-            .ok_or_else(|| invalid("instruction range"))?;
-        let results = self
-            .program
-            .results
-            .get(index)
-            .ok_or_else(|| invalid("results range"))?;
+        let op = self.program.ops.get(index).ok_or_else(|| invalid("instruction range"))?;
+        let results = self.program.results.get(index).ok_or_else(|| invalid("results range"))?;
         Ok((*op, *results))
     }
 
@@ -723,9 +642,7 @@ impl<H: Host> Machine<'_, H> {
             Offset::Bytes(n) => i64::from(n),
             Offset::Words(n) => i64::from(n) * i64::from(self.config.word_bits / 8),
         };
-        let address = base
-            .checked_add_signed(offset)
-            .ok_or(Error::InvalidMemory)?;
+        let address = base.checked_add_signed(offset).ok_or(Error::InvalidMemory)?;
         if self.config.word_bits < 64 && address >= (1u64 << self.config.word_bits) {
             return Err(Error::InvalidMemory);
         }
@@ -845,16 +762,9 @@ impl<H: Host> Machine<'_, H> {
     // function return, which would incorrectly execute caller continuations.
     fn step(&mut self, op: Op, results: Range) -> Result<Option<Outcome>, Error> {
         match op {
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => {
-                let region = if self.value(condition)? == Number::ZERO {
-                    else_region
-                } else {
-                    then_region
-                };
+            Op::If { condition, then_region, else_region } => {
+                let region =
+                    if self.value(condition)? == Number::ZERO { else_region } else { then_region };
                 self.tasks.push(Task::If { results });
                 self.region(region, &[])?;
             }
@@ -917,11 +827,7 @@ impl<H: Host> Machine<'_, H> {
                 Number::from(self.buffers.len())
             }
             // Nothing outside reads a buffer this tier has not laid out.
-            Op::BufferKnown {
-                elements,
-                shape,
-                bytes,
-            } => {
+            Op::BufferKnown { elements, shape, bytes } => {
                 let leaves: Vec<_> =
                     super::model::known_leaves(self.program.datum_bytes(elements), bytes)
                         .map(Number::from)
@@ -940,10 +846,8 @@ impl<H: Host> Machine<'_, H> {
             Op::BufferPush { operands, .. } => {
                 let operands = self.ids(operands)?.to_vec();
                 let (sequence, fields) = operands.split_at(3);
-                let first = fields
-                    .iter()
-                    .map(|&id| self.value(id))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let first =
+                    fields.iter().map(|&id| self.value(id)).collect::<Result<Vec<_>, _>>()?;
                 let rest = self.elements((sequence[0], sequence[1], sequence[2]))?;
                 let mut elements = Vec::with_capacity(rest.len() + 1);
                 elements.push(first);
@@ -955,13 +859,9 @@ impl<H: Host> Machine<'_, H> {
             Op::BufferAppend { operands, .. } => {
                 let operands = self.ids(operands)?.to_vec();
                 let (sequence, fields) = operands.split_at(3);
-                let last = fields
-                    .iter()
-                    .map(|&id| self.value(id))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let mut elements = self
-                    .elements((sequence[0], sequence[1], sequence[2]))?
-                    .to_vec();
+                let last =
+                    fields.iter().map(|&id| self.value(id)).collect::<Result<Vec<_>, _>>()?;
+                let mut elements = self.elements((sequence[0], sequence[1], sequence[2]))?.to_vec();
                 elements.push(last);
                 self.buffers.push(elements);
                 let sequence = [Number::from(self.buffers.len()), Number::ZERO];
@@ -970,14 +870,10 @@ impl<H: Host> Machine<'_, H> {
             Op::BufferReplace { operands, .. } => {
                 let operands = self.ids(operands)?.to_vec();
                 let (sequence, fields) = operands.split_at(4);
-                let written = fields
-                    .iter()
-                    .map(|&id| self.value(id))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let written =
+                    fields.iter().map(|&id| self.value(id)).collect::<Result<Vec<_>, _>>()?;
                 let index = self.value(sequence[3])?;
-                let mut elements = self
-                    .elements((sequence[0], sequence[1], sequence[2]))?
-                    .to_vec();
+                let mut elements = self.elements((sequence[0], sequence[1], sequence[2]))?.to_vec();
                 let slot = index
                     .index()
                     .and_then(|index| elements.get_mut(index))
@@ -1005,12 +901,7 @@ impl<H: Host> Machine<'_, H> {
                 let sequence = [Number::from(self.buffers.len()), Number::ZERO];
                 return self.bind(results, &sequence);
             }
-            Op::BufferField {
-                buffer,
-                start,
-                index,
-                ..
-            } => self
+            Op::BufferField { buffer, start, index, .. } => self
                 .element(buffer, start)?
                 .get(usize::try_from(index).map_err(|_| invalid("buffer field"))?)
                 .cloned()
@@ -1027,21 +918,10 @@ impl<H: Host> Machine<'_, H> {
                 self.value(left)?,
                 &self.value(right)?,
             )?,
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } => self.shifted(
-                direction,
-                self.result_class(results)?,
-                &self.value(value)?,
-                by,
-            )?,
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } => self.compared(relation, left, right)?,
+            Op::Shift { direction, value, by } => {
+                self.shifted(direction, self.result_class(results)?, &self.value(value)?, by)?
+            }
+            Op::Compare { relation, left, right } => self.compared(relation, left, right)?,
             Op::Convert { value } => {
                 self.convert(self.result_class(results)?, self.value(value)?)?
             }
@@ -1053,17 +933,8 @@ impl<H: Host> Machine<'_, H> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Number::from(float.calculate(&patterns))
             }
-            Op::Load {
-                width,
-                address,
-                offset,
-            } => self.load(width, address, offset)?,
-            Op::Store {
-                width,
-                address,
-                offset,
-                value,
-            } => {
+            Op::Load { width, address, offset } => self.load(width, address, offset)?,
+            Op::Store { width, address, offset, value } => {
                 self.store(width, address, offset, value)?;
                 return self.bind(results, &[]);
             }
@@ -1078,14 +949,8 @@ impl<H: Host> Machine<'_, H> {
         (buffer, start, len): (ValueId, ValueId, ValueId),
     ) -> Result<&[Vec<Number>], Error> {
         let elements = self.buffer(buffer)?;
-        let start = self
-            .value(start)?
-            .index()
-            .ok_or_else(|| invalid("buffer start"))?;
-        let len = self
-            .value(len)?
-            .index()
-            .ok_or_else(|| invalid("buffer length"))?;
+        let start = self.value(start)?.index().ok_or_else(|| invalid("buffer start"))?;
+        let len = self.value(len)?.index().ok_or_else(|| invalid("buffer length"))?;
         start
             .checked_add(len)
             .and_then(|end| elements.get(start..end))
@@ -1095,21 +960,12 @@ impl<H: Host> Machine<'_, H> {
     /// Element `start` of a buffer.
     fn element(&self, buffer: ValueId, start: ValueId) -> Result<&[Number], Error> {
         let elements = self.buffer(buffer)?;
-        let start = self
-            .value(start)?
-            .index()
-            .ok_or_else(|| invalid("buffer start"))?;
-        elements
-            .get(start)
-            .map(Vec::as_slice)
-            .ok_or_else(|| invalid("buffer start"))
+        let start = self.value(start)?.index().ok_or_else(|| invalid("buffer start"))?;
+        elements.get(start).map(Vec::as_slice).ok_or_else(|| invalid("buffer start"))
     }
 
     fn buffer(&self, buffer: ValueId) -> Result<&[Vec<Number>], Error> {
-        let handle = self
-            .value(buffer)?
-            .index()
-            .ok_or_else(|| invalid("buffer handle"))?;
+        let handle = self.value(buffer)?.index().ok_or_else(|| invalid("buffer handle"))?;
         handle
             .checked_sub(1)
             .and_then(|at| self.buffers.get(at))
@@ -1118,22 +974,13 @@ impl<H: Host> Machine<'_, H> {
     }
 
     fn cell(&self, id: ValueId) -> Result<&CellValue, Error> {
-        let handle = self
-            .value(id)?
-            .index()
-            .ok_or_else(|| invalid("cell handle"))?;
-        let index = handle
-            .checked_sub(1)
-            .ok_or_else(|| invalid("cell handle"))?;
+        let handle = self.value(id)?.index().ok_or_else(|| invalid("cell handle"))?;
+        let index = handle.checked_sub(1).ok_or_else(|| invalid("cell handle"))?;
         self.cells.get(index).ok_or_else(|| invalid("cell handle"))
     }
 
     fn natural(&self, id: super::DataId) -> Result<Number, Error> {
-        let span = self
-            .program
-            .spans
-            .get(id)
-            .ok_or_else(|| invalid("data id"))?;
+        let span = self.program.spans.get(id).ok_or_else(|| invalid("data id"))?;
         if span.origin != Origin::Data {
             return Err(invalid("natural constant outside Data"));
         }
@@ -1145,18 +992,12 @@ impl<H: Host> Machine<'_, H> {
     }
 
     fn datum_address(&self, id: super::DataId) -> Result<u64, Error> {
-        let span = self
-            .program
-            .spans
-            .get(id)
-            .ok_or_else(|| invalid("data id"))?;
+        let span = self.program.spans.get(id).ok_or_else(|| invalid("data id"))?;
         let base = match span.origin {
             Origin::Data => DATA_BASE,
             Origin::Globals => self.memory.globals_base,
         };
-        let address = base
-            .checked_add(u64::from(span.start))
-            .ok_or(Error::InvalidMemory)?;
+        let address = base.checked_add(u64::from(span.start)).ok_or(Error::InvalidMemory)?;
         let len = usize::try_from(span.len).map_err(|_| Error::InvalidMemory)?;
         let (origin, _) = self.memory.locate(address, len)?;
         if origin != span.origin {
@@ -1166,9 +1007,7 @@ impl<H: Host> Machine<'_, H> {
     }
 
     fn load(&self, width: Width, address: ValueId, offset: Offset) -> Result<Number, Error> {
-        let bytes = self
-            .memory
-            .read(self.address(address, offset)?, self.bytes(width))?;
+        let bytes = self.memory.read(self.address(address, offset)?, self.bytes(width))?;
         Ok(Number::from_bytes_le(bytes))
     }
 
@@ -1199,11 +1038,7 @@ impl<H: Host> Machine<'_, H> {
         returns: Returns<Range>,
         args: &[Number],
     ) -> Result<Answer, Error> {
-        let symbol = self
-            .program
-            .symbols
-            .get(symbol)
-            .ok_or_else(|| invalid("symbol id"))?;
+        let symbol = self.program.symbols.get(symbol).ok_or_else(|| invalid("symbol id"))?;
         let name = self
             .program
             .names

@@ -88,11 +88,8 @@ impl Library {
             prelude,
             host: None,
         };
-        let program = builders::desugar(
-            h::Program { modules: resolved },
-            &mut cx,
-            &mut earlier.pairings,
-        );
+        let program =
+            builders::desugar(h::Program { modules: resolved }, &mut cx, &mut earlier.pairings);
         crate::checked_after(program, &mut cx, &mut earlier)?;
         loader.forget_syntax();
         loader.sources = cx.sources;
@@ -118,9 +115,7 @@ impl Library {
     /// Reports a snapshot that is not one this compiler wrote.
     pub(crate) fn read(snapshot: &[u8]) -> Result<Self, Diagnostic> {
         postcard::from_bytes(snapshot).map_err(|error| {
-            Diagnostic::new(format!(
-                "the standard library's snapshot is unreadable: {error}"
-            ))
+            Diagnostic::new(format!("the standard library's snapshot is unreadable: {error}"))
         })
     }
 
@@ -157,9 +152,8 @@ mod tests {
         let checked = library.earlier.typed.clone();
         let entry =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/benchmarks-game/n-body/main.fn");
-        let (loaded, mut earlier) = library
-            .rest(&entry, &crate::test_host(), &Packages::default())
-            .unwrap();
+        let (loaded, mut earlier) =
+            library.rest(&entry, &crate::test_host(), &Packages::default()).unwrap();
         let (program, mut cx) = crate::resolve_after(loaded, &mut earlier).unwrap();
         crate::checked_after(program, &mut cx, &mut earlier).unwrap();
         let whole = &earlier.typed;
@@ -180,9 +174,7 @@ mod tests {
     /// The built-in library checked alone, from its text, as a snapshot.
     fn snapshot() -> Vec<u8> {
         let root = crate::standard::built_in_root();
-        Library::check(Loader::standard(&root).unwrap())
-            .unwrap()
-            .write()
+        Library::check(Loader::standard(&root).unwrap()).unwrap().write()
     }
 
     /// What step one leaves, written and read back, is what was written:

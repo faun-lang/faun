@@ -121,10 +121,7 @@ struct Step {
 }
 
 impl rewrite::Pass for Simplify {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm per shape the pass recognises"
-    )]
+    #[expect(clippy::too_many_lines, reason = "one arm per shape the pass recognises")]
     fn op(
         &mut self,
         rebuild: &rewrite::Rebuild<'_>,
@@ -153,10 +150,7 @@ impl rewrite::Pass for Simplify {
                 };
                 // Doubling has the same exact result before rounding, including
                 // the sign of zero. The scalar add needs only one input register.
-                let add = Float {
-                    operation: Operation::Add,
-                    ..float
-                };
+                let add = Float { operation: Operation::Add, ..float };
                 let value = rebuild.value(value);
                 rebuild.stands_for(results[0], b.float(add, &[value, value]));
                 true
@@ -165,15 +159,7 @@ impl rewrite::Pass for Simplify {
                 self.prepend_elements(rebuild, b, operands, shape, results)
             }
             Op::CellField { cell, index, shape } => {
-                let Some((
-                    Op::Cell {
-                        fields,
-                        shape: made,
-                        ..
-                    },
-                    _,
-                    _,
-                )) = self.wrote.0[cell.index()]
+                let Some((Op::Cell { fields, shape: made, .. }, _, _)) = self.wrote.0[cell.index()]
                 else {
                     return false;
                 };
@@ -207,68 +193,40 @@ impl rewrite::Pass for Simplify {
                     || self.wrapping(rebuild, b, class, value, results[0])
                     || self.widened(rebuild, b, class, value, results[0])
             }
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } => {
+            Op::Shift { direction, value, by } => {
                 self.shifted(rebuild, b, direction, value, by, results[0])
                     || (direction == Direction::Down
                         && self.unshifted(rebuild, b, value, by, results[0]))
             }
-            Op::Binary {
-                op: Binary::Add,
-                left,
-                right,
-            } => {
+            Op::Binary { op: Binary::Add, left, right } => {
                 // A value added to itself is that value moved up one place,
                 // whatever it is. Anything else may be a step, and a run of
                 // steps folds into one where a shift would end it.
                 (left == right && shifting(rebuild, b, Direction::Up, left, 1, results[0]))
                     || self.stepping(rebuild, b, left, right, results[0])
             }
-            Op::Binary {
-                op: Binary::Mul,
-                left,
-                right,
-            } => {
+            Op::Binary { op: Binary::Mul, left, right } => {
                 self.places(right)
                     .is_some_and(|by| shifting(rebuild, b, Direction::Up, left, by, results[0]))
                     || self.moved(rebuild, b, (Binary::ShiftUp, left, right), results[0])
                     || self.moved(rebuild, b, (Binary::ShiftUp, right, left), results[0])
             }
-            Op::Binary {
-                op: Binary::Div,
-                left,
-                right,
-            } => {
+            Op::Binary { op: Binary::Div, left, right } => {
                 self.places(right)
                     .is_some_and(|by| shifting(rebuild, b, Direction::Down, left, by, results[0]))
                     || self.moved(rebuild, b, (Binary::ShiftDown, left, right), results[0])
             }
-            Op::Binary {
-                op: Binary::Mod,
-                left,
-                right,
-            } => self
+            Op::Binary { op: Binary::Mod, left, right } => self
                 .kept(rebuild.source(), right)
                 .is_some_and(|bits| Self::remainder(rebuild, b, left, bits, results[0])),
-            Op::Binary {
-                op: Binary::And,
-                left,
-                right,
-            } => {
+            Op::Binary { op: Binary::And, left, right } => {
                 self.masked(rebuild.source(), right)
                     .is_some_and(|bits| Self::remainder(rebuild, b, left, bits, results[0]))
                     || self
                         .masked(rebuild.source(), left)
                         .is_some_and(|bits| Self::remainder(rebuild, b, right, bits, results[0]))
             }
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => {
+            Op::If { condition, then_region, else_region } => {
                 self.taken(rebuild, b, condition, [then_region, else_region], results)
                     || self.branching(rebuild, b, condition, [then_region, else_region], results)
             }
@@ -280,39 +238,25 @@ impl rewrite::Pass for Simplify {
                 let (Some(x), Some(y)) = (self.number(left), self.number(right)) else {
                     return false;
                 };
-                let answer = u64::from(if relation == Relation::Equal {
-                    x == y
-                } else {
-                    x < y
-                });
+                let answer = u64::from(if relation == Relation::Equal { x == y } else { x < y });
                 self.folded[results[0].index()] = Some(answer);
                 rebuild.stands_for(results[0], b.constant(Class::Word, answer));
                 true
             }
-            Op::Compare {
-                relation: Relation::Less,
-                left,
-                right,
-            } => {
+            Op::Compare { relation: Relation::Less, left, right } => {
                 let Some((format, a, c)) =
-                    self.wrote
-                        .nonnegative_difference(rebuild.source(), left, right)
+                    self.wrote.nonnegative_difference(rebuild.source(), left, right)
                 else {
                     return false;
                 };
-                let held = b.compare(
-                    Relation::FloatNotAbove(format),
-                    rebuild.value(c),
-                    rebuild.value(a),
-                );
+                let held =
+                    b.compare(Relation::FloatNotAbove(format), rebuild.value(c), rebuild.value(a));
                 rebuild.stands_for(results[0], held);
                 true
             }
-            Op::Compare {
-                relation: Relation::Equal,
-                left,
-                right,
-            } => self.at_most(rebuild, b, left, right, results[0]),
+            Op::Compare { relation: Relation::Equal, left, right } => {
+                self.at_most(rebuild, b, left, right, results[0])
+            }
             _ => false,
         }
     }
@@ -462,15 +406,9 @@ impl Simplify {
                 {
                     value = from;
                 }
-                (
-                    Op::Shift {
-                        direction: Direction::Up,
-                        value: from,
-                        by,
-                    },
-                    Class::Word,
-                    _,
-                ) => return Some((from, by)),
+                (Op::Shift { direction: Direction::Up, value: from, by }, Class::Word, _) => {
+                    return Some((from, by));
+                }
                 _ => return None,
             }
         }
@@ -520,10 +458,7 @@ impl Simplify {
             return false;
         };
         let held = rebuild.value(from);
-        let room = b
-            .class(held)
-            .width()
-            .is_some_and(|bits| bits + by <= word_bits);
+        let room = b.class(held).width().is_some_and(|bits| bits + by <= word_bits);
         if moved != by || !room || !b.class(held).fits(class) {
             return false;
         }
@@ -623,15 +558,8 @@ impl Simplify {
         if self.number(right) != Some(0) {
             return false;
         }
-        let Some((
-            Op::Binary {
-                op: Binary::Monus,
-                left: value,
-                right: bound,
-            },
-            _,
-            _,
-        )) = self.wrote.0[left.index()]
+        let Some((Op::Binary { op: Binary::Monus, left: value, right: bound }, _, _)) =
+            self.wrote.0[left.index()]
         else {
             return false;
         };
@@ -639,24 +567,13 @@ impl Simplify {
             return false;
         };
         let reaches = match rebuild.source().class(value) {
-            Class::Word => self
-                .word_bits
-                .is_some_and(|bits| bits >= 64 || next >> bits == 0),
-            class => class
-                .facts()
-                .and_then(|facts| facts.high)
-                .is_some_and(|high| next <= high),
+            Class::Word => self.word_bits.is_some_and(|bits| bits >= 64 || next >> bits == 0),
+            class => class.facts().and_then(|facts| facts.high).is_some_and(|high| next <= high),
         };
         if !reaches {
             return false;
         }
-        let next = b.constant(
-            Class::Held(Bounds {
-                low: next,
-                high: Some(next),
-            }),
-            next,
-        );
+        let next = b.constant(Class::Held(Bounds { low: next, high: Some(next) }), next);
         let less = b.compare(Relation::Less, rebuild.value(value), next);
         rebuild.stands_for(result, less);
         true
@@ -672,9 +589,7 @@ impl Simplify {
     /// The number an old value is, where a constant wrote it or it was
     /// worked out here from ones.
     fn number(&self, value: ValueId) -> Option<u64> {
-        self.wrote
-            .number(value)
-            .or_else(|| self.folded[value.index()])
+        self.wrote.number(value).or_else(|| self.folded[value.index()])
     }
 
     /// Arithmetic whose answer is known, or is one of its operands.
@@ -741,11 +656,7 @@ impl Simplify {
                     Binary::Xor => x ^ y,
                     Binary::ShiftUp | Binary::ShiftDown => return None,
                 };
-                return Some(if bits >= 64 {
-                    answer
-                } else {
-                    answer & ((1 << bits) - 1)
-                });
+                return Some(if bits >= 64 { answer } else { answer & ((1 << bits) - 1) });
             }
             _ => match op {
                 Binary::Add => x.checked_add(y)?,
@@ -757,9 +668,7 @@ impl Simplify {
                 Binary::And => x & y,
                 Binary::Or => x | y,
                 Binary::Xor => x ^ y,
-                Binary::ShiftUp => x
-                    .checked_shl(u32::try_from(y).ok()?)
-                    .filter(|m| m >> y == x)?,
+                Binary::ShiftUp => x.checked_shl(u32::try_from(y).ok()?).filter(|m| m >> y == x)?,
                 Binary::ShiftDown => x.checked_shr(u32::try_from(y).ok()?).unwrap_or(0),
             },
         };
@@ -776,14 +685,8 @@ impl Simplify {
         (op, value, power): (Binary, ValueId, ValueId),
         result: ValueId,
     ) -> bool {
-        let Some((
-            Op::Binary {
-                op: Binary::ShiftUp,
-                left,
-                right,
-            },
-            ..,
-        )) = self.wrote.0[power.index()]
+        let Some((Op::Binary { op: Binary::ShiftUp, left, right }, ..)) =
+            self.wrote.0[power.index()]
         else {
             return false;
         };
@@ -872,11 +775,7 @@ impl Simplify {
         };
         // Narrower, what the conversion keeps of that is what it kept of
         // the whole.
-        let low = if b.class(low).fits(class) {
-            low
-        } else {
-            b.convert(class, low)
-        };
+        let low = if b.class(low).fits(class) { low } else { b.convert(class, low) };
         rebuild.stands_for(result, low);
         true
     }
@@ -989,14 +888,8 @@ impl Simplify {
     /// number known before the program runs that is at least the most
     /// `right` can be.
     fn no_less(&self, source: &Program, left: ValueId, right: ValueId) -> bool {
-        let Some((
-            Op::Binary {
-                op: Binary::Add,
-                left: one,
-                right: other,
-            },
-            ..,
-        )) = self.wrote.0[left.index()]
+        let Some((Op::Binary { op: Binary::Add, left: one, right: other }, ..)) =
+            self.wrote.0[left.index()]
         else {
             return false;
         };
@@ -1160,18 +1053,12 @@ impl Simplify {
         let by = self.number(right)?;
         let width = class.width();
         let held = match self.steps[left.index()] {
-            Some(held) if held.width == width => Step {
-                from: held.from,
-                by: held.by.checked_add(by)?,
-                width,
-            },
+            Some(held) if held.width == width => {
+                Step { from: held.from, by: held.by.checked_add(by)?, width }
+            }
             // The first step of a run, which is written as it stands and is
             // only worth knowing because of what may come after it.
-            _ => Step {
-                from: left,
-                by,
-                width,
-            },
+            _ => Step { from: left, by, width },
         };
         // A run wider than the width it is taken at is not the same run.
         (wrap(class, held.by) == held.by).then_some(held)
@@ -1191,10 +1078,7 @@ type Branch<'a> = ([RegionId; 2], &'a [ValueId]);
 
 /// What wrote each value, and which of its results the value is, which is
 /// what lets one instruction be read together with the ones it reads.
-struct Wrote(
-    Vec<Option<(Op, Class, usize)>>,
-    Vec<Vec<([RegionId; 2], Vec<ValueId>)>>,
-);
+struct Wrote(Vec<Option<(Op, Class, usize)>>, Vec<Vec<([RegionId; 2], Vec<ValueId>)>>);
 
 impl Wrote {
     fn of(source: &Program) -> Self {
@@ -1205,11 +1089,7 @@ impl Wrote {
                 continue;
             };
             for (op, results) in every(source, body) {
-                if let Op::If {
-                    condition,
-                    then_region,
-                    else_region,
-                } = op
+                if let Op::If { condition, then_region, else_region } = op
                     && !results.is_empty()
                 {
                     branches[condition.index()].push(([then_region, else_region], results.clone()));
@@ -1282,24 +1162,12 @@ impl Wrote {
     /// the other cannot: if so, that branch's own condition and whether the
     /// answer runs the arms the other way round.
     fn asks(&self, source: &Program, condition: ValueId) -> Option<(ValueId, bool)> {
-        let Op::Compare {
-            relation: Relation::Equal,
-            left,
-            right,
-        } = self.0[condition.index()]?.0
+        let Op::Compare { relation: Relation::Equal, left, right } = self.0[condition.index()]?.0
         else {
             return None;
         };
         let wanted = self.number(right)?;
-        let (
-            Op::If {
-                condition: test,
-                then_region,
-                else_region,
-            },
-            _,
-            at,
-        ) = self.0[left.index()]?
+        let (Op::If { condition: test, then_region, else_region }, _, at) = self.0[left.index()]?
         else {
             return None;
         };
@@ -1336,10 +1204,7 @@ fn within(source: &Program, regions: [RegionId; 2]) -> Vec<ValueId> {
         .iter()
         .flat_map(|&region| {
             let params = source.values(source.region(region).params).to_vec();
-            every(source, region)
-                .into_iter()
-                .flat_map(|(_, results)| results)
-                .chain(params)
+            every(source, region).into_iter().flat_map(|(_, results)| results).chain(params)
         })
         .collect()
 }
@@ -1351,11 +1216,7 @@ fn every(source: &Program, region: RegionId) -> Vec<(Op, Vec<ValueId>)> {
     while let Some(region) = stack.pop() {
         for (op, results) in source.walk(region) {
             match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => stack.extend([then_region, else_region]),
+                Op::If { then_region, else_region, .. } => stack.extend([then_region, else_region]),
                 Op::Loop { body, .. } => stack.push(body),
                 _ => {}
             }

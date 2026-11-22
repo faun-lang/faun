@@ -67,10 +67,7 @@ const fn log_ceiling(base: u128, n: u128) -> u128 {
 
 /// Intervals `a` and `b` lie within where `a op b` lies within `held`, or
 /// nothing where no rule says anything.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one rule for each operation, each short"
-)]
+#[expect(clippy::too_many_lines, reason = "one rule for each operation, each short")]
 pub(super) fn operands(
     op: Operation,
     held: Bounds,
@@ -113,18 +110,12 @@ pub(super) fn operands(
             let side = |other: Bounds| -> Bounds {
                 let least = if rl >= 1 {
                     high(other).map_or(1, |most| {
-                        if most == 0 {
-                            u128::MAX
-                        } else {
-                            rl.div_ceil(most).max(1)
-                        }
+                        if most == 0 { u128::MAX } else { rl.div_ceil(most).max(1) }
                     })
                 } else {
                     0
                 };
-                let most = (other.low >= 1)
-                    .then(|| rh.map(|rh| rh / low(other)))
-                    .flatten();
+                let most = (other.low >= 1).then(|| rh.map(|rh| rh / low(other))).flatten();
                 between(least, most)
             };
             Some((side(b), side(a)))
@@ -138,19 +129,13 @@ pub(super) fn operands(
                 return Some((Bounds::ANY, Bounds::ANY));
             }
             let a_least = rl.saturating_mul(low(b).max(b_least));
-            let a_most = rh
-                .zip(high(b))
-                .and_then(|(rh, bh)| (rh + 1).checked_mul(bh))
-                .map(|most| most - 1);
+            let a_most =
+                rh.zip(high(b)).and_then(|(rh, bh)| (rh + 1).checked_mul(bh)).map(|most| most - 1);
             // Where `b` may be nought the quotient is nought, which says
             // nothing of `a` but where `r >= 1` rules it out.
             let a_most = if b.low == 0 && rl == 0 { None } else { a_most };
             // `b <= a / r` where `r >= 1`.
-            let b_most = if rl >= 1 {
-                high(a).map(|ah| ah / rl)
-            } else {
-                None
-            };
+            let b_most = if rl >= 1 { high(a).map(|ah| ah / rl) } else { None };
             Some((between(a_least, a_most), between(b_least, b_most)))
         }
         // `r = a % b`, `a` where `b` is nought: `r <= a` always, and where
@@ -173,11 +158,7 @@ pub(super) fn operands(
             } else {
                 Bounds::ANY
             };
-            let base = if b.low >= 1 {
-                between(0, rh)
-            } else {
-                Bounds::ANY
-            };
+            let base = if b.low >= 1 { between(0, rh) } else { Bounds::ANY };
             Some((base, exponent))
         }
         Operation::Xor | Operation::Equals { .. } | Operation::LessThan { .. } => None,
@@ -205,12 +186,7 @@ mod tests {
             values.extend([power.clone() - 1u8, power.clone(), power.clone() + 1u8]);
         }
         let most = BigUint::from(u64::MAX);
-        values.extend([
-            most.clone() - 1u8,
-            most.clone(),
-            most.clone() + 1u8,
-            most * 3u8,
-        ]);
+        values.extend([most.clone() - 1u8, most.clone(), most.clone() + 1u8, most * 3u8]);
         values
     }
 
@@ -229,24 +205,15 @@ mod tests {
     /// none.
     fn interval(random: &mut Lcg, values: &[BigUint]) -> Bounds {
         let as_u64 = |value: &BigUint| u64::try_from(value).unwrap_or(u64::MAX);
-        let (first, second) = (
-            &values[random.next(values.len())],
-            &values[random.next(values.len())],
-        );
-        let (low, high) = if first <= second {
-            (first, second)
-        } else {
-            (second, first)
-        };
+        let (first, second) =
+            (&values[random.next(values.len())], &values[random.next(values.len())]);
+        let (low, high) = if first <= second { (first, second) } else { (second, first) };
         let high = if random.next(5) == 0 || u64::try_from(high).is_err() {
             None
         } else {
             Some(as_u64(high))
         };
-        Bounds {
-            low: as_u64(low).min(high.unwrap_or(u64::MAX)),
-            high,
-        }
+        Bounds { low: as_u64(low).min(high.unwrap_or(u64::MAX)), high }
     }
 
     /// For every operation, operands drawn from the edges and intervals
@@ -308,51 +275,30 @@ mod tests {
     #[test]
     fn a_power_bounds_its_exponent() {
         let two = Bounds::at(2);
-        let held = Bounds {
-            low: 0,
-            high: Some(1 << 20),
-        };
+        let held = Bounds { low: 0, high: Some(1 << 20) };
         let (_, exponent) = operands(Operation::Pow, held, (two, Bounds::ANY)).unwrap();
         assert_eq!(exponent.high, Some(20));
         // A base of nought or one says nothing of its exponent.
-        let small = Bounds {
-            low: 0,
-            high: Some(1),
-        };
+        let small = Bounds { low: 0, high: Some(1) };
         let (_, exponent) = operands(Operation::Pow, held, (small, Bounds::ANY)).unwrap();
         assert_eq!(exponent, Bounds::ANY);
     }
 
     #[test]
     fn a_product_bounds_a_factor_by_the_other() {
-        let held = Bounds {
-            low: 0,
-            high: Some(99),
-        };
+        let held = Bounds { low: 0, high: Some(99) };
         let (x, _) = operands(Operation::Mul, held, (Bounds::ANY, Bounds::at(8))).unwrap();
         assert_eq!(x.high, Some(12));
         // A factor that may be nought bounds nothing.
-        let (x, _) = operands(
-            Operation::Mul,
-            held,
-            (
-                Bounds::ANY,
-                Bounds {
-                    low: 0,
-                    high: Some(8),
-                },
-            ),
-        )
-        .unwrap();
+        let (x, _) =
+            operands(Operation::Mul, held, (Bounds::ANY, Bounds { low: 0, high: Some(8) }))
+                .unwrap();
         assert_eq!(x.high, None);
     }
 
     #[test]
     fn a_quotient_bounds_its_dividend() {
-        let held = Bounds {
-            low: 0,
-            high: Some(9),
-        };
+        let held = Bounds { low: 0, high: Some(9) };
         let (x, _) = operands(Operation::Div, held, (Bounds::ANY, Bounds::at(8))).unwrap();
         assert_eq!(x.high, Some(79));
     }
@@ -362,26 +308,14 @@ mod tests {
         let (a, _) = operands(
             Operation::Monus,
             Bounds::at(0),
-            (
-                Bounds::ANY,
-                Bounds {
-                    low: 0,
-                    high: Some(40),
-                },
-            ),
+            (Bounds::ANY, Bounds { low: 0, high: Some(40) }),
         )
         .unwrap();
         assert_eq!(a.high, Some(40));
         let (a, b) = operands(
             Operation::Monus,
             Bounds { low: 3, high: None },
-            (
-                Bounds::ANY,
-                Bounds {
-                    low: 5,
-                    high: Some(40),
-                },
-            ),
+            (Bounds::ANY, Bounds { low: 5, high: Some(40) }),
         )
         .unwrap();
         assert_eq!((a.low, b.low), (8, 0));

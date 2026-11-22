@@ -84,10 +84,7 @@ fn mapped(program: &Program, assumed: &Assumed, solution: Solution) -> Ranges {
     // A spine's rest is read as a step of its count, not as what was built
     // there, so nothing is said of that field.
     for ty in 0..program.types().len() {
-        if let Shape::Spine {
-            cons, recursive, ..
-        } = shape(program, TypeId::at(ty))
-        {
+        if let Shape::Spine { cons, recursive, .. } = shape(program, TypeId::at(ty)) {
             fields[slot(program, cons, recursive)] = Bounds::ANY;
         }
     }
@@ -142,17 +139,11 @@ pub struct Assumed {
 
 impl Assumed {
     pub(super) fn result(&self, id: FnId) -> Bounds {
-        self.results
-            .iter()
-            .find(|(of, _)| *of == id)
-            .map_or(Bounds::ANY, |(_, bounds)| *bounds)
+        self.results.iter().find(|(of, _)| *of == id).map_or(Bounds::ANY, |(_, bounds)| *bounds)
     }
 
     pub(super) fn parameter(&self, at: usize) -> Bounds {
-        self.parameters
-            .iter()
-            .find(|(of, _)| *of == at)
-            .map_or(Bounds::ANY, |(_, bounds)| *bounds)
+        self.parameters.iter().find(|(of, _)| *of == at).map_or(Bounds::ANY, |(_, bounds)| *bounds)
     }
 
     pub(super) fn field(&self, ctor: CtorId, at: usize) -> Bounds {

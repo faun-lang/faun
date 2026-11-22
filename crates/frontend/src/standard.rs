@@ -46,18 +46,13 @@ pub(crate) fn set_snapshot(snapshot: &'static [u8]) {
 /// The snapshot to read the library from: none where none was handed
 /// over, or where `FAUN_STD` names the library's text.
 pub(crate) fn snapshot() -> Option<&'static [u8]> {
-    (root_module() == built_in_root())
-        .then(|| SNAPSHOT.get().copied())
-        .flatten()
+    (root_module() == built_in_root()).then(|| SNAPSHOT.get().copied()).flatten()
 }
 
 /// The text of the built-in module at `path`, where it names one.
 pub(crate) fn built_in(path: &Path) -> Option<&'static str> {
     let relative = path.strip_prefix(BUILT_IN).ok()?;
-    FILES
-        .iter()
-        .find(|(name, _)| Path::new(name) == relative)
-        .map(|(_, text)| *text)
+    FILES.iter().find(|(name, _)| Path::new(name) == relative).map(|(_, text)| *text)
 }
 
 /// The text of the built-in module a diagnostic shows as `name`: its path

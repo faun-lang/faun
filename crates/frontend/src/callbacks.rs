@@ -59,12 +59,7 @@ fn first_order(program: Program) -> Result<d::Program, Refusal> {
     while let Some((source, callbacks, key)) = pass.queue.pop_front() {
         functions.push(pass.instance(&source, &callbacks, key)?);
     }
-    Ok(d::Program {
-        entry: program.entry,
-        functions,
-        data: program.data,
-        written: program.written,
-    })
+    Ok(d::Program { entry: program.entry, functions, data: program.data, written: program.written })
 }
 
 /// What a function value is, where it is known.
@@ -129,20 +124,12 @@ impl Frame {
                 highest = highest.max(clause_highest(clause));
             }
         }
-        Self {
-            owner,
-            functions: HashMap::default(),
-            next: highest + 1,
-        }
+        Self { owner, functions: HashMap::default(), next: highest + 1 }
     }
 
     /// A frame for another clause of the same definition.
     fn again(&self) -> Self {
-        Self {
-            owner: self.owner.clone(),
-            functions: HashMap::default(),
-            next: self.next,
-        }
+        Self { owner: self.owner.clone(), functions: HashMap::default(), next: self.next }
     }
 
     /// Fresh locals for what `callback` carries.
@@ -209,13 +196,11 @@ impl<'a> Callbacks<'a> {
             for clause in clauses {
                 let mut found = |expression: &'a Expr| {
                     if let ExprKind::Lambda(site, patterns, body) = &expression.kind {
-                        lambdas
-                            .entry((function.key.clone(), *site))
-                            .or_insert(LambdaSite {
-                                patterns,
-                                body,
-                                ty: &expression.ty,
-                            });
+                        lambdas.entry((function.key.clone(), *site)).or_insert(LambdaSite {
+                            patterns,
+                            body,
+                            ty: &expression.ty,
+                        });
                     }
                 };
                 for expression in clause.exprs() {
@@ -224,11 +209,7 @@ impl<'a> Callbacks<'a> {
             }
         }
         Self {
-            functions: program
-                .functions
-                .iter()
-                .map(|function| (&function.key, function))
-                .collect(),
+            functions: program.functions.iter().map(|function| (&function.key, function)).collect(),
             lambdas,
             made: HashMap::default(),
             queue: VecDeque::new(),
@@ -251,13 +232,8 @@ impl<'a> Callbacks<'a> {
             Source::Written(key) => (key.name, Instance::Called(self.next)),
             Source::Lambda(owner, _) => (owner.name, Instance::Lambda(self.next)),
         };
-        let key = FunctionKey {
-            name,
-            signature,
-            instance,
-        };
-        self.made
-            .insert((source.clone(), callbacks.clone()), key.clone());
+        let key = FunctionKey { name, signature, instance };
+        self.made.insert((source.clone(), callbacks.clone()), key.clone());
         self.queue.push_back((source, callbacks, key.clone()));
         key
     }
@@ -290,10 +266,7 @@ impl<'a> Callbacks<'a> {
     ) -> Result<d::Function, Refusal> {
         let written = match &function.definition {
             Definition::External(provider) => {
-                return Ok(d::Function {
-                    key,
-                    definition: d::Definition::External(*provider),
-                });
+                return Ok(d::Function { key, definition: d::Definition::External(*provider) });
             }
             Definition::Body(clauses) => clauses,
         };
@@ -323,10 +296,7 @@ impl<'a> Callbacks<'a> {
                 body: self.body(&mut frame, &clause.body)?,
             });
         }
-        Ok(d::Function {
-            key,
-            definition: d::Definition::Body(clauses),
-        })
+        Ok(d::Function { key, definition: d::Definition::Body(clauses) })
     }
 
     /// The lambda written at `site` in `owner` as `key`: what it reads from
@@ -349,11 +319,8 @@ impl<'a> Callbacks<'a> {
         for (local, _) in &captures {
             highest = highest.max(local.0);
         }
-        let mut frame = Frame {
-            owner: owner.clone(),
-            functions: HashMap::default(),
-            next: highest + 1,
-        };
+        let mut frame =
+            Frame { owner: owner.clone(), functions: HashMap::default(), next: highest + 1 };
         let mut handed = callbacks.iter();
         let mut parameters = Vec::new();
         for (local, ty) in &captures {
@@ -361,12 +328,7 @@ impl<'a> Callbacks<'a> {
                 let callback = handed
                     .next()
                     .ok_or_else(|| internal("a callback for each function capture"))?;
-                frame.bind(
-                    &Pattern::Bind(*local),
-                    callback,
-                    &self.lambdas,
-                    &mut parameters,
-                );
+                frame.bind(&Pattern::Bind(*local), callback, &self.lambdas, &mut parameters);
             } else {
                 parameters.push(Pattern::Bind(*local));
             }
@@ -390,10 +352,7 @@ impl<'a> Callbacks<'a> {
             definition: d::Definition::Body(vec![d::Clause {
                 patterns: parameters,
                 guard: None,
-                body: d::Body {
-                    bindings: Vec::new(),
-                    result,
-                },
+                body: d::Body { bindings: Vec::new(), result },
             }]),
         })
     }
@@ -409,10 +368,7 @@ impl<'a> Callbacks<'a> {
                 })
             })
             .collect::<Result<_, Refusal>>()?;
-        Ok(d::Body {
-            bindings,
-            result: self.expr(frame, &body.result)?,
-        })
+        Ok(d::Body { bindings, result: self.expr(frame, &body.result)? })
     }
 
     fn exprs(&mut self, frame: &mut Frame, list: &[Expr]) -> Result<Vec<d::Expr>, Refusal> {
@@ -464,10 +420,8 @@ impl<'a> Callbacks<'a> {
                 Box::new(self.expr(frame, value)?),
                 rows.iter()
                     .map(|(pattern, guard)| {
-                        let guard = guard
-                            .as_ref()
-                            .map(|guard| self.expr(frame, guard))
-                            .transpose()?;
+                        let guard =
+                            guard.as_ref().map(|guard| self.expr(frame, guard)).transpose()?;
                         Ok((pattern.clone(), guard))
                     })
                     .collect::<Result<_, Refusal>>()?,
@@ -497,10 +451,7 @@ impl<'a> Callbacks<'a> {
                                 Ok((pattern.clone(), guard))
                             })
                             .collect::<Result<_, Refusal>>()?;
-                        Ok(d::Arm {
-                            rows,
-                            body: self.expr(frame, &arm.body)?,
-                        })
+                        Ok(d::Arm { rows, body: self.expr(frame, &arm.body)? })
                     })
                     .collect::<Result<_, Refusal>>()?,
             ),
@@ -527,16 +478,11 @@ impl<'a> Callbacks<'a> {
         arguments: &[Expr],
     ) -> Result<d::ExprKind, Refusal> {
         if !takes_function(key) {
-            return Ok(d::ExprKind::DirectCall(
-                key.clone(),
-                self.exprs(frame, arguments)?,
-            ));
+            return Ok(d::ExprKind::DirectCall(key.clone(), self.exprs(frame, arguments)?));
         }
         let handed = self.hand(frame, arguments)?;
-        let signature = Signature {
-            parameters: handed.types(),
-            result: key.signature.result.clone(),
-        };
+        let signature =
+            Signature { parameters: handed.types(), result: key.signature.result.clone() };
         let made = self.request(Source::Written(key.clone()), handed.callbacks, signature);
         Ok(d::ExprKind::DirectCall(made, handed.arguments))
     }
@@ -552,25 +498,18 @@ impl<'a> Callbacks<'a> {
     ) -> Result<d::ExprKind, Refusal> {
         match callback {
             Callback::Function(key) => self.call(frame, &key, arguments),
-            Callback::Constructor(constructor, _) => Ok(d::ExprKind::Construct(
-                constructor,
-                self.exprs(frame, arguments)?,
-            )),
+            Callback::Constructor(constructor, _) => {
+                Ok(d::ExprKind::Construct(constructor, self.exprs(frame, arguments)?))
+            }
             Callback::Lambda(lambda) => {
                 let handed = self.hand(frame, arguments)?;
                 let mut types: Vec<Type> = carried.iter().map(|each| each.ty.clone()).collect();
                 types.extend(handed.types());
-                let signature = Signature {
-                    parameters: types,
-                    result: Box::new(answer.clone()),
-                };
+                let signature = Signature { parameters: types, result: Box::new(answer.clone()) };
                 let mut callbacks = lambda.callbacks;
                 callbacks.extend(handed.callbacks);
-                let made = self.request(
-                    Source::Lambda(lambda.owner, lambda.site),
-                    callbacks,
-                    signature,
-                );
+                let made =
+                    self.request(Source::Lambda(lambda.owner, lambda.site), callbacks, signature);
                 let mut passed = carried;
                 passed.extend(handed.arguments);
                 Ok(d::ExprKind::DirectCall(made, passed))
@@ -581,10 +520,8 @@ impl<'a> Callbacks<'a> {
     /// `arguments` as a call hands them: each function among them as its
     /// callback, and what it carries in its place.
     fn hand(&mut self, frame: &mut Frame, arguments: &[Expr]) -> Result<Handed, Refusal> {
-        let mut handed = Handed {
-            callbacks: Vec::new(),
-            arguments: Vec::with_capacity(arguments.len()),
-        };
+        let mut handed =
+            Handed { callbacks: Vec::new(), arguments: Vec::with_capacity(arguments.len()) };
         for argument in arguments {
             if matches!(argument.ty, Type::Function(..)) {
                 let (callback, carried) = callback(frame, argument)?;
@@ -608,10 +545,9 @@ fn callback(frame: &Frame, expression: &Expr) -> Result<(Callback, Vec<d::Expr>)
     };
     match &expression.kind {
         ExprKind::Function(key) => Ok((Callback::Function(key.clone()), Vec::new())),
-        ExprKind::ConstructorFunction(constructor) => Ok((
-            Callback::Constructor(*constructor, expression.ty.clone()),
-            Vec::new(),
-        )),
+        ExprKind::ConstructorFunction(constructor) => {
+            Ok((Callback::Constructor(*constructor, expression.ty.clone()), Vec::new()))
+        }
         ExprKind::Local(held) => {
             let (callback, carried) = frame
                 .functions
@@ -632,26 +568,16 @@ fn callback(frame: &Frame, expression: &Expr) -> Result<(Callback, Vec<d::Expr>)
                     None => carried.push(local(&(captured, ty))),
                 }
             }
-            if callbacks
-                .iter()
-                .any(|callback| callback.holds(&frame.owner, site))
-            {
+            if callbacks.iter().any(|callback| callback.holds(&frame.owner, site)) {
                 let message = "this lambda wraps the callback it was handed and hands itself on";
                 return Err(located(expression, message)
                     .note("each round would ask for another definition, without end")
                     .help("recurse on data that says what to call instead"));
             }
-            let lambda = LambdaCallback {
-                owner: frame.owner.clone(),
-                site,
-                callbacks,
-            };
+            let lambda = LambdaCallback { owner: frame.owner.clone(), site, callbacks };
             Ok((Callback::Lambda(Box::new(lambda)), carried))
         }
-        _ => Err(located(
-            expression,
-            "a function may only be passed straight into a call",
-        )),
+        _ => Err(located(expression, "a function may only be passed straight into a call")),
     }
 }
 
@@ -678,10 +604,7 @@ fn carried(callback: &Callback, lambdas: &Lambdas) -> Vec<Type> {
 }
 
 fn takes_function(key: &FunctionKey) -> bool {
-    key.signature
-        .parameters
-        .iter()
-        .any(|parameter| matches!(parameter, Type::Function(_)))
+    key.signature.parameters.iter().any(|parameter| matches!(parameter, Type::Function(_)))
 }
 
 /// The highest local `clause` names anywhere, reading or binding it.
@@ -733,9 +656,7 @@ fn captures(patterns: &[Pattern], body: &Expr) -> Vec<(LocalId, Type)> {
             bound.insert(local);
         });
     });
-    read.into_iter()
-        .filter(|(local, _)| !bound.contains(local))
-        .collect()
+    read.into_iter().filter(|(local, _)| !bound.contains(local)).collect()
 }
 
 #[cfg(test)]
@@ -761,14 +682,8 @@ mod tests {
         let program = first_order(Program {
             entry: None,
             functions: vec![
-                Function {
-                    key: external.clone(),
-                    definition: Definition::External(provider),
-                },
-                Function {
-                    key: defined.clone(),
-                    definition: Definition::Body(Vec::new()),
-                },
+                Function { key: external.clone(), definition: Definition::External(provider) },
+                Function { key: defined.clone(), definition: Definition::Body(Vec::new()) },
             ],
             data: HashMap::default(),
             written: HashMap::default(),

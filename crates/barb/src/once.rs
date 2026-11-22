@@ -123,14 +123,8 @@ fn fold(program: &mut Program, candidates: Vec<FnId>) -> Vec<FnId> {
         let operations = program.recognised().operations.clone();
         let body = program.function(id).body().expect("a constant has a body");
         let allowance = remaining.min(limits.work_per_function);
-        let mut budget = Budget::new(FoldLimits {
-            work: allowance,
-            ..limits
-        });
-        let evaluator = Evaluator {
-            program,
-            operations: &operations,
-        };
+        let mut budget = Budget::new(FoldLimits { work: allowance, ..limits });
+        let evaluator = Evaluator { program, operations: &operations };
         let answer = evaluator.body(body, Vec::new(), &mut budget);
         remaining -= allowance - budget.remaining;
         match answer {
@@ -249,9 +243,7 @@ fn hand_down(program: &mut Program, entry: FnId, handed: &[FnId], needs: &[BTree
         entry,
         handed,
         needs,
-        original: (0..needs.len())
-            .map(|at| program.params(FnId::at(at)).len())
-            .collect(),
+        original: (0..needs.len()).map(|at| program.params(FnId::at(at)).len()).collect(),
     };
     let rewritten: Vec<FnId> = (0..needs.len())
         .map(FnId::at)
@@ -268,16 +260,11 @@ fn hand_down(program: &mut Program, entry: FnId, handed: &[FnId], needs: &[BTree
                 (program.name(constant.name).to_owned(), constant.result)
             })
             .collect();
-        let extra: Vec<_> = extra
-            .iter()
-            .map(|(name, ty)| (name.as_str(), *ty))
-            .collect();
+        let extra: Vec<_> = extra.iter().map(|(name, ty)| (name.as_str(), *ty)).collect();
         program.add_params(id, &extra);
     }
-    let bodies = rewritten
-        .into_iter()
-        .map(|id| (id, handing.body(program, id, id == entry)))
-        .collect();
+    let bodies =
+        rewritten.into_iter().map(|id| (id, handing.body(program, id, id == entry))).collect();
     program.replace_bodies(bodies);
 }
 
@@ -285,10 +272,7 @@ impl Handing<'_> {
     /// `id`'s body, rewritten: in the entry, working out first each
     /// constant it needs; elsewhere, reading each from its parameters.
     fn body(&self, program: &mut Program, id: FnId, entry: bool) -> super::Body {
-        let body = program
-            .function(id)
-            .body()
-            .expect("a rewritten definition has a body");
+        let body = program.function(id).body().expect("a rewritten definition has a body");
         let params = self.original[id.index()];
         let locals: Vec<Atom> = (0..params).map(|at| Atom(Local::at(at))).collect();
         // Where each constant this definition needs is held.
@@ -332,11 +316,7 @@ impl Handing<'_> {
             return expr;
         }
         let mut atoms = program.atoms(args).to_vec();
-        atoms.extend(
-            needed
-                .iter()
-                .map(|&place| held[place].expect("a constant passed on")),
-        );
+        atoms.extend(needed.iter().map(|&place| held[place].expect("a constant passed on")));
         Expr::Call(callee, program.terms.hold_atoms(atoms.into_iter()))
     }
 

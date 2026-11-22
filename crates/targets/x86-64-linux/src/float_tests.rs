@@ -85,20 +85,14 @@ fn scalar_arithmetic_preserves_rounding_signed_zero_and_operand_order() {
         program.define(main, |b, _| {
             let mut passed = b.constant(Class::Word, 0);
             let mut cases = 0;
-            for operation in [
-                Operation::Add,
-                Operation::Sub,
-                Operation::Mul,
-                Operation::Div,
-                Operation::Sqrt,
-            ] {
+            for operation in
+                [Operation::Add, Operation::Sub, Operation::Mul, Operation::Div, Operation::Sqrt]
+            {
                 let float = Float { format, operation };
                 for &left in patterns {
-                    for &right in if operation == Operation::Sqrt {
-                        &patterns[..1]
-                    } else {
-                        patterns
-                    } {
+                    for &right in
+                        if operation == Operation::Sqrt { &patterns[..1] } else { patterns }
+                    {
                         let bits = &[left, right][..operation.arity()];
                         let args: Vec<_> = bits
                             .iter()
@@ -122,10 +116,7 @@ fn scalar_arithmetic_preserves_rounding_signed_zero_and_operand_order() {
 #[test]
 fn doubling_by_addition_matches_multiplication_in_either_order() {
     for format in [Format::Binary32, Format::Binary64] {
-        let mul = Float {
-            format,
-            operation: Operation::Mul,
-        };
+        let mul = Float { format, operation: Operation::Mul };
         let two = match format {
             Format::Binary32 => u64::from(2.0f32.to_bits()),
             Format::Binary64 => 2.0f64.to_bits(),
@@ -170,26 +161,14 @@ fn float_pressure_calls_and_stack_results_preserve_every_bit() {
     let (mut program, main) = Program::new("float spills");
     let buffer = program.global(&[0; 32 * 8]);
     let source = program.intern(
-        &(1..=32u32)
-            .flat_map(|n| f64::from(n * n).to_bits().to_le_bytes())
-            .collect::<Vec<_>>(),
+        &(1..=32u32).flat_map(|n| f64::from(n * n).to_bits().to_le_bytes()).collect::<Vec<_>>(),
     );
-    let worker = program.declare(
-        "sqrt many",
-        &[Class::fixed(64); 32],
-        &[Class::fixed(64); 32],
-    );
+    let worker = program.declare("sqrt many", &[Class::fixed(64); 32], &[Class::fixed(64); 32]);
     program.define(worker, |b, args| {
         let answers: Vec<_> = args
             .iter()
             .map(|&arg| {
-                b.float(
-                    Float {
-                        format: Format::Binary64,
-                        operation: Operation::Sqrt,
-                    },
-                    &[arg],
-                )
+                b.float(Float { format: Format::Binary64, operation: Operation::Sqrt }, &[arg])
             })
             .collect();
         b.ret(&answers);
@@ -208,12 +187,7 @@ fn float_pressure_calls_and_stack_results_preserve_every_bit() {
         // arithmetic overwrites every XMM register available to it.
         let again = b.call(worker, &values);
         for (at, &value) in roots.iter().enumerate() {
-            b.store(
-                Width::Word,
-                output,
-                Offset::Bytes(i32::try_from(at).unwrap() * 8),
-                value,
-            );
+            b.store(Width::Word, output, Offset::Bytes(i32::try_from(at).unwrap() * 8), value);
         }
         let mut passed = b.constant(Class::Word, 0);
         for at in 0..32i32 {
@@ -229,13 +203,12 @@ fn float_pressure_calls_and_stack_results_preserve_every_bit() {
         b.ret(&[failed]);
     });
     let allocated = crate::selected::select_and_allocate(&program).unwrap();
-    assert!(allocated.instructions().iter().any(|inst| matches!(
-        inst,
-        Inst::Float {
-            dst: Reg::Xmm15,
-            ..
-        }
-    )));
+    assert!(
+        allocated
+            .instructions()
+            .iter()
+            .any(|inst| matches!(inst, Inst::Float { dst: Reg::Xmm15, .. }))
+    );
     assert!(
         allocated
             .instructions()
@@ -272,15 +245,9 @@ fn float_loops_joins_and_repeated_operands_keep_live_inputs() {
                 &[],
                 |b| b.break_(&args[1..]),
                 |b| {
-                    let sub = Float {
-                        format: Format::Binary64,
-                        operation: Operation::Sub,
-                    };
+                    let sub = Float { format: Format::Binary64, operation: Operation::Sub };
                     let zero = b.float(sub, &[args[1], args[1]]);
-                    let add = Float {
-                        operation: Operation::Add,
-                        ..sub
-                    };
+                    let add = Float { operation: Operation::Add, ..sub };
                     let left = b.float(add, &[args[1], zero]);
                     let right = b.float(add, &[args[2], zero]);
                     let one = b.constant(Class::Word, 1);
@@ -306,13 +273,8 @@ fn binary32_stores_write_four_bytes_from_the_float_bank() {
     program.define(main, |b, _| {
         let address = b.address_of(memory);
         let input = b.constant(Class::fixed(32), u64::from(9.0f32.to_bits()));
-        let root = b.float(
-            Float {
-                format: Format::Binary32,
-                operation: Operation::Sqrt,
-            },
-            &[input],
-        );
+        let root =
+            b.float(Float { format: Format::Binary32, operation: Operation::Sqrt }, &[input]);
         b.store(Width::Bits32, address, Offset::Bytes(0), root);
         let stored = b.load(Width::Word, address, Offset::Bytes(0));
         let expected = b.constant(Class::Word, 0xA5A5_A5A5_4040_0000);
@@ -384,10 +346,7 @@ fn all_register_encodings_preserve_patterns_and_narrow_copies_zero_extend() {
     }
     assert_eq!(
         capture(b, slots),
-        expected
-            .into_iter()
-            .flat_map(u64::to_le_bytes)
-            .collect::<Vec<_>>()
+        expected.into_iter().flat_map(u64::to_le_bytes).collect::<Vec<_>>()
     );
 }
 
@@ -403,15 +362,7 @@ fn binary32_sqrt_clears_a_dirty_destination_and_preserves_its_source() {
             b.mov_reg(dst, Reg::Rax, RegisterWidth::Word);
             b.mov_imm32(Reg::Rax, 9.0f32.to_bits());
             b.mov_reg(src, Reg::Rax, RegisterWidth::Low32);
-            b.float(
-                Float {
-                    format: Format::Binary32,
-                    operation: Operation::Sqrt,
-                },
-                dst,
-                src,
-                None,
-            );
+            b.float(Float { format: Format::Binary32, operation: Operation::Sqrt }, dst, src, None);
             b.store_slot(dst, FrameSlot::at(slot));
             b.store_slot(src, FrameSlot::at(slot + 1));
             expected.extend([
@@ -423,10 +374,7 @@ fn binary32_sqrt_clears_a_dirty_destination_and_preserves_its_source() {
     }
     assert_eq!(
         capture(b, slot),
-        expected
-            .into_iter()
-            .flat_map(u64::to_le_bytes)
-            .collect::<Vec<_>>()
+        expected.into_iter().flat_map(u64::to_le_bytes).collect::<Vec<_>>()
     );
 }
 
@@ -489,15 +437,7 @@ fn xmm_memory_accesses_and_self_narrowing_preserve_scalar_widths() {
         b.store_slot(Reg::Rax, FrameSlot::at(slot));
         b.load(MemoryWidth::Bits32, fp, Reg::R12, displacement);
         b.store_slot(fp, FrameSlot::at(slot + 1));
-        b.float(
-            Float {
-                format: Format::Binary32,
-                operation: Operation::Sqrt,
-            },
-            fp,
-            fp,
-            None,
-        );
+        b.float(Float { format: Format::Binary32, operation: Operation::Sqrt }, fp, fp, None);
         b.store(MemoryWidth::Bits32, fp, Reg::R12, displacement);
         b.load(MemoryWidth::Word, fp, Reg::R12, displacement);
         b.store_slot(fp, FrameSlot::at(slot + 2));
@@ -510,13 +450,7 @@ fn xmm_memory_accesses_and_self_narrowing_preserve_scalar_widths() {
             0x4040_0000,
         ]);
     }
-    assert_eq!(
-        capture(b, 64),
-        expected
-            .into_iter()
-            .flat_map(u64::to_le_bytes)
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(capture(b, 64), expected.into_iter().flat_map(u64::to_le_bytes).collect::<Vec<_>>());
 }
 
 #[test]
@@ -576,13 +510,7 @@ fn mixed_bank_and_memory_copy_cycles_preserve_nan_payloads() {
     }
     let mut expected = patterns;
     expected.rotate_right(1);
-    assert_eq!(
-        capture(b, 6),
-        expected
-            .into_iter()
-            .flat_map(u64::to_le_bytes)
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(capture(b, 6), expected.into_iter().flat_map(u64::to_le_bytes).collect::<Vec<_>>());
 }
 
 #[test]
@@ -595,10 +523,7 @@ fn allocated_instructions_reject_wrong_banks_before_encoding() {
     assert!(b.finish().unwrap_err().contains("register banks"));
     let mut b = AllocatedBuilder::default();
     b.float(
-        Float {
-            format: Format::Binary64,
-            operation: Operation::Add,
-        },
+        Float { format: Format::Binary64, operation: Operation::Add },
         Reg::Xmm1,
         Reg::Xmm0,
         Some(Reg::Xmm2),
@@ -611,11 +536,7 @@ fn allocated_instructions_reject_wrong_banks_before_encoding() {
 fn difference_program(format: Format, expression: &str) -> Program {
     use faun_core::targets::Target;
     let bits = format.bits();
-    let bytes = if bits == 32 {
-        "a,b,c,d"
-    } else {
-        "a,b,c,d,e,f,g,h"
-    };
+    let bytes = if bits == 32 { "a,b,c,d" } else { "a,b,c,d,e,f,g,h" };
     let source = format!(
         r"
 import std.host {{Host}}
@@ -636,9 +557,7 @@ main!(host) -> (
         bits / 8
     );
     let target = crate::X86_64Linux;
-    target
-        .prepare(&super::faun::lower(&source, &target).unwrap())
-        .unwrap()
+    target.prepare(&super::faun::lower(&source, &target).unwrap()).unwrap()
 }
 
 fn checked_difference_program(format: Format, expression: &str, direct: bool) -> Program {
@@ -656,10 +575,7 @@ fn checked_difference_program(format: Format, expression: &str, direct: bool) ->
 }
 
 fn difference_sign(format: Format, left: u64, right: u64) -> i32 {
-    let sub = Float {
-        format,
-        operation: Operation::Sub,
-    };
+    let sub = Float { format, operation: Operation::Sub };
     let diff = sub.calculate(&[left, right]);
     let nan = match format {
         Format::Binary32 => f32::from_bits(u32::try_from(diff).unwrap()).is_nan(),
@@ -672,11 +588,7 @@ fn difference_sign(format: Format, left: u64, right: u64) -> i32 {
 fn observed_difference_compares_directly_only_when_negative_zero_is_excluded() {
     for format in [Format::Binary32, Format::Binary64] {
         let bits = format.bits();
-        let four = if bits == 32 {
-            u64::from(4.0_f32.to_bits())
-        } else {
-            4.0_f64.to_bits()
-        };
+        let four = if bits == 32 { u64::from(4.0_f32.to_bits()) } else { 4.0_f64.to_bits() };
         let sign = 1 << (bits - 1);
         let neg_zero = format!("F{bits}.of_bits(U{bits}.of_nat({sign}))");
         for (expression, left, right, direct) in [

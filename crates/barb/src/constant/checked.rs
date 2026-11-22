@@ -51,9 +51,7 @@ impl From<LimitExceeded> for DecodeError {
 }
 
 fn defined(types: TypeInfo<'_>, owner: TypeId) -> bool {
-    types
-        .get_type(owner)
-        .is_some_and(|ty| matches!(ty.definition, TypeDefinition::Defined(_)))
+    types.get_type(owner).is_some_and(|ty| matches!(ty.definition, TypeDefinition::Defined(_)))
 }
 
 pub(super) fn natural(types: TypeInfo<'_>, owner: TypeId) -> Result<(), ConstructionError> {
@@ -70,17 +68,10 @@ pub(super) fn byte_spine(types: TypeInfo<'_>, owner: TypeId) -> Result<(), Const
     if !defined(types, owner) {
         return Err(ConstructionError::UndefinedType(owner));
     }
-    let Shape::Spine {
-        cons, recursive, ..
-    } = shape(types, owner)
-    else {
+    let Shape::Spine { cons, recursive, .. } = shape(types, owner) else {
         return Err(ConstructionError::NotByteSpine(owner));
     };
-    let mut elements = types
-        .fields(cons)
-        .iter()
-        .enumerate()
-        .filter(|(at, _)| *at != recursive);
+    let mut elements = types.fields(cons).iter().enumerate().filter(|(at, _)| *at != recursive);
     let Some((_, &element)) = elements.next() else {
         return Err(ConstructionError::NotByteSpine(owner));
     };
@@ -104,21 +95,13 @@ pub(super) fn tree(
         if !defined(types, owner) {
             return Err(ConstructionError::UndefinedType(owner));
         }
-        let ctor = types
-            .get_ctor(value.0)
-            .ok_or(ConstructionError::UnknownConstructor(value.0))?;
+        let ctor = types.get_ctor(value.0).ok_or(ConstructionError::UnknownConstructor(value.0))?;
         if ctor.owner != owner {
-            return Err(ConstructionError::FieldType {
-                expected: owner,
-                actual: ctor.owner,
-            });
+            return Err(ConstructionError::FieldType { expected: owner, actual: ctor.owner });
         }
         let expected = types.fields(value.0).len();
         if expected != value.1.len() {
-            return Err(ConstructionError::FieldCount {
-                expected,
-                actual: value.1.len(),
-            });
+            return Err(ConstructionError::FieldCount { expected, actual: value.1.len() });
         }
         pending.extend(types.fields(value.0).iter().copied().zip(&value.1));
     }
@@ -131,18 +114,13 @@ pub(super) fn fields(
     count: usize,
     owners: impl Iterator<Item = Result<TypeId, ConstructionError>>,
 ) -> Result<(), ConstructionError> {
-    let held = types
-        .get_ctor(ctor)
-        .ok_or(ConstructionError::UnknownConstructor(ctor))?;
+    let held = types.get_ctor(ctor).ok_or(ConstructionError::UnknownConstructor(ctor))?;
     if !defined(types, held.owner) {
         return Err(ConstructionError::UndefinedType(held.owner));
     }
     let expected = types.fields(ctor);
     if expected.len() != count {
-        return Err(ConstructionError::FieldCount {
-            expected: expected.len(),
-            actual: count,
-        });
+        return Err(ConstructionError::FieldCount { expected: expected.len(), actual: count });
     }
     for (&expected, actual) in expected.iter().zip(owners) {
         let actual = actual?;
@@ -154,9 +132,7 @@ pub(super) fn fields(
 }
 
 fn header(bytes: &[u8]) -> Result<usize, DecodeError> {
-    Ok(header_bytes(bytes)
-        .ok_or(DecodeError::UnterminatedHeader)?
-        .len())
+    Ok(header_bytes(bytes).ok_or(DecodeError::UnterminatedHeader)?.len())
 }
 
 // Evaluator scans charge visits as they walk an encoding's extent.
@@ -171,9 +147,7 @@ pub(super) fn extent(
             return Err(DecodeError::UndefinedType(owner));
         }
         let (ctor, mut at, count, recursive) = match shape(types, owner) {
-            Shape::Spine {
-                cons, recursive, ..
-            } => {
+            Shape::Spine { cons, recursive, .. } => {
                 let took = header(bytes)?;
                 if types.fields(cons).len() == 1 {
                     return Ok(took);

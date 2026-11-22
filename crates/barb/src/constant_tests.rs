@@ -32,10 +32,7 @@ fn check_view(program: &mut Program, owner: TypeId, value: &Value) {
     assert_eq!(fields.len(), value.1.len());
     for ((field, expected), &ty) in fields.iter().zip(&value.1).zip(program.fields(ctor)) {
         assert_eq!(field.owner(), ty);
-        assert_eq!(
-            decode(program, ty, field.encoded()),
-            (expected.clone(), field.encoded().len())
-        );
+        assert_eq!(decode(program, ty, field.encoded()), (expected.clone(), field.encoded().len()));
     }
     let rebuilt = Held::build(program.type_info(), ctor, &fields, &mut budget).unwrap();
     assert_eq!(rebuilt.owner(), owner);

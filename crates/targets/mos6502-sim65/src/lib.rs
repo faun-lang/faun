@@ -139,9 +139,7 @@ impl Target for Mos6502Sim65 {
         // arguments' addresses lie.
         for (at, name) in program.parameter_names(entry).enumerate() {
             if ![(0, "argc"), (1, "argv")].contains(&(at, name)) {
-                return Err(format!(
-                    "mos6502-sim65 cannot supply entry parameter {at} `{name}`"
-                ));
+                return Err(format!("mos6502-sim65 cannot supply entry parameter {at} `{name}`"));
             }
         }
         for function in program.functions() {
@@ -188,11 +186,7 @@ fn region_limits(program: &Program, name: &str, body: RegionId) -> Result<(), St
     while let Some(region) = regions.pop() {
         for (op, results) in program.walk(region) {
             let (kind, count) = match *op {
-                Op::If {
-                    then_region,
-                    else_region,
-                    ..
-                } => {
+                Op::If { then_region, else_region, .. } => {
                     regions.extend([then_region, else_region]);
                     ("if results", results.len())
                 }

@@ -32,11 +32,7 @@ fn run(p: &Program, test: FunctionId, args: &[BigUint], word_bits: u16) -> Vec<B
         p,
         test,
         args,
-        evaluate::Config {
-            word_bits,
-            fuel: 10_000_000,
-            ..evaluate::Config::default()
-        },
+        evaluate::Config { word_bits, fuel: 10_000_000, ..evaluate::Config::default() },
         &mut RejectHost,
     )
     .expect("an evaluation");
@@ -75,9 +71,7 @@ fn joined(words: &[BigUint], classes: &[Class], word_bits: u16) -> Vec<BigUint> 
             let whole = words[at..at + n]
                 .iter()
                 .rev()
-                .fold(BigUint::default(), |held, word| {
-                    (held << usize::from(word_bits)) + word
-                });
+                .fold(BigUint::default(), |held, word| (held << usize::from(word_bits)) + word);
             at += n;
             whole
         })
@@ -102,21 +96,11 @@ fn same(
             let whole: Vec<_> = run(p, test, case, 64)
                 .into_iter()
                 .zip(results)
-                .map(|(value, &class)| {
-                    if class == Class::Word {
-                        value % &word
-                    } else {
-                        value
-                    }
-                })
+                .map(|(value, &class)| if class == Class::Word { value % &word } else { value })
                 .collect();
             let args = split_args(case, params, word_bits);
             let words = run(&split, test, &args, word_bits);
-            assert_eq!(
-                joined(&words, results, word_bits),
-                whole,
-                "{word_bits} bits, {case:?}"
-            );
+            assert_eq!(joined(&words, results, word_bits), whole, "{word_bits} bits, {case:?}");
         }
     }
 }
@@ -133,9 +117,7 @@ fn numbers(bits: u16, seed: u64) -> Vec<BigUint> {
         top.clone(),
     ];
     for _ in 0..6 {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1);
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
         picked.push(BigUint::from(state) % (&top + 1u8));
     }
     picked.retain(|n| n <= &top);
@@ -145,9 +127,7 @@ fn numbers(bits: u16, seed: u64) -> Vec<BigUint> {
 fn pairs(left: u16, right: u16) -> Vec<(BigUint, BigUint)> {
     let xs = numbers(left, 7);
     let ys = numbers(right, 11);
-    xs.iter()
-        .flat_map(|x| ys.iter().map(move |y| (x.clone(), y.clone())))
-        .collect()
+    xs.iter().flat_map(|x| ys.iter().map(move |y| (x.clone(), y.clone()))).collect()
 }
 
 /// A sum, a difference, a monus and a product: each wide, each answering
@@ -161,9 +141,8 @@ fn arithmetic_on_words_answers_what_it_does_whole() {
         (Binary::Monus, Class::fixed(40)),
         (Binary::Mul, Class::fixed(64)),
     ] {
-        let (p, test) = program(&[a, c], &[answer], |b, args| {
-            vec![b.binary_at(answer, op, args[0], args[1])]
-        });
+        let (p, test) =
+            program(&[a, c], &[answer], |b, args| vec![b.binary_at(answer, op, args[0], args[1])]);
         let cases: Vec<_> = pairs(40, 24)
             .into_iter()
             // A difference is asked only of what is at least as large.
@@ -182,14 +161,10 @@ fn division_on_words_answers_what_it_does_whole() {
     let a = Class::fixed(48);
     for divisor in [Class::fixed(7), Class::fixed(8), Class::fixed(40)] {
         for op in [Binary::Div, Binary::Mod] {
-            let (p, test) = program(&[a, divisor], &[a], |b, args| {
-                vec![b.binary_at(a, op, args[0], args[1])]
-            });
+            let (p, test) =
+                program(&[a, divisor], &[a], |b, args| vec![b.binary_at(a, op, args[0], args[1])]);
             let bits = divisor.width().unwrap();
-            let cases: Vec<_> = pairs(48, bits)
-                .into_iter()
-                .map(|(x, y)| vec![x, y])
-                .collect();
+            let cases: Vec<_> = pairs(48, bits).into_iter().map(|(x, y)| vec![x, y]).collect();
             same(&p, test, (&[a, divisor], &[a]), &cases);
         }
     }
@@ -199,9 +174,8 @@ fn division_on_words_answers_what_it_does_whole() {
 fn orders_on_words_answer_what_they_do_whole() {
     let (a, c) = (Class::fixed(40), Class::fixed(36));
     for relation in [Relation::Equal, Relation::Less] {
-        let (p, test) = program(&[a, c], &[Class::Word], |b, args| {
-            vec![b.compare(relation, args[0], args[1])]
-        });
+        let (p, test) =
+            program(&[a, c], &[Class::Word], |b, args| vec![b.compare(relation, args[0], args[1])]);
         let mut cases: Vec<_> = pairs(40, 36).into_iter().map(|(x, y)| vec![x, y]).collect();
         cases.extend(numbers(36, 3).into_iter().map(|x| vec![x.clone(), x]));
         same(&p, test, (&[a, c], &[Class::Word]), &cases);
@@ -220,9 +194,8 @@ fn shifts_on_words_answer_what_they_do_whole() {
         (Direction::Down, 32, a),
         (Direction::Down, 17, a),
     ] {
-        let (p, test) = program(&[a], &[answer], |b, args| {
-            vec![b.shift(answer, direction, args[0], by)]
-        });
+        let (p, test) =
+            program(&[a], &[answer], |b, args| vec![b.shift(answer, direction, args[0], by)]);
         let cases: Vec<_> = numbers(40, 5).into_iter().map(|x| vec![x]).collect();
         same(&p, test, (&[a], &[answer]), &cases);
     }
@@ -233,13 +206,9 @@ fn shifts_on_words_answer_what_they_do_whole() {
 #[test]
 fn conversions_on_words_answer_what_they_do_whole() {
     let a = Class::fixed(40);
-    for answer in [
-        Class::fixed(60),
-        Class::fixed(20),
-        Class::fixed(36),
-        Class::Word,
-        Class::fixed(8),
-    ] {
+    for answer in
+        [Class::fixed(60), Class::fixed(20), Class::fixed(36), Class::Word, Class::fixed(8)]
+    {
         let (p, test) = program(&[a], &[answer], |b, args| vec![b.convert(answer, args[0])]);
         let cases: Vec<_> = numbers(40, 13).into_iter().map(|x| vec![x]).collect();
         same(&p, test, (&[a], &[answer]), &cases);

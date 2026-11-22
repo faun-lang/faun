@@ -24,12 +24,7 @@ struct Expand {
 
 impl Pass for Expand {
     fn op(&mut self, rebuild: &Rebuild<'_>, b: &mut Builder, op: Op, results: &[ValueId]) -> bool {
-        let Op::Binary {
-            op: op @ (Binary::ShiftUp | Binary::ShiftDown),
-            left,
-            right,
-        } = op
-        else {
+        let Op::Binary { op: op @ (Binary::ShiftUp | Binary::ShiftDown), left, right } = op else {
             return false;
         };
         let class = rebuild.source().class(results[0]);
@@ -46,17 +41,9 @@ impl Pass for Expand {
         if self.native && !wide && (op == Binary::ShiftUp || below) {
             return false;
         }
-        let direction = if op == Binary::ShiftUp {
-            Direction::Up
-        } else {
-            Direction::Down
-        };
+        let direction = if op == Binary::ShiftUp { Direction::Up } else { Direction::Down };
         let value = rebuild.value(left);
-        let value = if b.class(value) == class {
-            value
-        } else {
-            b.convert(class, value)
-        };
+        let value = if b.class(value) == class { value } else { b.convert(class, value) };
         let answer = looped(b, direction, value, rebuild.value(right));
         rebuild.stands_for(results[0], answer);
         true

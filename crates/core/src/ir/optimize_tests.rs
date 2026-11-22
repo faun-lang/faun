@@ -53,11 +53,7 @@ fn count(p: &Program, wanted: impl Fn(&Op) -> bool) -> usize {
 fn count_at(p: &Program, wanted: impl Fn(&Op, Class) -> bool) -> usize {
     let body = p.function(p.entry()).body().expect("a body");
     p.walk_within(body)
-        .filter(|(op, results)| {
-            results
-                .first()
-                .is_some_and(|&value| wanted(op, p.class(value)))
-        })
+        .filter(|(op, results)| results.first().is_some_and(|&value| wanted(op, p.class(value))))
         .count()
 }
 
@@ -118,13 +114,7 @@ fn a_branch_asking_which_tag_a_comparison_answered_becomes_the_comparison() {
     let held = settled(&tagged((1, 0)));
     assert_eq!(count(&held, is_if), 1, "one branch, not two");
     assert_eq!(
-        count(&held, |op| matches!(
-            *op,
-            Op::Compare {
-                relation: Relation::Equal,
-                ..
-            }
-        )),
+        count(&held, |op| matches!(*op, Op::Compare { relation: Relation::Equal, .. })),
         0,
         "nothing left asking which tag it was"
     );
@@ -202,9 +192,7 @@ fn a_constant_is_written_at_the_width_it_is_read_at() {
     // Nothing widens it: what three bits can be, nine bits admit, so the
     // constant is read where it stands and stays as narrow as it is.
     assert_eq!(
-        count_at(&held, |op, class| {
-            matches!(*op, Op::Convert { .. }) && class == wide
-        }),
+        count_at(&held, |op, class| { matches!(*op, Op::Convert { .. }) && class == wide }),
         0,
         "nothing is widened to be read"
     );
@@ -229,11 +217,7 @@ fn a_constant_read_narrower_is_the_number_that_fits() {
         let answer = b.convert(Class::Word, read);
         b.ret(&[answer]);
     });
-    assert_eq!(
-        returns(&settled(&p)),
-        BigUint::from(5u8),
-        "13 in three bits"
-    );
+    assert_eq!(returns(&settled(&p)), BigUint::from(5u8), "13 in three bits");
 }
 
 #[test]
@@ -330,11 +314,7 @@ fn a_run_of_steps_past_a_value_is_one_step() {
         }),
         1
     );
-    assert_eq!(
-        returns(&held),
-        BigUint::from(7u8),
-        "three, and four past it"
-    );
+    assert_eq!(returns(&held), BigUint::from(7u8), "three, and four past it");
 }
 
 /// A run whose total does not fit the width it is taken at is not a run
@@ -508,10 +488,7 @@ fn arithmetic_on_known_numbers_is_the_number_it_comes_to() {
         });
         let held = settled(&p);
         assert_eq!(
-            count(&held, |op| matches!(
-                *op,
-                Op::Binary { .. } | Op::Shift { .. }
-            )),
+            count(&held, |op| matches!(*op, Op::Binary { .. } | Op::Shift { .. })),
             0,
             "{op:?} of {x} and {y}"
         );
@@ -527,21 +504,13 @@ fn arithmetic_on_known_numbers_is_the_number_it_comes_to() {
         p.define(main, |b, _| {
             let held = unknown(b, WIDE, 300);
             let known = b.constant(WIDE, known);
-            let (left, right) = if left_known {
-                (known, held)
-            } else {
-                (held, known)
-            };
+            let (left, right) = if left_known { (known, held) } else { (held, known) };
             let answer = b.binary_at(WIDE, op, left, right);
             let answer = b.convert(Class::Word, answer);
             b.ret(&[answer]);
         });
         let held = settled(&p);
-        assert_eq!(
-            count(&held, |op| matches!(*op, Op::Binary { .. })),
-            0,
-            "{op:?} by {known}"
-        );
+        assert_eq!(count(&held, |op| matches!(*op, Op::Binary { .. })), 0, "{op:?} by {known}");
         assert_eq!(returns(&held), BigUint::from(300u16));
     }
 }
@@ -565,13 +534,7 @@ fn a_known_sum_too_wide_for_its_class_is_left_alone() {
 }
 
 const fn is_add(op: &Op) -> bool {
-    matches!(
-        *op,
-        Op::Binary {
-            op: Binary::Add,
-            ..
-        }
-    )
+    matches!(*op, Op::Binary { op: Binary::Add, .. })
 }
 
 const fn is_shift(op: &Op) -> bool {
@@ -601,13 +564,7 @@ fn a_remainder_by_a_power_of_two_is_a_width() {
     for (by, bits) in [(256u64, 8), (4, 2), (1, 0)] {
         let held = settled(&remainder(by, 300));
         assert_eq!(
-            count(&held, |op| matches!(
-                *op,
-                Op::Binary {
-                    op: Binary::Mod,
-                    ..
-                }
-            )),
+            count(&held, |op| matches!(*op, Op::Binary { op: Binary::Mod, .. })),
             0,
             "by {by}"
         );
@@ -623,16 +580,7 @@ fn a_remainder_by_a_power_of_two_is_a_width() {
 #[test]
 fn a_remainder_by_anything_else_is_left_as_it_stands() {
     let held = settled(&remainder(10, 300));
-    assert_eq!(
-        count(&held, |op| matches!(
-            *op,
-            Op::Binary {
-                op: Binary::Mod,
-                ..
-            }
-        )),
-        1
-    );
+    assert_eq!(count(&held, |op| matches!(*op, Op::Binary { op: Binary::Mod, .. })), 1);
     assert_eq!(returns(&held), BigUint::from(0u8), "300 mod 10");
 }
 
@@ -644,21 +592,9 @@ fn a_mask_of_the_low_bits_is_a_width() {
     for (mask, bits) in [(255u64, 8), (7, 3), (1, 1)] {
         for mask_first in [false, true] {
             let held = settled(&masked(mask, 300, mask_first));
-            let ands = count(&held, |op| {
-                matches!(
-                    *op,
-                    Op::Binary {
-                        op: Binary::And,
-                        ..
-                    }
-                )
-            });
+            let ands = count(&held, |op| matches!(*op, Op::Binary { op: Binary::And, .. }));
             assert_eq!(ands, 0, "& {mask}");
-            assert_eq!(
-                returns(&held),
-                BigUint::from(0b1_0010_1100 & mask),
-                "300 & {mask}"
-            );
+            assert_eq!(returns(&held), BigUint::from(0b1_0010_1100 & mask), "300 & {mask}");
             assert!(
                 count_at(&held, |_, class| class == Class::fixed(bits)) > 0,
                 "& {mask}: read at {bits} bits"
@@ -671,21 +607,9 @@ fn a_mask_of_the_low_bits_is_a_width() {
 #[test]
 fn a_mask_with_a_gap_is_left_as_it_stands() {
     let held = settled(&masked(5, 300, false));
-    let ands = count(&held, |op| {
-        matches!(
-            *op,
-            Op::Binary {
-                op: Binary::And,
-                ..
-            }
-        )
-    });
+    let ands = count(&held, |op| matches!(*op, Op::Binary { op: Binary::And, .. }));
     assert_eq!(ands, 1);
-    assert_eq!(
-        returns(&held),
-        BigUint::from(0b1_0010_1100_u64 & 0b101),
-        "300 & 5"
-    );
+    assert_eq!(returns(&held), BigUint::from(0b1_0010_1100_u64 & 0b101), "300 & 5");
 }
 
 /// A difference that stops at nought, asked whether it is nought, is asking
@@ -705,21 +629,9 @@ fn a_difference_asked_whether_it_is_nought_is_a_comparison() {
             b.ret(&[at_most]);
         });
         let held = settled(&p);
-        let monus = |op: &Op| {
-            matches!(
-                *op,
-                Op::Binary {
-                    op: Binary::Monus,
-                    ..
-                }
-            )
-        };
+        let monus = |op: &Op| matches!(*op, Op::Binary { op: Binary::Monus, .. });
         assert_eq!(count(&held, monus), 0, "{value}");
-        assert_eq!(
-            returns(&held),
-            BigUint::from(u8::from(value <= 200)),
-            "{value}"
-        );
+        assert_eq!(returns(&held), BigUint::from(u8::from(value <= 200)), "{value}");
     }
 }
 
@@ -752,11 +664,7 @@ fn a_words_arithmetic_worked_out_as_a_natural_wraps_at_sixty_four_bits() {
     ];
     for (op, left, right, expected) in cases {
         let held = settled(&exact_then_low(op, left, right));
-        assert_eq!(
-            count_at(&held, |_, class| class == Class::Natural),
-            0,
-            "{op:?}"
-        );
+        assert_eq!(count_at(&held, |_, class| class == Class::Natural), 0, "{op:?}");
         assert_eq!(
             count_at(&held, |held, class| class.wraps()
                 && matches!(*held, Op::Binary { op: done, .. } if done == op)),
@@ -808,19 +716,8 @@ fn a_natural_modulo_a_power_of_two_is_its_low_bits() {
         for value in &values {
             for as_natural in [false, true] {
                 let held = settled(&natural_remainder(bits, value, as_natural));
-                let divides = count(&held, |op| {
-                    matches!(
-                        *op,
-                        Op::Binary {
-                            op: Binary::Mod,
-                            ..
-                        }
-                    )
-                });
-                assert_eq!(
-                    divides, 0,
-                    "{value} mod 2^{bits}, as a natural: {as_natural}"
-                );
+                let divides = count(&held, |op| matches!(*op, Op::Binary { op: Binary::Mod, .. }));
+                assert_eq!(divides, 0, "{value} mod 2^{bits}, as a natural: {as_natural}");
                 let expected = if as_natural {
                     BigUint::from(1u8)
                 } else {
@@ -880,11 +777,7 @@ fn masked(mask: u64, value: u64, mask_first: bool) -> Program {
         let class = Class::fixed(9);
         let held = unknown(b, class, value);
         let mask = b.constant(class, mask);
-        let (left, right) = if mask_first {
-            (mask, held)
-        } else {
-            (held, mask)
-        };
+        let (left, right) = if mask_first { (mask, held) } else { (held, mask) };
         let answer = b.binary_at(class, Binary::And, left, right);
         let answer = b.convert(Class::Word, answer);
         b.ret(&[answer]);
@@ -922,13 +815,7 @@ fn projecting_a_temporary_wide_product_does_not_allocate_it() {
     });
     let held = settled(&p);
     assert_eq!(returns(&held), BigUint::from(13u8));
-    assert_eq!(
-        count(&held, |op| matches!(
-            op,
-            Op::Cell { .. } | Op::CellField { .. }
-        )),
-        0
-    );
+    assert_eq!(count(&held, |op| matches!(op, Op::Cell { .. } | Op::CellField { .. })), 0);
 }
 
 #[test]
@@ -942,13 +829,7 @@ fn a_constructed_cells_tag_is_known() {
     });
     let held = settled(&p);
     assert_eq!(returns(&held), BigUint::from(7u8));
-    assert_eq!(
-        count(&held, |op| matches!(
-            op,
-            Op::Cell { .. } | Op::CellTag { .. }
-        )),
-        0
-    );
+    assert_eq!(count(&held, |op| matches!(op, Op::Cell { .. } | Op::CellTag { .. })), 0);
 }
 
 #[test]
@@ -964,13 +845,7 @@ fn forwarding_a_managed_field_keeps_its_value() {
         b.ret(&[answer]);
     });
     let held = settled(&p);
-    assert_eq!(
-        count(&held, |op| matches!(
-            op,
-            Op::Cell { .. } | Op::CellField { .. }
-        )),
-        0
-    );
+    assert_eq!(count(&held, |op| matches!(op, Op::Cell { .. } | Op::CellField { .. })), 0);
 }
 
 #[test]
@@ -1041,8 +916,7 @@ mod prepend_tests;
 #[test]
 fn a_branch_on_a_number_known_before_it_runs_is_the_arm_it_takes() {
     let (mut p, main) = Program::new("main");
-    p.bind_layout(super::Layout { word_bits: 64 })
-        .expect("a layout the program allows");
+    p.bind_layout(super::Layout { word_bits: 64 }).expect("a layout the program allows");
     let note = p.external("note", &[Class::Word], Returns::Values(&[]));
     p.define(main, |b, _| {
         let three = b.constant(Class::Held(Bounds::at(3)), 3);
@@ -1079,22 +953,13 @@ fn a_branch_on_a_number_known_before_it_runs_is_the_arm_it_takes() {
 /// what it was where it had a place to spare at the top, but not a word,
 /// whose top bit the move up lost.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "three cases of one program, each checked for what it answers and what is left"
-)]
 fn a_number_moved_up_has_its_low_bits_clear_and_comes_back_down() {
     for (class, bits) in [(Class::fixed(8), 1), (Class::fixed(8), 2), (Class::Word, 1)] {
         let (mut p, main) = Program::new("main");
-        p.bind_layout(super::Layout { word_bits: 64 })
-            .expect("a layout the program allows");
+        p.bind_layout(super::Layout { word_bits: 64 }).expect("a layout the program allows");
         p.define(main, |b, _| {
             let word = opaque(b, 200);
-            let number = if class == Class::Word {
-                word
-            } else {
-                b.convert(class, word)
-            };
+            let number = if class == Class::Word { word } else { b.convert(class, word) };
             let doubled = b.shift(Class::Word, super::Direction::Up, number, 1);
             let handle = b.convert(Class::Address, doubled);
             let held = b.convert(Class::Word, handle);
@@ -1115,15 +980,7 @@ fn a_number_moved_up_has_its_low_bits_clear_and_comes_back_down() {
         assert_eq!(returns(&held), BigUint::from(200u8));
         let decided = bits == 1;
         assert_eq!(count(&held, is_if) == 0, decided, "{class:?} {bits}");
-        let down = |op: &Op| {
-            matches!(
-                *op,
-                Op::Shift {
-                    direction: super::Direction::Down,
-                    ..
-                }
-            )
-        };
+        let down = |op: &Op| matches!(*op, Op::Shift { direction: super::Direction::Down, .. });
         assert_eq!(count(&held, down), usize::from(class == Class::Word));
     }
 }

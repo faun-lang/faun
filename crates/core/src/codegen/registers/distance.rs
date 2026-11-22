@@ -86,10 +86,7 @@ impl Distances {
             let at = id.index();
             queued[at] = false;
             let mut changed = false;
-            for (edge, target) in successors(code.blocks[id].terminator)
-                .into_iter()
-                .enumerate()
-            {
+            for (edge, target) in successors(code.blocks[id].terminator).into_iter().enumerate() {
                 if let Some(target) = target {
                     changed |= self.relax(code, liveness, id, target, leaving[at][edge]);
                 }
@@ -128,10 +125,8 @@ impl Distances {
             let Some(position) = end.position(value) else {
                 continue;
             };
-            let far = self
-                .next(liveness, target, entry, value)
-                .saturating_add(leaving)
-                .saturating_add(1);
+            let far =
+                self.next(liveness, target, entry, value).saturating_add(leaving).saturating_add(1);
             let held = &mut self.out[at][position];
             if far < *held {
                 *held = far;
@@ -160,9 +155,7 @@ impl Distances {
         let end = self.ends[at];
         liveness.at[end.index()]
             .position(value)
-            .map_or(NEVER, |position| {
-                self.out[at][position].saturating_add(end.0 - point.0)
-            })
+            .map_or(NEVER, |position| self.out[at][position].saturating_add(end.0 - point.0))
     }
 }
 
@@ -191,16 +184,10 @@ struct Walk {
 fn walk<R: Register>(code: &Code<R>) -> Walk {
     let count = code.blocks.len();
     let mut seen = vec![Seen::Not; count];
-    let mut walk = Walk {
-        back: vec![[false; 2]; count],
-        left: Vec::with_capacity(count),
-    };
+    let mut walk = Walk { back: vec![[false; 2]; count], left: Vec::with_capacity(count) };
     // Every function from its entry, then any block no entry reaches.
-    let roots = code
-        .functions
-        .iter()
-        .map(|function| function.entry)
-        .chain((0..count).map(BlockId::at));
+    let roots =
+        code.functions.iter().map(|function| function.entry).chain((0..count).map(BlockId::at));
     for root in roots {
         if seen[root.index()] == Seen::Not {
             walk_from(code, root, &mut seen, &mut walk);

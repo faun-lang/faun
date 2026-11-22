@@ -13,11 +13,7 @@ pub(super) fn finish(
     sites: &mut h::Sites,
 ) -> t::Program {
     let mut members = std::mem::take(&mut facts.unsigned_members);
-    let mut elaborator = Elaborator {
-        facts,
-        prelude,
-        sites,
-    };
+    let mut elaborator = Elaborator { facts, prelude, sites };
     let functions = program
         .functions
         .into_iter()
@@ -37,18 +33,11 @@ pub(super) fn finish(
             );
             let definition = if function.clauses.is_empty() {
                 t::Definition::External(
-                    function
-                        .signature
-                        .expect("a bodyless declaration has a signature")
-                        .spelling,
+                    function.signature.expect("a bodyless declaration has a signature").spelling,
                 )
             } else {
                 t::Definition::Body(
-                    function
-                        .clauses
-                        .into_iter()
-                        .map(|clause| elaborator.clause(clause))
-                        .collect(),
+                    function.clauses.into_iter().map(|clause| elaborator.clause(clause)).collect(),
                 )
             };
             t::Function {
@@ -64,11 +53,7 @@ pub(super) fn finish(
             }
         })
         .collect();
-    t::Program {
-        functions,
-        data: program.data,
-        members,
-    }
+    t::Program { functions, data: program.data, members }
 }
 
 struct Elaborator<'a> {
@@ -84,11 +69,7 @@ impl Elaborator<'_> {
             span: clause.span,
             signature,
             bounds,
-            patterns: clause
-                .patterns
-                .into_iter()
-                .map(|p| self.pattern(p))
-                .collect(),
+            patterns: clause.patterns.into_iter().map(|p| self.pattern(p)).collect(),
             guard: clause.guard.map(|expr| self.expr(expr)),
             body: self.body(clause.body),
             locals: clause.locals,
@@ -126,15 +107,9 @@ impl Elaborator<'_> {
                     Reading::Tag(name) => t::Pattern::Tag(name, fields),
                 }
             }
-            h::Pattern::Number {
-                magnitude,
-                negative,
-                character,
-            } => t::Pattern::Number {
-                magnitude,
-                negative,
-                character,
-            },
+            h::Pattern::Number { magnitude, negative, character } => {
+                t::Pattern::Number { magnitude, negative, character }
+            }
             h::Pattern::Range(low, high) => t::Pattern::Range(low, high),
             h::Pattern::String(bytes) => t::Pattern::String(bytes),
             h::Pattern::List(elements, rest) => t::Pattern::List(
@@ -146,10 +121,7 @@ impl Elaborator<'_> {
                 last.into_iter().map(|p| self.pattern(p)).collect(),
             ),
             h::Pattern::Record(fields, open) => t::Pattern::Record(
-                fields
-                    .into_iter()
-                    .map(|(name, p)| (name, self.pattern(p)))
-                    .collect(),
+                fields.into_iter().map(|(name, p)| (name, self.pattern(p))).collect(),
                 open,
             ),
             h::Pattern::Tuple(members) => {
@@ -168,23 +140,14 @@ impl Elaborator<'_> {
     /// call, `x.name`.
     fn target(&self, site: h::SiteId, bare: bool) -> t::Target {
         if let Some((owner, member)) = self.facts.bound_sites.get(&site) {
-            t::Target::Bound {
-                owner: owner.clone(),
-                member: *member,
-                bare,
-            }
+            t::Target::Bound { owner: owner.clone(), member: *member, bare }
         } else {
             t::Target::Direct(self.facts.methods[&site])
         }
     }
 
     const fn generated(&mut self, span: Span, ty: InferredType, kind: t::ExprKind) -> t::Expr {
-        t::Expr {
-            site: self.sites.fresh(),
-            span,
-            ty,
-            kind,
-        }
+        t::Expr { site: self.sites.fresh(), span, ty, kind }
     }
 
     fn expr(&mut self, expression: h::Expr) -> t::Expr {
@@ -284,17 +247,11 @@ impl Elaborator<'_> {
                     return tail;
                 }
                 h::ExprKind::Record(fields) => t::ExprKind::Record(
-                    fields
-                        .into_iter()
-                        .map(|(name, value)| (name, self.expr(value)))
-                        .collect(),
+                    fields.into_iter().map(|(name, value)| (name, self.expr(value))).collect(),
                 ),
                 h::ExprKind::Update(base, fields) => t::ExprKind::Update(
                     Box::new(self.expr(*base)),
-                    fields
-                        .into_iter()
-                        .map(|(name, value)| (name, self.expr(value)))
-                        .collect(),
+                    fields.into_iter().map(|(name, value)| (name, self.expr(value))).collect(),
                 ),
                 h::ExprKind::Tuple(members) => {
                     t::ExprKind::Tuple(members.into_iter().map(|e| self.expr(e)).collect())
@@ -328,19 +285,14 @@ impl Elaborator<'_> {
                     }
                 }
                 h::ExprKind::Method(receiver, _, _, arguments) if self.sites.is_spliced(site) => {
-                    debug_assert!(
-                        arguments.is_empty(),
-                        "a splice's `to_str` takes no arguments"
-                    );
+                    debug_assert!(arguments.is_empty(), "a splice's `to_str` takes no arguments");
                     let target = self.target(site, false);
                     t::ExprKind::Spliced(target, Box::new(self.expr(*receiver)))
                 }
                 h::ExprKind::Method(receiver, _, _, arguments) => {
                     let target = self.target(site, false);
-                    let arguments = std::iter::once(*receiver)
-                        .chain(arguments)
-                        .map(|e| self.expr(e))
-                        .collect();
+                    let arguments =
+                        std::iter::once(*receiver).chain(arguments).map(|e| self.expr(e)).collect();
                     t::ExprKind::Method(target, arguments)
                 }
                 h::ExprKind::Try(value) => t::ExprKind::Try(Box::new(self.expr(*value))),
@@ -394,11 +346,6 @@ impl Elaborator<'_> {
                 }
             }
         };
-        t::Expr {
-            site,
-            span,
-            ty,
-            kind,
-        }
+        t::Expr { site, span, ty, kind }
     }
 }

@@ -18,10 +18,7 @@ fn reversing_a_fresh_group_onto_a_sequence_writes_each_element_directly() {
         let p = reversed_group(size, skip, len, shared);
         let held = settled(&p);
         assert_eq!(returns(&held), BigUint::from(expected));
-        assert_eq!(
-            count(&held, |op| matches!(op, Op::BufferPrepend { .. })),
-            usize::from(!fused)
-        );
+        assert_eq!(count(&held, |op| matches!(op, Op::BufferPrepend { .. })), usize::from(!fused));
         if fused {
             assert_eq!(
                 count(&held, |op| matches!(op, Op::BufferPush { .. })),
@@ -46,11 +43,7 @@ fn reversed_group(size: u64, skip: u64, len: u64, shared: bool) -> Program {
             let digit = b.constant(Class::Word, digit);
             [group, first] = b.buffer_push((group, first, used), shape, &[digit]);
         }
-        let view = if skip == 0 {
-            first
-        } else {
-            b.binary(Binary::Add, first, one)
-        };
+        let view = if skip == 0 { first } else { b.binary(Binary::Add, first, one) };
         let length = b.constant(Class::Word, len);
         let [out, mut at] = b.buffer_prepend((dest, start, one), (group, view, length), shape);
         let ten = b.constant(Class::Word, 10);

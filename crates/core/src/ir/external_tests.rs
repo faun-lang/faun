@@ -30,10 +30,7 @@ impl Host for Reply {
 }
 
 fn reply(answer: fn(&[BigUint]) -> HostResult) -> Reply {
-    Reply {
-        calls: Vec::new(),
-        answer,
-    }
+    Reply { calls: Vec::new(), answer }
 }
 
 fn run(
@@ -111,10 +108,7 @@ fn returning_unit_and_never_are_not_interchangeable() {
         let mut host = reply(|_| HostResult::Return(vec![]));
         let result = run(&p, effect, &[], &mut host);
         if returns == Returns::Never {
-            assert_eq!(
-                result.unwrap_err(),
-                Error::InvalidProgram("non-returning host returned")
-            );
+            assert_eq!(result.unwrap_err(), Error::InvalidProgram("non-returning host returned"));
         } else {
             assert_eq!(result.unwrap().outcome, Outcome::Returned(vec![]));
         }
@@ -133,12 +127,7 @@ fn target_contracts_check_parameters_results_and_returning_behavior() {
         let external = p.external("exit!", params, returns);
         call_external(&mut p, external);
         validate(&p).unwrap();
-        assert!(
-            Provider(64)
-                .compile_machine_ir(&p)
-                .unwrap_err()
-                .contains("provider contract")
-        );
+        assert!(Provider(64).compile_machine_ir(&p).unwrap_err().contains("provider contract"));
     }
 }
 
@@ -154,12 +143,7 @@ fn word_results_and_exact_target_widths_share_an_abi_but_narrower_claims_do_not(
         let mut p = program();
         let external = p.external("count!", &[], Returns::Values(&[Class::fixed(bits - 1)]));
         call_external(&mut p, external);
-        assert!(
-            Provider(bits)
-                .compile_machine_ir(&p)
-                .unwrap_err()
-                .contains("provider contract")
-        );
+        assert!(Provider(bits).compile_machine_ir(&p).unwrap_err().contains("provider contract"));
     }
 }
 
@@ -172,11 +156,7 @@ fn source_externals_check_unit_against_nonreturning_provider_contracts() {
         source.define_type(unit, &[("Unit", &[])]);
         let never = source.declare_type("Never");
         source.define_type(never, &[]);
-        let result = if returns == platform::Returns::Unit {
-            never
-        } else {
-            unit
-        };
+        let result = if returns == platform::Returns::Unit { never } else { unit };
         let foreign = source.declare("foreign", &[], result);
         let main = source.declare("main", &[], result);
         source.define(main, |b, _| b.call(foreign, &[]));

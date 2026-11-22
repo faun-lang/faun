@@ -98,11 +98,7 @@ pub(super) fn recognize(
             if operations[at].is_some() || program.params(id).len() != 2 {
                 return None;
             }
-            let mut reader = Reader {
-                program,
-                operations,
-                remaining: 128,
-            };
+            let mut reader = Reader { program, operations, remaining: 128 };
             let answer = reader.body(
                 program.function(id).body()?,
                 vec![Rc::new(Term::Parameter(0)), Rc::new(Term::Parameter(1))],

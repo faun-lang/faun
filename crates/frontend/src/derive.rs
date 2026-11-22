@@ -29,9 +29,7 @@ pub(crate) fn requested(
     cx: &mut Context,
 ) -> Result<n::Program, Diagnostic> {
     ordered(&mut program, cx)?;
-    let n::Program {
-        functions, data, ..
-    } = &mut program;
+    let n::Program { functions, data, .. } = &mut program;
     for function in functions {
         let (Some(owner), Some(signature)) = (function.owner, &function.signature) else {
             continue;
@@ -43,14 +41,7 @@ pub(crate) fn requested(
             continue;
         };
         let data = &data[&owner];
-        match derive(
-            data,
-            member,
-            signature,
-            &cx.prelude,
-            &cx.symbols,
-            &mut cx.sites,
-        ) {
+        match derive(data, member, signature, &cx.prelude, &cx.symbols, &mut cx.sites) {
             Ok(clauses) => function.clauses = clauses,
             Err(message) => {
                 let at = (function.module, signature.span);
@@ -128,25 +119,13 @@ fn equals_of(program: &n::Program, cx: &mut Context, at: usize, equals: Symbol) 
         constraints: signature.constraints.clone(),
     });
     let clause = equal_order(order_name, name, span, &cx.prelude, &mut cx.sites);
-    n::Function {
-        module,
-        name,
-        owner,
-        signature,
-        clauses: vec![clause],
-    }
+    n::Function { module, name, owner, signature, clauses: vec![clause] }
 }
 
 /// Where `function` is declared: its signature, or its first clause.
 fn declared_at(function: &n::Function) -> Span {
     function.signature.as_ref().map_or_else(
-        || {
-            function
-                .clauses
-                .first()
-                .map(|clause| clause.span)
-                .unwrap_or_default()
-        },
+        || function.clauses.first().map(|clause| clause.span).unwrap_or_default(),
         |signature| signature.span,
     )
 }
@@ -171,10 +150,7 @@ fn equal_order(
         name,
         patterns: binds(0..2),
         guard: None,
-        body: h::Body {
-            bindings: Vec::new(),
-            result,
-        },
+        body: h::Body { bindings: Vec::new(), result },
         locals: 2,
     }
 }
@@ -283,11 +259,8 @@ fn misfit(
 ) -> String {
     let mut own = symbols.spelling(data.name).to_owned();
     if !data.parameters.is_empty() {
-        let parameters: Vec<&str> = data
-            .parameters
-            .iter()
-            .map(|parameter| symbols.text(*parameter))
-            .collect();
+        let parameters: Vec<&str> =
+            data.parameters.iter().map(|parameter| symbols.text(*parameter)).collect();
         own = format!("{own}({})", parameters.join(", "));
     }
     let expected = match member {
@@ -421,11 +394,7 @@ impl Writer<'_> {
             parts.push(h::StringPart::Text(name.as_bytes().to_vec()));
         } else {
             for index in 0..count {
-                let before = if index == 0 {
-                    format!("{name}(")
-                } else {
-                    ", ".to_owned()
-                };
+                let before = if index == 0 { format!("{name}(") } else { ", ".to_owned() };
                 parts.push(h::StringPart::Text(before.into_bytes()));
                 parts.push(h::StringPart::Splice(self.field_to_str(index)));
             }
@@ -447,23 +416,13 @@ impl Writer<'_> {
     fn ask(&mut self, index: usize, count: usize) -> h::Expr {
         let left = self.local(index);
         let right = self.local(count + index);
-        self.expr(h::ExprKind::Method(
-            Box::new(left),
-            self.spelling,
-            self.span,
-            vec![right],
-        ))
+        self.expr(h::ExprKind::Method(Box::new(left), self.spelling, self.span, vec![right]))
     }
 
     /// Field `index`'s own text.
     fn field_to_str(&mut self, index: usize) -> h::Expr {
         let field = self.local(index);
-        self.expr(h::ExprKind::Method(
-            Box::new(field),
-            self.spelling,
-            self.span,
-            Vec::new(),
-        ))
+        self.expr(h::ExprKind::Method(Box::new(field), self.spelling, self.span, Vec::new()))
     }
 
     fn local(&mut self, index: usize) -> h::Expr {
@@ -482,10 +441,7 @@ impl Writer<'_> {
             name: self.name,
             patterns,
             guard: None,
-            body: h::Body {
-                bindings: Vec::new(),
-                result,
-            },
+            body: h::Body { bindings: Vec::new(), result },
             locals: u32::try_from(bound).expect("a constructor has fewer than 2^31 fields"),
         }
     }
@@ -501,9 +457,7 @@ fn pair(constructor: Symbol, count: usize) -> (h::Pattern, h::Pattern) {
 }
 
 fn binds(indices: std::ops::Range<usize>) -> Vec<h::Pattern> {
-    indices
-        .map(|index| h::Pattern::Bind(local(index)))
-        .collect()
+    indices.map(|index| h::Pattern::Bind(local(index))).collect()
 }
 
 fn local(index: usize) -> h::LocalId {

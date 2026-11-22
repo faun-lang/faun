@@ -77,10 +77,6 @@ pub fn legalize(source: &Program, config: Config) -> Result<Program, String> {
 
 /// Lay out the managed shapes and build the ownership and region plans
 /// before rewriting any function bodies.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one constructor for every table the pass reads"
-)]
 fn prepare_pass<'a>(
     source: &'a Program,
     output: &mut Program,
@@ -95,13 +91,8 @@ fn prepare_pass<'a>(
         Plan::default()
     };
     let remaining = plan.remaining_claims(source, &shapes.packed);
-    let (cells, sequences) = managed_runtime(
-        output,
-        source,
-        &library,
-        (config, &shapes),
-        remaining.as_deref(),
-    );
+    let (cells, sequences) =
+        managed_runtime(output, source, &library, (config, &shapes), remaining.as_deref());
     let constants = constants(source, output, config)?;
     let owned = ownership::owned_parameters(source);
     let chunks = (!plan.constructors.is_empty()).then(|| Chunks::append(output, &library, &plan));
@@ -171,10 +162,7 @@ fn input_storage(
             // Machine IR can pass values between classes of the same width.
             // Reserve for that entire width unless the producer is a literal.
             let bits = source.class(count).width().unwrap_or(64);
-            bounds.insert(
-                count,
-                u64::MAX.checked_shr(u32::from(64 - bits)).unwrap_or(0),
-            );
+            bounds.insert(count, u64::MAX.checked_shr(u32::from(64 - bits)).unwrap_or(0));
         }
     }
     if bounds.is_empty() {
@@ -191,11 +179,7 @@ fn input_storage(
     }
     bounds.retain(|_, size| (1..=65536).contains(size));
     let capacity = *bounds.values().max()?;
-    Some(InputStorage {
-        capacity,
-        data: sequence::input_storage(output, capacity),
-        bounds,
-    })
+    Some(InputStorage { capacity, data: sequence::input_storage(output, capacity), bounds })
 }
 
 /// The cell and sequence routines a program needs, beside its naturals'.
@@ -218,15 +202,9 @@ fn managed_runtime(
             release,
             library,
             cells,
-            growths(source, config.join_routines)
-                .into_iter()
-                .map(|(growth, shape)| {
-                    (
-                        growth,
-                        shapes.packed[shape.index()].clone(),
-                        shapes.descriptors[shape.index()],
-                    )
-                }),
+            growths(source, config.join_routines).into_iter().map(|(growth, shape)| {
+                (growth, shapes.packed[shape.index()].clone(), shapes.descriptors[shape.index()])
+            }),
             config,
         )
     });
@@ -285,13 +263,11 @@ fn known(packed: &Packed, (elements, leaf_bytes): (&[u8], u8), word_bits: u16) -
             .leaves
             .iter()
             .zip(element)
-            .map(|(leaf, &value)| {
-                if leaf.kind == super::packing::NATURAL {
-                    value * 2
-                } else {
-                    value
-                }
-            })
+            .map(
+                |(leaf, &value)| {
+                    if leaf.kind == super::packing::NATURAL { value * 2 } else { value }
+                },
+            )
             .collect();
         bytes.extend_from_slice(&packed.lay(&values, word_bits));
     }
@@ -300,11 +276,7 @@ fn known(packed: &Packed, (elements, leaf_bytes): (&[u8], u8), word_bits: u16) -
 
 /// A count as a word, however narrow it was held.
 fn word(b: &mut Builder, value: ValueId) -> ValueId {
-    if b.class(value) == Class::Word {
-        value
-    } else {
-        b.convert(Class::Word, value)
-    }
+    if b.class(value) == Class::Word { value } else { b.convert(Class::Word, value) }
 }
 
 /// The innermost scope, which is the region being walked.
@@ -359,25 +331,16 @@ fn laid_out(
     });
     let empties = (0..packed.len())
         .map(|at| {
-            made.contains(&ShapeId::at(at))
-                .then(|| output.intern(&empty(&packed[at], word_bits)))
+            made.contains(&ShapeId::at(at)).then(|| output.intern(&empty(&packed[at], word_bits)))
         })
         .collect();
     let knowns = shapes_of(source, |op| match op {
-        Op::BufferKnown {
-            elements,
-            shape,
-            bytes,
-        } => Some((elements, shape, bytes)),
+        Op::BufferKnown { elements, shape, bytes } => Some((elements, shape, bytes)),
         _ => None,
     })
     .into_iter()
     .map(|(elements, shape, bytes)| {
-        let laid = known(
-            &packed[shape.index()],
-            (source.datum_bytes(elements), bytes),
-            word_bits,
-        );
+        let laid = known(&packed[shape.index()], (source.datum_bytes(elements), bytes), word_bits);
         ((elements, shape), output.intern(&laid))
     })
     .collect();
@@ -434,19 +397,12 @@ impl Shapes {
         // What any object holds lies past a header of six words at most,
         // and what a target reaches from an address is an `i32` away.
         let header = 6 * u64::from(word_bits / 8);
-        if packed
-            .iter()
-            .any(|packed| i32::try_from(packed.size + header).is_err())
-        {
+        if packed.iter().any(|packed| i32::try_from(packed.size + header).is_err()) {
             return Err("an object's fields do not fit the target".into());
         }
         let descriptors = packed
             .iter()
-            .map(|packed| {
-                packed
-                    .descriptor(word_bits)
-                    .map(|bytes: Vec<u8>| output.intern(&bytes))
-            })
+            .map(|packed| packed.descriptor(word_bits).map(|bytes: Vec<u8>| output.intern(&bytes)))
             .collect();
         let (empties, knowns) = laid_out(source, output, &packed, word_bits);
         let bare = shapes_of(source, |op| match op {
@@ -456,13 +412,7 @@ impl Shapes {
         .into_iter()
         .map(|tag| (tag, output.intern(&bare(tag, word_bits))))
         .collect();
-        Ok(Self {
-            packed,
-            descriptors,
-            empties,
-            knowns,
-            bare,
-        })
+        Ok(Self { packed, descriptors, empties, knowns, bare })
     }
 
     /// Where the known buffer of `elements`, each of `shape`, lies.
@@ -576,7 +526,7 @@ fn inspect(
                 }
                 Op::Store { value, .. } if managed(source.class(value)) => {
                     return Err(
-                        "storing a managed value has no scalar memory representation".into(),
+                        "storing a managed value has no scalar memory representation".into()
                     );
                 }
                 _ => {}
@@ -613,10 +563,6 @@ enum Known {
     Object(DataId),
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the walk, the small numbers and the interned objects stay together"
-)]
 fn constants(
     source: &Program,
     output: &mut Program,
@@ -624,19 +570,10 @@ fn constants(
 ) -> Result<BTreeMap<ValueId, Known>, String> {
     let mut interned = BTreeMap::new();
     let mut constants = BTreeMap::new();
-    let mut pending: Vec<_> = source
-        .functions()
-        .iter()
-        .filter_map(super::Function::body)
-        .collect();
+    let mut pending: Vec<_> = source.functions().iter().filter_map(super::Function::body).collect();
     while let Some(region) = pending.pop() {
         for (op, results) in source.walk(region) {
-            if let Op::If {
-                then_region,
-                else_region,
-                ..
-            } = *op
-            {
+            if let Op::If { then_region, else_region, .. } = *op {
                 pending.extend([then_region, else_region]);
                 continue;
             }
@@ -645,15 +582,13 @@ fn constants(
                 continue;
             }
             // Only what writes a value can be a number worth placing.
-            let Some(magnitude) = results
-                .first()
-                .and_then(|&held| magnitude(source, *op, source.class(held)))
+            let Some(magnitude) =
+                results.first().and_then(|&held| magnitude(source, *op, source.class(held)))
             else {
                 continue;
             };
-            let small = u64::try_from(&magnitude)
-                .ok()
-                .filter(|&n| n < natural::half(config.word_bits));
+            let small =
+                u64::try_from(&magnitude).ok().filter(|&n| n < natural::half(config.word_bits));
             let known = if let Some(n) = small {
                 Known::Small(n)
             } else if let Some(&data) = interned.get(&magnitude) {
@@ -745,8 +680,7 @@ impl Pass<'_> {
             let Some(body) = function.body() else {
                 continue;
             };
-            self.nullable_builder
-                .set(self.plan.nullable.builders.contains(&id));
+            self.nullable_builder.set(self.plan.nullable.builders.contains(&id));
             self.constructing.set(self.plan.constructors.contains(&id));
             let held = self.owned_parameters(id, body);
             output.define(id, |b, params| {
@@ -767,9 +701,7 @@ impl Pass<'_> {
     }
 
     fn value(&self, old: ValueId) -> ValueId {
-        self.values[old.index()]
-            .get()
-            .expect("validated SSA operand has been rebuilt")
+        self.values[old.index()].get().expect("validated SSA operand has been rebuilt")
     }
 
     fn mapped(&self, old: ValueId, new: ValueId) {
@@ -812,10 +744,7 @@ impl Pass<'_> {
             Class::Natural => return self.library.release_value(b, value),
             Class::Cell => self.cells.expect("cell helpers were requested").release,
             Class::Buffer => {
-                self.sequences
-                    .as_ref()
-                    .expect("buffer helpers were requested")
-                    .release
+                self.sequences.as_ref().expect("buffer helpers were requested").release
             }
             _ => return,
         };
@@ -850,12 +779,7 @@ impl Pass<'_> {
         b.store(Width::Word, object, Offset::Words(cell::TAG), tag);
         if !self.constructing.get() && !self.fixed_claims {
             let descriptor = self.shapes.descriptor(b, shape);
-            b.store(
-                Width::Word,
-                object,
-                Offset::Words(cell::DESCRIPTOR),
-                descriptor,
-            );
+            b.store(Width::Word, object, Offset::Words(cell::DESCRIPTOR), descriptor);
         }
         let fields = self.fields_at();
         Self::store_leaves(b, (object, fields), packed, claimed);
@@ -915,16 +839,8 @@ impl Pass<'_> {
         let offset = i32::try_from(at + leaf.offset).expect("checked object layout");
         let value = b.load(width, object, Offset::Bytes(offset));
         let value = leaf.unpacked(b, value);
-        let value = if represented == Class::Word {
-            value
-        } else {
-            b.convert(represented, value)
-        };
-        if self.borrowed_cells[old_result.index()] {
-            value
-        } else {
-            self.retained(b, class, value)
-        }
+        let value = if represented == Class::Word { value } else { b.convert(represented, value) };
+        if self.borrowed_cells[old_result.index()] { value } else { self.retained(b, class, value) }
     }
 
     /// Push one element, whose leaves' claims it takes, onto a sequence
@@ -938,10 +854,7 @@ impl Pass<'_> {
         claimed: &[ValueId],
     ) -> [ValueId; 2] {
         let packed = self.shapes.packed(shape);
-        let sequences = self
-            .sequences
-            .as_ref()
-            .expect("buffer helpers were requested");
+        let sequences = self.sequences.as_ref().expect("buffer helpers were requested");
         let [room, front] = sequences.room(b, packed, sequence);
         let element = sequences.element(b, room, packed.size, front);
         Self::store_leaves(b, (element, 0), packed, claimed);
@@ -958,10 +871,7 @@ impl Pass<'_> {
         claimed: &[ValueId],
     ) -> [ValueId; 2] {
         let packed = self.shapes.packed(shape);
-        let sequences = self
-            .sequences
-            .as_ref()
-            .expect("buffer helpers were requested");
+        let sequences = self.sequences.as_ref().expect("buffer helpers were requested");
         let [room, start, element] = sequences.after(b, packed, sequence);
         Self::store_leaves(b, (element, 0), packed, claimed);
         [room, start]
@@ -980,10 +890,7 @@ impl Pass<'_> {
         claimed: &[ValueId],
     ) -> [ValueId; 2] {
         let packed = self.shapes.packed(shape);
-        let sequences = self
-            .sequences
-            .as_ref()
-            .expect("buffer helpers were requested");
+        let sequences = self.sequences.as_ref().expect("buffer helpers were requested");
         let [owned, front, element] = if unique {
             sequences.replace_unique(b, packed, sequence, index)
         } else {
@@ -1005,10 +912,7 @@ impl Pass<'_> {
         let Some(owning) = self.unique.owned.get(&body) else {
             return initial;
         };
-        let sequences = self
-            .sequences
-            .as_ref()
-            .expect("buffer helpers were requested");
+        let sequences = self.sequences.as_ref().expect("buffer helpers were requested");
         for &(at, shape) in owning {
             let packed = self.shapes.packed(shape);
             let (start, len) = (word(b, initial[at + 1]), word(b, initial[at + 2]));
@@ -1032,10 +936,7 @@ impl Pass<'_> {
         (shape, index): (ShapeId, u32),
     ) -> ValueId {
         let packed = self.shapes.packed(shape);
-        let sequences = self
-            .sequences
-            .as_ref()
-            .expect("buffer helpers were requested");
+        let sequences = self.sequences.as_ref().expect("buffer helpers were requested");
         let start = word(b, start);
         let element = sequences.element(b, buffer, packed.size, start);
         self.load_leaf(b, old_result, (element, 0), (packed, index))
@@ -1183,10 +1084,9 @@ impl Pass<'_> {
         let start = match terminator.exit {
             Exit::Return => 0,
             Exit::Yield => scopes.len() - 1,
-            Exit::Break | Exit::Continue => scopes
-                .iter()
-                .rposition(|s| s.kind == ScopeKind::Loop)
-                .expect("validated loop exit"),
+            Exit::Break | Exit::Continue => {
+                scopes.iter().rposition(|s| s.kind == ScopeKind::Loop).expect("validated loop exit")
+            }
         };
         let leaving = self.source.values(terminator.values);
         let outgoing: Vec<_> = leaving
@@ -1236,10 +1136,7 @@ impl Pass<'_> {
     ) -> Vec<ValueId> {
         let v = |old| self.value(old);
         let classes = || {
-            results
-                .iter()
-                .map(|&old| representation(self.source.class(old)))
-                .collect::<Vec<_>>()
+            results.iter().map(|&old| representation(self.source.class(old))).collect::<Vec<_>>()
         };
         let one = match op {
             Op::Constant { .. } | Op::NaturalConstant(_)
@@ -1270,9 +1167,7 @@ impl Pass<'_> {
                 self.cell_field(b, results[0], cell, (shape, index))
             }
             Op::BufferEmpty { shape } => self.shapes.empty(b, shape),
-            Op::BufferKnown {
-                elements, shape, ..
-            } => self.shapes.known(b, elements, shape),
+            Op::BufferKnown { elements, shape, .. } => self.shapes.known(b, elements, shape),
             Op::BufferRoom { count, shape } => {
                 let allocate = self.cells.expect("cell helpers were requested").allocate;
                 let size = self.shapes.packed(shape).size;
@@ -1292,16 +1187,14 @@ impl Pass<'_> {
                     fresh(b)
                 }
             }
-            Op::BufferAt {
-                buffer,
-                start,
-                shape,
-            } => {
+            Op::BufferAt { buffer, start, shape } => {
                 let start = word(b, v(start));
-                self.sequences
-                    .as_ref()
-                    .expect("buffer helpers were requested")
-                    .element(b, v(buffer), self.shapes.packed(shape).size, start)
+                self.sequences.as_ref().expect("buffer helpers were requested").element(
+                    b,
+                    v(buffer),
+                    self.shapes.packed(shape).size,
+                    start,
+                )
             }
             // What it holds is released after it, as after any last use.
             Op::Keep { .. } => return Vec::new(),
@@ -1309,32 +1202,24 @@ impl Pass<'_> {
                 let operands = self.source.values(operands);
                 let buffer = self.take(b, scopes, live, at, operands[0]);
                 let (start, len) = (word(b, v(operands[1])), word(b, v(operands[2])));
-                let claimed: Vec<_> = operands[3..]
-                    .iter()
-                    .map(|&old| self.take(b, scopes, live, at, old))
-                    .collect();
+                let claimed: Vec<_> =
+                    operands[3..].iter().map(|&old| self.take(b, scopes, live, at, old)).collect();
                 return self.push(b, (buffer, start, len), shape, &claimed).to_vec();
             }
             Op::BufferAppend { operands, shape } => {
                 let operands = self.source.values(operands);
                 let buffer = self.take(b, scopes, live, at, operands[0]);
                 let (start, len) = (word(b, v(operands[1])), word(b, v(operands[2])));
-                let claimed: Vec<_> = operands[3..]
-                    .iter()
-                    .map(|&old| self.take(b, scopes, live, at, old))
-                    .collect();
-                return self
-                    .append(b, (buffer, start, len), shape, &claimed)
-                    .to_vec();
+                let claimed: Vec<_> =
+                    operands[3..].iter().map(|&old| self.take(b, scopes, live, at, old)).collect();
+                return self.append(b, (buffer, start, len), shape, &claimed).to_vec();
             }
             Op::BufferReplace { operands, shape } => {
                 let operands = self.source.values(operands);
                 let buffer = self.take(b, scopes, live, at, operands[0]);
                 let [start, len, index] = [1, 2, 3].map(|at| word(b, v(operands[at])));
-                let claimed: Vec<_> = operands[4..]
-                    .iter()
-                    .map(|&old| self.take(b, scopes, live, at, old))
-                    .collect();
+                let claimed: Vec<_> =
+                    operands[4..].iter().map(|&old| self.take(b, scopes, live, at, old)).collect();
                 let unique = self.unique.replaced.contains(&results[0]);
                 return self
                     .replace(b, (buffer, start, len), (index, unique), shape, &claimed)
@@ -1375,20 +1260,14 @@ impl Pass<'_> {
                     .extend(
                         b,
                         self.shapes.packed(shape),
-                        (
-                            (first, first_start, first_len),
-                            (then, then_start, then_len),
-                        ),
+                        ((first, first_start, first_len), (then, then_start, then_len)),
                         operands[0] == operands[3],
                     )
                     .to_vec();
             }
-            Op::BufferField {
-                buffer,
-                start,
-                index,
-                shape,
-            } => self.buffer_field(b, results[0], (v(buffer), v(start)), (shape, index)),
+            Op::BufferField { buffer, start, index, shape } => {
+                self.buffer_field(b, results[0], (v(buffer), v(start)), (shape, index))
+            }
             Op::Binary { op, left, right } if self.source.class(left) == Class::Natural => match op
             {
                 Binary::Add => self.library.inline(b, Inline::Add, v(left), v(right)),
@@ -1423,14 +1302,8 @@ impl Pass<'_> {
                         };
                         let small = most
                             .filter(|&most| op == Binary::Mod && most < self.library.half)
-                            .map(|most| {
-                                Class::Held(barb::Bounds {
-                                    low: 0,
-                                    high: Some(most),
-                                })
-                            });
-                        self.library
-                            .by_word(b, (op, function), (v(left), divisor), small)
+                            .map(|most| Class::Held(barb::Bounds { low: 0, high: Some(most) }));
+                        self.library.by_word(b, (op, function), (v(left), divisor), small)
                     } else {
                         b.call_one(function, &[v(left), divisor])
                     }
@@ -1440,37 +1313,23 @@ impl Pass<'_> {
                 b.binary_at(self.source.class(results[0]), op, v(left), v(right))
             }
             Op::Float { float, operands } => {
-                let operands: Vec<_> = self
-                    .source
-                    .values(operands)
-                    .iter()
-                    .map(|&old| v(old))
-                    .collect();
+                let operands: Vec<_> =
+                    self.source.values(operands).iter().map(|&old| v(old)).collect();
                 b.float(float, &operands)
             }
             // A shift is never over a natural, so there is no helper for it
             // and nothing to choose between here.
-            Op::Shift {
-                direction,
-                value,
-                by,
-            } => b.shift(self.source.class(results[0]), direction, v(value), by),
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } if self.source.class(left) == Class::Natural => {
+            Op::Shift { direction, value, by } => {
+                b.shift(self.source.class(results[0]), direction, v(value), by)
+            }
+            Op::Compare { relation, left, right } if self.source.class(left) == Class::Natural => {
                 if let Some(&limit) = self.checked_words.limits.get(&results[0]) {
                     natural::below_power_of_two(b, v(left), limit, self.word_bits())
                 } else {
                     self.library.compare(b, relation, v(left), v(right))
                 }
             }
-            Op::Compare {
-                relation,
-                left,
-                right,
-            } => b.compare(relation, v(left), v(right)),
+            Op::Compare { relation, left, right } => b.compare(relation, v(left), v(right)),
             Op::Convert { value } => {
                 let class = self.source.class(results[0]);
                 match (self.source.class(value), class) {
@@ -1492,46 +1351,28 @@ impl Pass<'_> {
                     (Class::Natural, _) => {
                         let helper = self.library.require(Helper::ToWord);
                         let word = self.library.narrowed(b, helper, v(value));
-                        if class == Class::Word {
-                            word
-                        } else {
-                            b.convert(class, word)
-                        }
+                        if class == Class::Word { word } else { b.convert(class, word) }
                     }
                     _ => b.convert(class, v(value)),
                 }
             }
-            Op::Load {
-                width,
-                address,
-                offset,
-            } => b.load(width, v(address), offset),
-            Op::Store {
-                width,
-                address,
-                offset,
-                value,
-            } => {
+            Op::Load { width, address, offset } => b.load(width, v(address), offset),
+            Op::Store { width, address, offset, value } => {
                 b.store(width, v(address), offset, v(value));
                 return Vec::new();
             }
-            Op::Call {
-                function,
-                args: held,
-            } => {
+            Op::Call { function, args: held } => {
                 let owned = ownership::taken(&self.owned, function);
                 let args: Vec<_> = self
                     .source
                     .values(held)
                     .iter()
                     .zip(owned)
-                    .map(|(&old, &owned)| {
-                        if owned {
-                            self.take(b, scopes, live, at, old)
-                        } else {
-                            v(old)
-                        }
-                    })
+                    .map(
+                        |(&old, &owned)| {
+                            if owned { self.take(b, scopes, live, at, old) } else { v(old) }
+                        },
+                    )
                     .collect();
                 let fresh = b.call(function, &args);
                 if let [root] = results
@@ -1542,18 +1383,12 @@ impl Pass<'_> {
                 }
                 return fresh;
             }
-            Op::If {
-                condition,
-                then_region,
-                else_region,
-            } => {
+            Op::If { condition, then_region, else_region } => {
                 // What this region holds and reads last here is each arm's
                 // to release, where that arm last reads it.
                 let scope = top(scopes);
-                let (handed, kept): (Vec<_>, Vec<_>) = scope
-                    .held
-                    .iter()
-                    .partition(|&&value| live.dead(value, Some(at)));
+                let (handed, kept): (Vec<_>, Vec<_>) =
+                    scope.held.iter().partition(|&&value| live.dead(value, Some(at)));
                 scope.held = kept;
                 let arms: &[Scope] = scopes;
                 return b.if_(
@@ -1590,11 +1425,7 @@ impl Pass<'_> {
                         // values. Valid IR may initialize a wider carried slot
                         // from a narrower scalar, so preserve the declared slot.
                         let class = representation(self.source.class(parameter));
-                        if b.class(value) == class {
-                            value
-                        } else {
-                            b.convert(class, value)
-                        }
+                        if b.class(value) == class { value } else { b.convert(class, value) }
                     })
                     .collect();
                 let initial = self.owned_on_entry(b, body, initial);
@@ -1654,22 +1485,12 @@ mod tests {
         assert_eq!(out.globals, p.globals);
         assert_eq!(out.spans, p.spans);
         assert_eq!(
-            out.functions
-                .iter()
-                .filter_map(super::super::Function::external)
-                .collect::<Vec<_>>(),
-            p.functions
-                .iter()
-                .filter_map(super::super::Function::external)
-                .collect::<Vec<_>>()
+            out.functions.iter().filter_map(super::super::Function::external).collect::<Vec<_>>(),
+            p.functions.iter().filter_map(super::super::Function::external).collect::<Vec<_>>()
         );
         assert_eq!(
             out.signature[..p.signature.len()],
-            p.signature
-                .iter()
-                .copied()
-                .map(representation)
-                .collect::<Vec<_>>()
+            p.signature.iter().copied().map(representation).collect::<Vec<_>>()
         );
         assert!(!p.ops.is_empty());
         assert!(!p.results.is_empty());
@@ -1686,11 +1507,7 @@ mod tests {
         for (before, after) in p.functions.iter().zip(&out.functions) {
             assert_eq!(before.name, after.name);
             assert_eq!(
-                p.signature(before.params)
-                    .iter()
-                    .copied()
-                    .map(representation)
-                    .collect::<Vec<_>>(),
+                p.signature(before.params).iter().copied().map(representation).collect::<Vec<_>>(),
                 out.signature(after.params)
             );
             assert_eq!(

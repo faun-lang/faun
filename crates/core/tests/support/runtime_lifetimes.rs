@@ -22,11 +22,7 @@ pub(super) fn program(early_return: bool) -> Program {
     p.define(identity, |b, args| b.ret(&[args[0]]));
     let accumulate = accumulator(&mut p, identity, early_return);
     let serialize = serializer(&mut p);
-    let write = p.external(
-        "write!",
-        &[Class::Address, Class::Word],
-        Returns::Values(&[]),
-    );
+    let write = p.external("write!", &[Class::Address, Class::Word], Returns::Values(&[]));
     let buffer = p.global(&[0; OUTPUT_BYTES]);
     p.define(main, |b, params| {
         let argc = params[0];
@@ -60,12 +56,7 @@ fn accumulator(p: &mut Program, identity: FunctionId, early_return: bool) -> Fun
             let index = b.binary(Binary::Add, state[1], one);
             let done = b.compare(Relation::Equal, index, args[1]);
             let inner = nested(b, alias, done, early_return);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[inner]),
-                |b| b.continue_(&[inner, index]),
-            );
+            b.if_(done, &[], |b| b.break_(&[inner]), |b| b.continue_(&[inner, index]));
         });
         b.ret(&result);
     });
@@ -120,12 +111,7 @@ fn serializer(p: &mut Program) -> FunctionId {
             let rest = b.binary(Binary::Div, state[0], radix);
             let index = b.binary(Binary::Add, state[1], one);
             let done = b.compare(Relation::Equal, index, length);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[]),
-                |b| b.continue_(&[rest, index]),
-            );
+            b.if_(done, &[], |b| b.break_(&[]), |b| b.continue_(&[rest, index]));
         });
         b.ret(&[]);
     });
@@ -146,9 +132,7 @@ pub(super) fn check(target: &dyn Target, runner: Option<&str>, early_return: boo
         },
     )
     .expect("legalization with a target-matching tiny heap");
-    let image = target
-        .compile_machine_ir(&scalar)
-        .expect("scalar compilation");
+    let image = target.compile_machine_ir(&scalar).expect("scalar compilation");
     let dir = std::env::temp_dir().join(format!(
         "faun-lifetimes-{}-{}-{early_return}",
         target.name(),

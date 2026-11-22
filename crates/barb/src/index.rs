@@ -94,10 +94,7 @@ pub struct Pool<I, T> {
 
 impl<I, T> Default for Pool<I, T> {
     fn default() -> Self {
-        Self {
-            entries: Vec::new(),
-            id: std::marker::PhantomData,
-        }
+        Self { entries: Vec::new(), id: std::marker::PhantomData }
     }
 }
 
@@ -156,10 +153,7 @@ impl<I: Id, T> Pool<I, T> {
 
     #[must_use]
     pub fn iter_enumerated(&self) -> impl DoubleEndedIterator<Item = (I, &T)> + ExactSizeIterator {
-        self.entries
-            .iter()
-            .enumerate()
-            .map(|(at, value)| (I::at(at), value))
+        self.entries.iter().enumerate().map(|(at, value)| (I::at(at), value))
     }
 
     /// A snapshot of existing IDs. Owns only a length, so the caller can
@@ -216,10 +210,7 @@ pub struct BitSet<I> {
 
 impl<I> Clone for BitSet<I> {
     fn clone(&self) -> Self {
-        Self {
-            words: self.words.clone(),
-            id: std::marker::PhantomData,
-        }
+        Self { words: self.words.clone(), id: std::marker::PhantomData }
     }
 
     fn clone_from(&mut self, source: &Self) {
@@ -245,10 +236,7 @@ impl<I: Id> BitSet<I> {
     /// The empty set of IDs below `bound`.
     #[must_use]
     pub fn new(bound: usize) -> Self {
-        Self {
-            words: vec![0; bound.div_ceil(64)],
-            id: std::marker::PhantomData,
-        }
+        Self { words: vec![0; bound.div_ceil(64)], id: std::marker::PhantomData }
     }
 
     /// Add `id`.
@@ -349,10 +337,7 @@ impl<I: Id> SparseSet<I> {
     /// The empty set of IDs below `bound`.
     #[must_use]
     pub fn new(bound: usize) -> Self {
-        Self {
-            dense: Vec::new(),
-            sparse: vec![0; bound],
-        }
+        Self { dense: Vec::new(), sparse: vec![0; bound] }
     }
 
     /// Add `id`.
@@ -394,9 +379,7 @@ impl<I: Id> SparseSet<I> {
     #[must_use]
     pub fn contains(&self, id: I) -> bool {
         let at = usize::try_from(self.sparse[id.index()]).expect("u32 fits usize");
-        self.dense
-            .get(at)
-            .is_some_and(|held| held.index() == id.index())
+        self.dense.get(at).is_some_and(|held| held.index() == id.index())
     }
 
     /// Hold nothing.

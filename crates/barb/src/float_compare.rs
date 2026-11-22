@@ -50,11 +50,7 @@ pub(super) fn analyze(
         }
         if let Some(body) = program.function(id).body() {
             analysis.values.clear();
-            let scope = program
-                .params(id)
-                .iter()
-                .map(|_| analysis.add(Value::Unknown))
-                .collect();
+            let scope = program.params(id).iter().map(|_| analysis.add(Value::Unknown)).collect();
             analysis.body(body, scope);
         }
     }
@@ -91,12 +87,7 @@ impl Analysis<'_> {
     }
 
     fn call(&self, callee: FnId, args: super::Range, scope: &[usize]) -> Value {
-        let args: Vec<_> = self
-            .program
-            .atoms(args)
-            .iter()
-            .map(|a| scope[a.0.index()])
-            .collect();
+        let args: Vec<_> = self.program.atoms(args).iter().map(|a| scope[a.0.index()]).collect();
         if let Some(float) = self.program.function(callee).float {
             Value::Float(float, args)
         } else if let (Some(op), &[a, b]) = (self.operations[callee.index()], args.as_slice()) {
@@ -173,11 +164,9 @@ impl Analysis<'_> {
     fn limits(&self, limit: usize) -> Option<(Format, u64, u64)> {
         Some(match self.number(limit)? {
             0x8000_0000 => (Format::Binary32, 0x8000_0000, 0x7f80_0000),
-            0x8000_0000_0000_0000 => (
-                Format::Binary64,
-                0x8000_0000_0000_0000,
-                0x7ff0_0000_0000_0000,
-            ),
+            0x8000_0000_0000_0000 => {
+                (Format::Binary64, 0x8000_0000_0000_0000, 0x7ff0_0000_0000_0000)
+            }
             _ => return None,
         })
     }
@@ -218,10 +207,7 @@ impl Analysis<'_> {
             if select(0) != Some(raw) || select(1) != Some(raw) {
                 continue;
             }
-            if select(2)
-                .and_then(|n| self.number(n))
-                .is_none_or(|n| n >= sign)
-            {
+            if select(2).and_then(|n| self.number(n)).is_none_or(|n| n >= sign) {
                 continue;
             }
             return Some(FloatComparison {
@@ -288,9 +274,8 @@ impl Analysis<'_> {
             }
             _ => return None,
         };
-        let &(_, next) = arms
-            .iter()
-            .find(|&&(ctor, _)| u64::from(self.program.tag(ctor)) == tag)?;
+        let &(_, next) =
+            arms.iter().find(|&&(ctor, _)| u64::from(self.program.tag(ctor)) == tag)?;
         self.select(next, raw, limits, category, depth)
     }
 }

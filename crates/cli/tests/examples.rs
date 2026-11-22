@@ -6,9 +6,7 @@ mod support;
 use std::path::{Path, PathBuf};
 
 fn example(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../frontend/examples")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/examples").join(name)
 }
 
 #[test]
@@ -71,10 +69,7 @@ fn streams_answer_what_they_moved_or_what_they_met() {
          status(Err(_)) -> 103",
     );
     let long = "ab".repeat(700);
-    assert_eq!(
-        support::run_file(&package.entry(), long.as_bytes()),
-        (1400 % 100, long.clone())
-    );
+    assert_eq!(support::run_file(&package.entry(), long.as_bytes()), (1400 % 100, long.clone()));
     // Not UTF-8, so not read as text.
     assert_eq!(
         support::run_file(&package.entry(), &[0x66, 0xC0, 0x80]),
@@ -82,10 +77,7 @@ fn streams_answer_what_they_moved_or_what_they_met() {
     );
     // Linux's EPIPE and ENOSPC, as the host module reads them.
     for (errno, status) in [(32, 101), (28, 102), (5, 103)] {
-        assert_eq!(
-            support::run_failing(&package.entry(), b"x", Some(errno)).0,
-            status
-        );
+        assert_eq!(support::run_failing(&package.entry(), b"x", Some(errno)).0, status);
     }
 }
 
@@ -122,10 +114,7 @@ fn a_helper_takes_a_host_stream_or_a_fake_with_its_method() {
            host.exit!(if full == Err(Full) & a == Ok(1) & d == Ok(2) then 0 else 1)
          )",
     );
-    assert_eq!(
-        support::run_file(&package.entry(), b""),
-        (0, "a<b>c!<d!>".to_owned())
-    );
+    assert_eq!(support::run_file(&package.entry(), b""), (0, "a<b>c!<d!>".to_owned()));
 }
 
 /// A pure program run by the host: what it answers printed and a line's
@@ -143,10 +132,7 @@ fn runners_print_what_a_program_answers() {
          main! : Host -> []
          main!(host) -> host.run!(answer)",
     );
-    assert_eq!(
-        support::run_file(&answering.entry(), b""),
-        (0, "42\n".to_owned())
-    );
+    assert_eq!(support::run_file(&answering.entry(), b""), (0, "42\n".to_owned()));
 
     let checking = support::Package::new(
         "run-stdin",
@@ -159,10 +145,7 @@ fn runners_print_what_a_program_answers() {
          main! : Host -> []
          main!(host) -> host.run_stdin!(check)",
     );
-    assert_eq!(
-        support::run_file(&checking.entry(), b"ab"),
-        (0, "Ok(2)\n".to_owned())
-    );
+    assert_eq!(support::run_file(&checking.entry(), b"ab"), (0, "Ok(2)\n".to_owned()));
     assert_eq!(
         support::run_file(&checking.entry(), b"abcd"),
         (0, "Err(\"too long\")\n".to_owned())
@@ -217,10 +200,7 @@ fn an_effect_passing_its_failure_on_goes_on_to_the_next() {
            Ok({})
          )",
     );
-    assert_eq!(
-        support::run_file(&package.entry(), b""),
-        (3, "Hi, Faun\n".to_owned())
-    );
+    assert_eq!(support::run_file(&package.entry(), b""), (3, "Hi, Faun\n".to_owned()));
 }
 
 /// A runner handed the arguments: what the program answers of them printed.
@@ -237,10 +217,7 @@ fn argument_runners_hand_the_program_its_arguments() {
             .args(args)
             .output()
             .unwrap();
-        (
-            output.status.code(),
-            String::from_utf8(output.stdout).unwrap(),
-        )
+        (output.status.code(), String::from_utf8(output.stdout).unwrap())
     };
     let counting = support::Package::new(
         "run-args",
@@ -258,14 +235,8 @@ fn argument_runners_hand_the_program_its_arguments() {
 
          main!(host) -> host.run!(second)",
     );
-    assert_eq!(
-        run(&second, &["hello"]),
-        (Some(0), "Ok(\"hello\")\n".to_owned())
-    );
-    assert_eq!(
-        run(&second, &[]),
-        (Some(0), "Err(OutOfBounds)\n".to_owned())
-    );
+    assert_eq!(run(&second, &["hello"]), (Some(0), "Ok(\"hello\")\n".to_owned()));
+    assert_eq!(run(&second, &[]), (Some(0), "Err(OutOfBounds)\n".to_owned()));
 }
 
 /// `package` run with `args`, `input` on its standard input: how it exits,
@@ -282,10 +253,7 @@ fn run(package: &support::Package, args: &[&str], input: &str) -> (Option<i32>, 
         .unwrap();
     std::io::Write::write_all(&mut child.stdin.take().unwrap(), input.as_bytes()).unwrap();
     let output = child.wait_with_output().unwrap();
-    (
-        output.status.code(),
-        String::from_utf8(output.stdout).unwrap(),
-    )
+    (output.status.code(), String::from_utf8(output.stdout).unwrap())
 }
 
 /// A call whose answer is needed and never comes back hangs the program
@@ -312,10 +280,8 @@ fn a_needed_call_that_never_comes_back_hangs_the_program() {
         .status()
         .unwrap();
     assert!(built.success());
-    let mut child = std::process::Command::new(&binary)
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child =
+        std::process::Command::new(&binary).stdout(std::process::Stdio::piped()).spawn().unwrap();
     let mut line = String::new();
     let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
     std::io::BufRead::read_line(&mut stdout, &mut line).unwrap();
@@ -352,11 +318,7 @@ fn a_call_that_never_comes_back_with_five_arguments_runs_everywhere() {
     );
     for target in MACHINES {
         let (status, written, said) = run_on(target, &package.entry(), b"hello world\n");
-        assert_eq!(
-            (status, written.as_str()),
-            (Some(0), "27\n"),
-            "{target}: {said}"
-        );
+        assert_eq!((status, written.as_str()), (Some(0), "27\n"), "{target}: {said}");
     }
 }
 
@@ -380,11 +342,7 @@ fn a_byte_an_arm_leaves_with_prints_as_itself_everywhere() {
     );
     for target in MACHINES {
         let (status, written, said) = run_on(target, &package.entry(), b"");
-        assert_eq!(
-            (status, written.as_str()),
-            (Some(0), "223\n"),
-            "{target}: {said}"
-        );
+        assert_eq!((status, written.as_str()), (Some(0), "223\n"), "{target}: {said}");
     }
 }
 
@@ -538,10 +496,7 @@ fn a_call_too_deep_for_the_stack_says_so() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        "stack overflow\n"
-    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "stack overflow\n");
     assert_eq!(output.status.code(), Some(3));
 }
 
@@ -574,10 +529,8 @@ fn a_program_a_signal_stops_is_said_to_be() {
     let deadline = Instant::now() + Duration::from_mins(1);
     // Until the program runs, or `faun` ends without running it.
     let started = within(deadline, || {
-        running_program(faun.id()).map_or_else(
-            || faun.try_wait().unwrap().map(Err),
-            |program| Some(Ok(program)),
-        )
+        running_program(faun.id())
+            .map_or_else(|| faun.try_wait().unwrap().map(Err), |program| Some(Ok(program)))
     });
     let Some(Ok(program)) = started else {
         faun.kill().ok();
@@ -593,10 +546,7 @@ fn a_program_a_signal_stops_is_said_to_be() {
         panic!("`faun run` went on after its program was killed");
     };
     let output = faun.wait_with_output().unwrap();
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        "the program was stopped by signal 9\n"
-    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "the program was stopped by signal 9\n");
     assert_eq!(status.code(), Some(128 + 9));
 }
 
@@ -623,11 +573,7 @@ fn running_program(faun: u32) -> Option<u32> {
         let Ok(entry) = entry else {
             continue;
         };
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse().ok())
-        else {
+        let Some(pid) = entry.file_name().to_str().and_then(|name| name.parse().ok()) else {
             continue;
         };
         // A process may end while it is read; it is then no candidate.
@@ -678,14 +624,8 @@ fn the_stdin_runner_hands_the_program_arguments_and_input() {
 
          main!(host) -> host.run_stdin!(named)",
     );
-    assert_eq!(
-        run(&named, &["x"], "y"),
-        (Some(0), "Ok(\"x: y\")\n".to_owned())
-    );
-    assert_eq!(
-        run(&named, &[], "y"),
-        (Some(0), "Err(OutOfBounds)\n".to_owned())
-    );
+    assert_eq!(run(&named, &["x"], "y"), (Some(0), "Ok(\"x: y\")\n".to_owned()));
+    assert_eq!(run(&named, &[], "y"), (Some(0), "Err(OutOfBounds)\n".to_owned()));
 }
 
 /// Ori's Advent of Code programs and example libraries, ported, and the
@@ -715,14 +655,10 @@ fn the_ported_programs_and_libraries_hold() {
     // Each file is its own program, and together they are most of the
     // suite's time: run on one thread, the slowest waits on all the rest.
     std::thread::scope(|scope| {
-        let runs: Vec<_> = files
-            .iter()
-            .map(|file| (file, scope.spawn(|| support::test_file(file))))
-            .collect();
+        let runs: Vec<_> =
+            files.iter().map(|file| (file, scope.spawn(|| support::test_file(file)))).collect();
         for (file, run) in runs {
-            let (failed, _) = run
-                .join()
-                .unwrap_or_else(|_| panic!("{} panicked", file.display()));
+            let (failed, _) = run.join().unwrap_or_else(|_| panic!("{} panicked", file.display()));
             assert_eq!(failed, Vec::<String>::new(), "{}", file.display());
         }
     });
@@ -790,10 +726,7 @@ fn the_spectralnorm_example_holds() {
 // Exercise a partial final line and continuation into a second write.
 fn check_fasta_line_breaks(image: &Path) {
     for n in [0_usize, 1279, 1280, 1281] {
-        let output = std::process::Command::new(image)
-            .arg(n.to_string())
-            .output()
-            .unwrap();
+        let output = std::process::Command::new(image).arg(n.to_string()).output().unwrap();
         assert!(output.status.success() && output.stderr.is_empty());
         let text = std::str::from_utf8(&output.stdout).unwrap();
         assert!(text.ends_with('\n'));
@@ -838,10 +771,7 @@ fn check_mandelbrot_rows(image: &Path) {
             }
             expected.extend(row);
         }
-        let output = std::process::Command::new(image)
-            .arg(n.to_string())
-            .output()
-            .unwrap();
+        let output = std::process::Command::new(image).arg(n.to_string()).output().unwrap();
         assert!(output.status.success() && output.stderr.is_empty());
         assert_eq!(output.stdout, expected, "Mandelbrot at width {n}");
     }
@@ -907,10 +837,7 @@ fn newton_finds_the_square_root_of_two() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "Ok(1.4142135623730951)\n"
-    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "Ok(1.4142135623730951)\n");
 }
 
 /// Quicksort, as the README shows it: its expectations hold.
@@ -963,21 +890,11 @@ fn regular_expressions_match_by_derivatives() {
     assert_eq!(count, 6);
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_faun"))
-        .args([
-            "run",
-            example("regex.fn").to_str().unwrap(),
-            "a(b|c)*d",
-            "ad",
-            "abcbd",
-            "abx",
-        ])
+        .args(["run", example("regex.fn").to_str().unwrap(), "a(b|c)*d", "ad", "abcbd", "abx"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "yes  ad\nyes  abcbd\nno   abx\n"
-    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "yes  ad\nyes  abcbd\nno   abx\n");
 }
 
 /// Connected components after the Python cookbook's, without the graph
