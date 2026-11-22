@@ -1,0 +1,14 @@
+error: mismatched types
+   --> a_long_mismatch_tells_its_types_below.fn:9:31
+    |
+9   | parse(bytes) -> bytes.try_map(parse_cmd)
+    |                       ------- ^^^^^^^^^ expected one type, found another
+    |                       |
+    |                       arguments to this method are incorrect
+   ::: std/list.fn:192:3
+    |
+192 |   try_map : (List(a), a -> Result(b, e)) -> Result(List(b), e)
+    |   ------------------------------------------------------------ method defined here
+    |
+    = note: expected `U8 -> Result(_, _)`
+               found `Str -> Result((Dir, Nat), [Bad, *])`

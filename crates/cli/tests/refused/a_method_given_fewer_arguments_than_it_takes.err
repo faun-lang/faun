@@ -1,0 +1,7 @@
+error: `blocks` takes 1 argument, but 0 were given
+ --> a_method_given_fewer_arguments_than_it_takes.fn:4:36
+  |
+4 | halves(values) -> values.reverse().blocks().complete
+  |                                    ^^^^^^-- an argument of type `Nat` is missing
+  |
+  = help: provide the argument: `blocks(/* Nat */)`

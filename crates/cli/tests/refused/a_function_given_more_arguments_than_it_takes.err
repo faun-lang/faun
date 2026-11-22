@@ -1,0 +1,9 @@
+error: `double` takes 1 argument, but 3 were given
+ --> a_function_given_more_arguments_than_it_takes.fn:7:37
+  |
+7 | main!(host) -> host.exit!(U8.of_nat(double(1, 2, 3)))
+  |                                     ^^^^^^    -  - unexpected argument
+  |                                               |
+  |                                               unexpected argument
+  |
+  = help: remove the extra arguments
