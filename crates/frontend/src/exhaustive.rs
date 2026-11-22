@@ -744,7 +744,7 @@ fn written(ty: &h::Type, bound: &HashMap<Symbol, &InferredType>) -> Column {
                 .collect::<Option<_>>()?,
             Box::new(written(result, bound)?),
         ),
-        h::Type::Variants(tags) => InferredType::Variants(
+        h::Type::Variants(tags, _) => InferredType::Variants(
             tags.iter()
                 .map(|tag| {
                     let fields = tag

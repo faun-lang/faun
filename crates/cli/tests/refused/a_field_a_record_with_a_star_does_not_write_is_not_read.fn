@@ -1,0 +1,4 @@
+# The record's `*` is a caller's rest, which the message shows as the
+# signature writes it.
+age : {name: Str, *} -> Nat
+age(person) -> person.age

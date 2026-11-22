@@ -1079,7 +1079,9 @@ fn resolve_type(
                 .collect::<Result<_, _>>()?,
             Box::new(resolve_type(module, result, source, scope, symbols)?),
         )),
-        s::Type::Variants { constructors, .. } => Ok(h::Type::Variants(
+        s::Type::Variants {
+            constructors, open, ..
+        } => Ok(h::Type::Variants(
             constructors
                 .iter()
                 .map(|constructor| {
@@ -1093,6 +1095,7 @@ fn resolve_type(
                     })
                 })
                 .collect::<Result<_, Refusal>>()?,
+            *open,
         )),
         s::Type::Tuple { members, .. } => Ok(h::Type::Tuple(
             members

@@ -158,8 +158,9 @@ does not stand for its constructors in modules that import it.
 
 Faun specializes from the types checking recorded rather than inferring each
 specialization again, so where a closed row is answered as a signature's
-wider one, a caller's, the value is rebuilt in the wider row. Tag rows have
-no written tail, as in Ori. A constructor may be passed as a callback,
+wider one, a caller's, the value is rebuilt in the wider row. Unlike Ori's,
+a tag row may write `*`, `[A, *]`, a rest its caller chooses, as a record
+does. A constructor may be passed as a callback,
 `[1, 2].map(Found)`, as any function may.
 
 A closed row has `equals` and `to_str` without declaring them, as in Ori:

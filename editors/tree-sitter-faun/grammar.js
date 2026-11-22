@@ -266,7 +266,7 @@ module.exports = grammar({
 
     tuple_type: $ => seq('(', commaSep1($._type), ')'),
 
-    variant_type: $ => seq('[', commaSep($.variant), ']'),
+    variant_type: $ => seq('[', elements($.variant, $.rest), ']'),
 
     variant: $ => seq(
       field('name', $.type_identifier),

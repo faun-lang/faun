@@ -212,12 +212,27 @@ impl Mismatch {
                 } else {
                     (tags.join(" and "), "are")
                 };
+                let others = if self.written_rest() {
+                    "whose others are a caller's"
+                } else {
+                    "which admits no others"
+                };
                 format!(
-                    "{subject} {verb} not among the tags of `{}`, which admits no others",
+                    "{subject} {verb} not among the tags of `{}`, {others}",
                     show(row, symbols)
                 )
             }
         }
+    }
+
+    /// Whether this is a tag missing from a row whose `*` a signature
+    /// wrote: its other tags are a caller's, which the body cannot name.
+    pub(super) fn written_rest(&self) -> bool {
+        matches!(
+            self,
+            Self::NotAmong { row: Ty::Variants(_, Some(tail)), .. }
+                if matches!(**tail, Ty::Rigid(rest) if rest & IMPLIED == 0)
+        )
     }
 }
 
@@ -637,7 +652,13 @@ impl Infer {
         (substitute(&scheme.ty, &replacements), replacements)
     }
 
+    /// `scheme` with each of its variables rigid, as the body it types
+    /// sees them. The rest of a tag row the definition gives, its result's
+    /// or a callback's parameter's, is the one a written row there always
+    /// has, so it is marked [`IMPLIED`] and a message leaves it out.
     pub(super) fn skolemize(&mut self, scheme: &Scheme) -> (Ty, HashMap<u32, Ty>) {
+        let mut implied = Vec::new();
+        given_rests(&scheme.ty, true, &mut implied);
         let replacements: HashMap<_, _> = scheme
             .variables
             .iter()
@@ -646,11 +667,43 @@ impl Infer {
                 self.next_rigid = self
                     .next_rigid
                     .checked_add(1)
-                    .expect("fewer than 2^32 rigid type variables");
-                (*variable, Ty::Rigid(rigid))
+                    .filter(|next| *next < IMPLIED)
+                    .expect("fewer than 2^31 rigid type variables");
+                let marked = if implied.contains(variable) {
+                    rigid | IMPLIED
+                } else {
+                    rigid
+                };
+                (*variable, Ty::Rigid(marked))
             })
             .collect();
         (substitute(&scheme.ty, &replacements), replacements)
+    }
+}
+
+/// The bit a rigid variable carries where it is the rest of a tag row a
+/// definition gives, which a signature need not write.
+const IMPLIED: u32 = 1 << 31;
+
+/// The variables that are the tails of tag rows in `ty` that flow out of
+/// the definition it types, `given` saying whether `ty` itself does: a
+/// function's result does as the function does, its parameters the other
+/// way.
+fn given_rests(ty: &Ty, given: bool, rests: &mut Vec<u32>) {
+    if let Ty::Function(parameters, result) = ty {
+        for parameter in parameters.iter() {
+            given_rests(parameter, !given, rests);
+        }
+        given_rests(result, given, rests);
+        return;
+    }
+    if let (true, Ty::Variants(_, Some(tail))) = (given, ty)
+        && let Ty::Var(rest) = **tail
+    {
+        rests.push(rest);
+    }
+    for part in ty.parts() {
+        given_rests(part, given, rests);
     }
 }
 
@@ -904,6 +957,19 @@ pub(super) fn show_apart(expected: &Ty, found: &Ty, symbols: &Symbols) -> (Strin
     )
 }
 
+/// Whether the first row in `ty` with a rest a caller chooses is a tag
+/// row, rather than a record.
+pub(super) fn rests_tags(ty: &Ty) -> bool {
+    fn first(ty: &Ty) -> Option<bool> {
+        match ty {
+            Ty::Variants(_, Some(tail)) if matches!(**tail, Ty::Rigid(_)) => Some(true),
+            Ty::Record(_, Some(tail)) if matches!(**tail, Ty::Rigid(_)) => Some(false),
+            _ => ty.parts().into_iter().find_map(first),
+        }
+    }
+    first(ty).unwrap_or(false)
+}
+
 /// The rigid tails of the rows in `ty`, each once, in the order met.
 fn rigid_rests(ty: &Ty, rests: &mut Vec<u32>) {
     let tail = match ty {
@@ -920,13 +986,15 @@ fn rigid_rests(ty: &Ty, rests: &mut Vec<u32>) {
     }
 }
 
-/// `ty` as a signature writes it. A row's rigid tail shows only where
-/// `rests` lists it: as `*`, or numbered by its place there where it lists
-/// several.
+/// `ty` as a signature writes it. A row's rigid tail shows as `*`, unless
+/// it is the rest of a row its definition gives, which a signature need
+/// not write; where `rests` lists them, the tails it lists show, numbered
+/// by their places there where it lists several.
 fn render(ty: &Ty, symbols: &Symbols, rests: Option<&[u32]>) -> String {
     let show = |ty: &Ty, symbols: &Symbols| render(ty, symbols, rests);
     let rest = |tail: Option<&Ty>| match (tail, rests) {
         (Some(Ty::Var(_)), _) => Some("*".to_owned()),
+        (Some(Ty::Rigid(rest)), None) => (rest & IMPLIED == 0).then(|| "*".to_owned()),
         (Some(Ty::Rigid(rest)), Some(rests)) => {
             let at = rests.iter().position(|listed| listed == rest)?;
             Some(if rests.len() == 1 {
@@ -985,8 +1053,9 @@ fn render(ty: &Ty, symbols: &Symbols, rests: Option<&[u32]>) -> String {
                     }
                 })
                 .collect();
-            // A rigid rest is a caller's: where it shows, in the body it
-            // belongs to, the row is exactly its tags.
+            // A rigid rest is a caller's. Where the definition gives the
+            // row, its body may answer only the tags shown, which is how a
+            // signature writes it, so its rest shows only to tell it apart.
             shown.extend(rest(tail.as_deref()));
             format!("[{}]", shown.join(", "))
         }

@@ -209,6 +209,51 @@ fn parentheses_nest_without_trying_each_reading_again() {
     ));
 }
 
+/// A tag row may end in `*`, as a record does: last, once, unnamed, with
+/// or without a comma after it, and alone.
+#[test]
+fn a_tag_row_may_end_in_a_star() {
+    use super::ast::Type;
+    let rows = |source: &str| match parse(source).unwrap().items.pop() {
+        Some(Item::Signature(signature)) => signature
+            .parameters
+            .into_iter()
+            .map(|ty| match ty {
+                Type::Variants {
+                    constructors, open, ..
+                } => (constructors.len(), open),
+                other => panic!("expected a tag row, found {other:?}"),
+            })
+            .collect::<Vec<_>>(),
+        other => panic!("expected a signature, found {other:?}"),
+    };
+    assert_eq!(
+        rows("f : ([A, B(Nat), *], [A, *,], [*], [A], [A,], []) -> Nat\n"),
+        [
+            (2, true),
+            (1, true),
+            (0, true),
+            (1, false),
+            (1, false),
+            (0, false)
+        ]
+    );
+    for (source, said) in [
+        ("f : [*, A] -> Nat\n", "expected `]`, found `A`"),
+        ("f : [A, *r] -> Nat\n", "expected `]`, found `r`"),
+        ("f : [A, *, *] -> Nat\n", "one rest"),
+    ] {
+        let error = parse(source).unwrap_err();
+        assert!(error.message.contains(said), "{source}: {}", error.message);
+    }
+    let error = parse("f : [A, \n").unwrap_err();
+    assert!(
+        error.message.contains("`*`") && error.message.contains("`]`"),
+        "{}",
+        error.message
+    );
+}
+
 /// The patterns of `source`'s one clause.
 fn patterns(source: &str) -> Vec<Pattern> {
     match parse(source).unwrap().items.pop() {

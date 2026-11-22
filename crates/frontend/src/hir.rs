@@ -104,8 +104,9 @@ pub enum Type {
     Named(Symbol, Vec<Self>),
     Variable(Symbol),
     Function(Vec<Self>, Box<Self>),
-    /// A closed tag row, each tag named by its spelling.
-    Variants(Vec<ConstructorDecl>),
+    /// A tag row, each tag named by its spelling, and whether it is open:
+    /// `[A, *]` holds at least `A`, and whatever else a caller's row does.
+    Variants(Vec<ConstructorDecl>, bool),
     /// A record's fields, and whether it is open: `{x: T, *}` has at least
     /// `x`, and whatever else a caller's record does.
     Record(Vec<(Symbol, Self)>, bool),
@@ -123,7 +124,7 @@ impl Type {
             Self::Variable(_) | Self::Hole => Vec::new(),
             Self::Named(_, types) | Self::Tuple(types) => types.iter().collect(),
             Self::Function(parameters, result) => parameters.iter().chain([&**result]).collect(),
-            Self::Variants(tags) => tags.iter().flat_map(|tag| &tag.fields).collect(),
+            Self::Variants(tags, _) => tags.iter().flat_map(|tag| &tag.fields).collect(),
             Self::Record(fields, _) => fields.iter().map(|(_, field)| field).collect(),
         }
     }
@@ -143,7 +144,7 @@ impl Type {
                 let parameters = each(parameters)?;
                 Self::Function(parameters, Box::new(child(result)?))
             }
-            Self::Variants(tags) => Self::Variants(
+            Self::Variants(tags, open) => Self::Variants(
                 tags.iter()
                     .map(|tag| {
                         let fields = each(&tag.fields)?;
@@ -153,6 +154,7 @@ impl Type {
                         })
                     })
                     .collect::<Result<_, E>>()?,
+                *open,
             ),
             Self::Record(fields, open) => Self::Record(
                 fields

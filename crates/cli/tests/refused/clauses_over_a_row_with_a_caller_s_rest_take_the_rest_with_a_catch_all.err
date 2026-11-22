@@ -1,0 +1,7 @@
+error: `describe` does not cover every case
+ --> clauses_over_a_row_with_a_caller_s_rest_take_the_rest_with_a_catch_all.fn:4:1
+  |
+4 | describe(NotFound) -> 1
+  | ^^^^^^^^^^^^^^^^^^^^^^^ no clause matches `describe(_)`
+  |
+  = help: add a clause matching `describe(_)`

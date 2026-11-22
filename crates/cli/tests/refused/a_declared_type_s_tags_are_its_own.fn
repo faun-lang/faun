@@ -1,0 +1,2 @@
+# A declared type's constructors are all it has: no caller adds to them.
+Light : [Low, High, *]

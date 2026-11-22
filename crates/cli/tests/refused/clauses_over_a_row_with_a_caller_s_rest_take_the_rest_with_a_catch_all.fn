@@ -1,0 +1,5 @@
+# `*` is a rest the caller chooses, so clauses naming every tag the row
+# writes still leave the caller's own unmatched.
+describe : [NotFound, Denied, *] -> Nat
+describe(NotFound) -> 1
+describe(Denied) -> 2

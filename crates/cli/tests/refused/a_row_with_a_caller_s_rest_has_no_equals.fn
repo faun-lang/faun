@@ -1,0 +1,3 @@
+# Each `*` is a rest of its own, which the body cannot compare.
+same : ([A, *], [A, *]) -> Bool
+same(a, b) -> a == b

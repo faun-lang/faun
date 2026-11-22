@@ -1,0 +1,7 @@
+error: a declared type's tags are its own
+ --> a_declared_type_s_tags_are_its_own.fn:2:9
+  |
+2 | Light : [Low, High, *]
+  |         ^^^^^^^^^^^^^^
+  |
+  = help: write a row with `*` where it is taken, in a signature

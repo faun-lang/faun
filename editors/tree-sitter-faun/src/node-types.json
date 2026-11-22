@@ -2023,6 +2023,10 @@
       "required": false,
       "types": [
         {
+          "type": "rest",
+          "named": true
+        },
+        {
           "type": "variant",
           "named": true
         }

@@ -920,10 +920,11 @@ impl Parser<'_> {
         }))
     }
 
-    /// `[A, B(x)]`: a tag row's constructors.
+    /// `[A, B(x)]`: a tag row's constructors, or with `*`, `[A, *]`, open
+    /// to tags a caller's row holds besides.
     fn variants(&mut self) -> Parsed<Type> {
         let open = self.bump();
-        let (constructors, _) = self.separated(
+        let (constructors, trailing) = self.separated(
             false,
             |kind| kind == Kind::TypeIdent,
             "a type name",
@@ -936,10 +937,18 @@ impl Parser<'_> {
                 })
             },
         )?;
+        let open_row = (constructors.is_empty() || trailing) && {
+            self.note("`*`");
+            self.eat(Kind::Star).is_some()
+        };
+        if open_row {
+            self.eat(Kind::Comma);
+        }
         let close = self.expect(Kind::RBracket, "`]`")?;
         Ok(Type::Variants {
             span: open.span().through(close.span()),
             constructors,
+            open: open_row,
         })
     }
 

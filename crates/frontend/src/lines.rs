@@ -369,10 +369,7 @@ impl<'s> Grouping<'s> {
                 .collect(),
             None => Vec::new(),
         };
-        let representation = match typed.result {
-            Type::Variants { constructors, .. } => DataRepresentation::Sum(constructors),
-            wrapped => DataRepresentation::Wrapper(wrapped),
-        };
+        let representation = representation(typed.result)?;
         self.item(
             span,
             Item::Data(DataDecl {
@@ -383,6 +380,21 @@ impl<'s> Grouping<'s> {
                 methods,
             }),
         )
+    }
+}
+
+/// What a data declaration's type makes it: a sum of the constructors in
+/// brackets, or a wrapper of any other type.
+fn representation(result: Type) -> Result<DataRepresentation, SyntaxError> {
+    match result {
+        // A declared type's constructors are all it has: no caller adds
+        // to them.
+        Type::Variants {
+            span, open: true, ..
+        } => Err(SyntaxError::new(span, "a declared type's tags are its own")
+            .help("write a row with `*` where it is taken, in a signature")),
+        Type::Variants { constructors, .. } => Ok(DataRepresentation::Sum(constructors)),
+        wrapped => Ok(DataRepresentation::Wrapper(wrapped)),
     }
 }
 

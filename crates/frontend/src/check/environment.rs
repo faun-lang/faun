@@ -132,6 +132,26 @@ impl<'a> Checker<'a> {
                     .note("data may not store functions; a function is passed into a call"));
             }
         }
+        // A declared type holds what its declaration says, so no rest a
+        // caller chooses: whose would it be? A record with `*` as the whole
+        // of a wrapper is refused below, where its fields are known.
+        let held = data
+            .constructors
+            .iter()
+            .flat_map(|constructor| &constructor.fields)
+            .find(|field| holds_rest(field))
+            .or_else(|| {
+                data.wrapper
+                    .as_ref()
+                    .map(|wrapper| &wrapper.field)
+                    .filter(|field| rest_inside(field))
+            });
+        if held.is_some() {
+            return Err(
+                failure(module, data.span, "a declared type holds no row with `*`")
+                    .help("write a row with `*` where it is taken, in a signature"),
+            );
+        }
         let mut variables = HashMap::default();
         for parameter in &data.parameters {
             let fresh = self.infer.fresh();
@@ -496,8 +516,10 @@ impl<'a> Checker<'a> {
                     .collect(),
                 Rc::new(self.surface_type(result, variables)),
             ),
-            // A written row is closed: it is exactly these tags.
-            h::Type::Variants(constructors) => Ty::Variants(
+            // A written row is closed, exactly these tags, unless it writes
+            // `*`: a tail of its own, which the scheme quantifies, as a
+            // record's is.
+            h::Type::Variants(constructors, open) => Ty::Variants(
                 constructors
                     .iter()
                     .map(|constructor| {
@@ -511,7 +533,7 @@ impl<'a> Checker<'a> {
                         )
                     })
                     .collect(),
-                None,
+                open.then(|| Rc::new(self.infer.fresh())),
             ),
             // `*` stands for whatever other fields a caller's record has:
             // a tail of its own, which the scheme quantifies.
@@ -573,4 +595,14 @@ impl<'a> Checker<'a> {
         }
         Ok(())
     }
+}
+
+/// Whether `ty` is a row with `*`, or holds one.
+fn holds_rest(ty: &h::Type) -> bool {
+    matches!(ty, h::Type::Variants(_, true) | h::Type::Record(_, true)) || rest_inside(ty)
+}
+
+/// Whether a type inside `ty` is a row with `*`, or holds one.
+fn rest_inside(ty: &h::Type) -> bool {
+    ty.children().into_iter().any(holds_rest)
 }

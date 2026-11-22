@@ -14,7 +14,7 @@
 
 use std::rc::Rc;
 
-use super::unify::{Mismatch, OTHER_REST, Ty, show, show_apart};
+use super::unify::{Mismatch, OTHER_REST, Ty, rests_tags, show, show_apart};
 use super::{Checker, Marks};
 use crate::ModuleId;
 use crate::ast::Span;
@@ -250,9 +250,14 @@ impl Checker<'_> {
                 // rest it was given only where the answer's type is
                 // worked out from it.
                 let refused = if matches!(reason, Mismatch::Reason(OTHER_REST)) {
-                    refused.help(
-                        "to answer a record with the rest it was given, write the answer's type as `_`",
-                    )
+                    let row = if rests_tags(&self.infer.resolve(answer)) {
+                        "row"
+                    } else {
+                        "record"
+                    };
+                    refused.help(format!(
+                        "to answer a {row} with the rest it was given, write the answer's type as `_`"
+                    ))
                 } else {
                     refused
                 };

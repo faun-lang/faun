@@ -1,0 +1,5 @@
+error: the receiver of `age` should be `{age: _, *}`, but is `{name: Str, *}`
+ --> a_field_a_record_with_a_star_does_not_write_is_not_read.fn:4:16
+  |
+4 | age(person) -> person.age
+  |                ^^^^^^^^^^
