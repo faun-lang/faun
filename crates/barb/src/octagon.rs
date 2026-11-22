@@ -368,22 +368,41 @@ impl Octagon {
     /// Make every entry as tight as the others imply. Answers whether any
     /// value meets them all; where none does, the matrix is left empty.
     pub(super) fn close(&mut self) -> bool {
+        let mut reach = Vec::with_capacity(self.side);
+        for via in 0..self.side {
+            self.shorten_through(via, &mut reach);
+        }
+        self.tighten()
+    }
+
+    /// Shorten every path that `via` makes shorter: each entry from a node
+    /// that reaches `via` to a node `via` reaches. Only those pairs can
+    /// change, so only they are visited. The nodes `via` reaches are found
+    /// once: going through `via` cannot make one of its own unbounded
+    /// entries bounded, since that would take a bound from `via` to itself
+    /// plus the unbounded one, so the set stays as it was found. A packed
+    /// octagon relates each value to only some others, and its matrix is
+    /// often half unbounded or more, so this visits a fraction of the
+    /// square a pass over every pair would.
+    fn shorten_through(&mut self, via: usize, reach: &mut Vec<usize>) {
         let side = self.side;
-        for via in 0..side {
-            for from in 0..side {
-                let first = self.get(from, via);
-                if first >= INFINITE {
-                    continue;
-                }
-                for to in 0..side {
-                    let through = plus(first, self.get(via, to));
-                    if through < self.get(from, to) {
-                        self.put(from, to, through);
-                    }
+        reach.clear();
+        reach.extend((0..side).filter(|&to| self.get(via, to) < INFINITE));
+        if reach.is_empty() {
+            return;
+        }
+        for from in 0..side {
+            let first = self.get(from, via);
+            if first >= INFINITE {
+                continue;
+            }
+            for &to in reach.iter() {
+                let through = plus(first, self.get(via, to));
+                if through < self.get(from, to) {
+                    self.put(from, to, through);
                 }
             }
         }
-        self.tighten()
     }
 
     /// Say `constraint` of a closed matrix and close it again, in time
@@ -421,20 +440,9 @@ impl Octagon {
         if through.len() >= self.side {
             return self.close();
         }
-        let side = self.side;
+        let mut reach = Vec::with_capacity(self.side);
         for &via in &through {
-            for from in 0..side {
-                let first = self.get(from, via);
-                if first >= INFINITE {
-                    continue;
-                }
-                for to in 0..side {
-                    let through = plus(first, self.get(via, to));
-                    if through < self.get(from, to) {
-                        self.put(from, to, through);
-                    }
-                }
-            }
+            self.shorten_through(via, &mut reach);
         }
         self.tighten_since(Some(&own))
     }
