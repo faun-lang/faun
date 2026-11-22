@@ -159,11 +159,38 @@ pub(crate) enum Instance {
     Join(u32),
 }
 
+/// Which values an expression may hold beside data: [`Callable`] where a
+/// function may be a value, as specialization leaves it, and
+/// [`FirstOrder`] where none may, once [`crate::callbacks`] has made every
+/// callback into the definition it is handed to. A function value's forms
+/// hold the phase, so after callback lowering none can be built.
+pub(crate) trait Phase: Clone + std::fmt::Debug {}
+
+/// Function values may be held: the program as specialization leaves it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Callable;
+
+impl Phase for Callable {}
+
+/// No function value can be held: the program resource checking and
+/// pattern compiling read, which is data flowing between definitions.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum FirstOrder {}
+
+impl Phase for FirstOrder {}
+
+impl FirstOrder {
+    /// What a function value's form, which cannot be built here, answers.
+    pub(crate) const fn absurd(self) -> ! {
+        match self {}
+    }
+}
+
 #[derive(Clone, Debug)]
-pub(crate) struct Program {
+pub(crate) struct Program<F: Phase = Callable> {
     /// Where the program starts, when it is an application.
     pub(crate) entry: Option<FunctionKey>,
-    pub(crate) functions: Vec<Function>,
+    pub(crate) functions: Vec<Function<F>>,
     pub(crate) data: HashMap<Symbol, crate::declarations::Data>,
     /// Where each definition is written, which a refusal naming one by
     /// name points at.
@@ -171,28 +198,28 @@ pub(crate) struct Program {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Function {
+pub(crate) struct Function<F: Phase = Callable> {
     pub(crate) key: FunctionKey,
-    pub(crate) definition: Definition,
+    pub(crate) definition: Definition<F>,
 }
 
 /// Keep a provider declaration separate from a body, even one with no clauses.
 #[derive(Clone, Debug)]
-pub(crate) enum Definition {
+pub(crate) enum Definition<F: Phase = Callable> {
     External(Symbol),
-    Body(Vec<Clause>),
+    Body(Vec<Clause<F>>),
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Clause {
+pub(crate) struct Clause<F: Phase = Callable> {
     pub(crate) patterns: Vec<Pattern>,
-    pub(crate) guard: Option<Expr>,
-    pub(crate) body: Body,
+    pub(crate) guard: Option<Expr<F>>,
+    pub(crate) body: Body<F>,
 }
 
-impl Clause {
+impl<F: Phase> Clause<F> {
     /// Its guard, then its body's expressions.
-    pub(crate) fn exprs(&self) -> impl Iterator<Item = &Expr> {
+    pub(crate) fn exprs(&self) -> impl Iterator<Item = &Expr<F>> {
         self.guard.iter().chain(self.body.exprs())
     }
 }
@@ -272,34 +299,35 @@ pub(crate) struct Split {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Body {
-    pub(crate) bindings: Vec<Binding>,
-    pub(crate) result: Expr,
+pub(crate) struct Body<F: Phase = Callable> {
+    pub(crate) bindings: Vec<Binding<F>>,
+    pub(crate) result: Expr<F>,
 }
 
-impl Body {
+impl<F: Phase> Body<F> {
     /// Each line's value, then the answer.
-    pub(crate) fn exprs(&self) -> impl Iterator<Item = &Expr> {
+    pub(crate) fn exprs(&self) -> impl Iterator<Item = &Expr<F>> {
         let values = self.bindings.iter().map(|binding| &binding.value);
         values.chain([&self.result])
     }
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Binding {
+pub(crate) struct Binding<F: Phase = Callable> {
     pub(crate) pattern: Pattern,
-    pub(crate) value: Expr,
+    pub(crate) value: Expr<F>,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Expr {
+pub(crate) struct Expr<F: Phase = Callable> {
+    /// Where it was written, which a diagnostic about it points at.
     pub(crate) module: ModuleId,
     pub(crate) span: crate::ast::Span,
     pub(crate) ty: Type,
-    pub(crate) kind: ExprKind,
+    pub(crate) kind: ExprKind<F>,
 }
 
-impl Expr {
+impl<F: Phase> Expr<F> {
     /// Visit each expression directly inside this one, in the order it is
     /// worked out. A walk matches the forms it has something to say of and
     /// leaves the rest to this.
@@ -322,8 +350,8 @@ impl Expr {
     ) -> Result<(), E> {
         match &self.kind {
             ExprKind::Local(_)
-            | ExprKind::Function(_)
-            | ExprKind::ConstructorFunction(_)
+            | ExprKind::Function(..)
+            | ExprKind::ConstructorFunction(..)
             | ExprKind::Natural(_)
             | ExprKind::Bytes(_) => Ok(()),
             ExprKind::Construct(_, list)
@@ -335,11 +363,11 @@ impl Expr {
                 fields.iter().try_for_each(|(_, value)| visit(value))
             }
             ExprKind::Project(inner, _)
-            | ExprKind::Lambda(_, _, inner)
+            | ExprKind::Lambda(_, _, inner, _)
             | ExprKind::Widen(inner)
             | ExprKind::Try(inner)
             | ExprKind::Return(inner) => visit(inner),
-            ExprKind::Invoke(head, arguments) => {
+            ExprKind::Invoke(head, arguments, _) => {
                 visit(head)?;
                 arguments.iter().try_for_each(visit)
             }
@@ -381,7 +409,7 @@ impl Expr {
     pub(crate) fn for_each_bound(&self, mut visit: impl FnMut(h::LocalId)) {
         let visit = &mut visit;
         match &self.kind {
-            ExprKind::Lambda(_, patterns, _) => {
+            ExprKind::Lambda(_, patterns, ..) => {
                 for pattern in patterns {
                     pattern.for_each_bound(visit);
                 }
@@ -406,47 +434,53 @@ impl Expr {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum ExprKind {
+pub(crate) enum ExprKind<F: Phase = Callable> {
     Local(h::LocalId),
-    Function(FunctionKey),
-    ConstructorFunction(Symbol),
-    Construct(Symbol, Vec<Expr>),
+    Function(FunctionKey, F),
+    ConstructorFunction(Symbol, F),
+    Construct(Symbol, Vec<Expr<F>>),
     Natural(BigUint),
     /// A `List(U8)` known whole.
     Bytes(Vec<u8>),
-    Record(Vec<(Symbol, Expr)>),
+    Record(Vec<(Symbol, Expr<F>)>),
     /// A record with the fields named replaced.
-    Update(Box<Expr>, Vec<(Symbol, Expr)>),
-    Tuple(Vec<Expr>),
-    Project(Box<Expr>, Symbol),
-    DirectCall(FunctionKey, Vec<Expr>),
-    Invoke(Box<Expr>, Vec<Expr>),
+    Update(Box<Expr<F>>, Vec<(Symbol, Expr<F>)>),
+    Tuple(Vec<Expr<F>>),
+    Project(Box<Expr<F>>, Symbol),
+    DirectCall(FunctionKey, Vec<Expr<F>>),
+    Invoke(Box<Expr<F>>, Vec<Expr<F>>, F),
     /// `left & right` or `left | right` on `Bool`: the right worked out
     /// only where the left has not decided. A call of `Bool.and` or
     /// `Bool.or` however else it is spelled is a [`ExprKind::DirectCall`],
     /// both sides worked out first, as for any call.
-    Connective(Connective, Box<Expr>, Box<Expr>),
+    Connective(Connective, Box<Expr<F>>, Box<Expr<F>>),
     /// The source occurrence is stable across specialization and identifies
     /// this lambda independently of any other lambda at its diagnostic span.
-    Lambda(h::SiteId, Vec<Pattern>, Box<Expr>),
+    Lambda(h::SiteId, Vec<Pattern>, Box<Expr<F>>, F),
     /// The value as this expression's wider type: the same value, its tag
     /// rows holding the tags a caller added.
-    Widen(Box<Expr>),
+    Widen(Box<Expr<F>>),
     /// `value?`: an `Ok`'s value, or its `Err` answered at once by the
     /// function or lambda this is in.
-    Try(Box<Expr>),
-    /// `return value`; see [`crate::hir::ExprKind::Return`].
-    Return(Box<Expr>),
+    Try(Box<Expr<F>>),
+    /// `return value`; see [`crate::hir::ExprKind::Return`]. Pattern
+    /// compiling makes the branch it ends one answering the function.
+    Return(Box<Expr<F>>),
     /// `if condition then yes else no`; see [`crate::hir::ExprKind::If`].
-    If(Box<Expr>, Box<Expr>, Box<Expr>),
+    /// Pattern compiling binds it on a line of its own, each branch a body.
+    If(Box<Expr<F>>, Box<Expr<F>>, Box<Expr<F>>),
     /// `value is pattern`; see [`crate::hir::ExprKind::Is`]: a row for
     /// each choice of the pattern's alternatives, with the tests its
-    /// literals ask.
-    Is(Box<Expr>, Vec<(Pattern, Option<Expr>)>),
-    /// `value is ( arms )`; see [`crate::hir::ExprKind::Match`].
-    Match(Box<Expr>, Vec<Arm>),
+    /// literals ask. Pattern compiling makes each a match, the names it
+    /// binds in scope where it holds.
+    Is(Box<Expr<F>>, Vec<(Pattern, Option<Expr<F>>)>),
+    /// `value is ( arms )`; see [`crate::hir::ExprKind::Match`]. Pattern
+    /// compiling binds it on a line of its own, one decision for every arm.
+    Match(Box<Expr<F>>, Vec<Arm<F>>),
     /// Bindings, then the answer; see [`crate::hir::ExprKind::Block`].
-    Block(Box<Body>),
+    /// Pattern compiling takes its bindings out ahead of the expression it
+    /// stands in.
+    Block(Box<Body<F>>),
 }
 
 /// Which of `Bool`'s connectives an [`ExprKind::Connective`] is.
@@ -462,9 +496,9 @@ pub(crate) enum Connective {
 /// asking the tests its literals do and then the arm's guard, and the
 /// body each answers.
 #[derive(Clone, Debug)]
-pub(crate) struct Arm {
-    pub(crate) rows: Vec<(Pattern, Option<Expr>)>,
-    pub(crate) body: Expr,
+pub(crate) struct Arm<F: Phase = Callable> {
+    pub(crate) rows: Vec<(Pattern, Option<Expr<F>>)>,
+    pub(crate) body: Expr<F>,
 }
 
 /// Specialize what one parameterless `entry` reaches, and nothing else.
@@ -1152,11 +1186,11 @@ impl<'a> Specializer<'a> {
                     instance: Instance::Written,
                 };
                 self.request_from(key.clone(), (module, span))?;
-                ExprKind::Function(key)
+                ExprKind::Function(key, Callable)
             }
             t::ExprKind::Constructor(name) => {
                 if matches!(ty, Type::Function(_)) {
-                    ExprKind::ConstructorFunction(*name)
+                    ExprKind::ConstructorFunction(*name, Callable)
                 } else {
                     ExprKind::Construct(*name, Vec::new())
                 }
@@ -1193,6 +1227,7 @@ impl<'a> Specializer<'a> {
                 expression.site,
                 patterns.iter().map(convert_pattern).collect(),
                 Box::new(self.expr(module, body, substitution)?),
+                Callable,
             ),
             t::ExprKind::Call(head, arguments) => {
                 let arguments = arguments
@@ -1201,13 +1236,13 @@ impl<'a> Specializer<'a> {
                     .collect::<Result<_, _>>()?;
                 let head = self.expr(module, head, substitution)?;
                 match head.kind {
-                    ExprKind::Function(key) => ExprKind::DirectCall(key, arguments),
-                    ExprKind::ConstructorFunction(name) => ExprKind::Construct(name, arguments),
+                    ExprKind::Function(key, _) => ExprKind::DirectCall(key, arguments),
+                    ExprKind::ConstructorFunction(name, _) => ExprKind::Construct(name, arguments),
                     // Nullary constructors may be written with `()`.
                     ExprKind::Construct(name, fields) if fields.is_empty() => {
                         ExprKind::Construct(name, arguments)
                     }
-                    _ => ExprKind::Invoke(Box::new(head), arguments),
+                    _ => ExprKind::Invoke(Box::new(head), arguments, Callable),
                 }
             }
             // A bare read through a bound is the owner's field where it has one.

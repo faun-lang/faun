@@ -271,6 +271,10 @@ impl<'a> Lowerer<'a> {
     fn collect_expr(&mut self, expression: &Expr, answer: &Type) -> Result<(), Refusal> {
         self.collect_type(&expression.ty)?;
         match &expression.kind {
+            ExprKind::Function(_, never)
+            | ExprKind::ConstructorFunction(_, never)
+            | ExprKind::Invoke(.., never)
+            | ExprKind::Lambda(.., never) => never.absurd(),
             ExprKind::Block(_) => unreachable!("pattern compiling takes a block's bindings out"),
             ExprKind::If(..) | ExprKind::Is(..) | ExprKind::Match(..) => {
                 unreachable!("pattern compiling binds each `if` on its own")
@@ -1285,6 +1289,10 @@ fn emit_expr(
     locals: &HashMap<LocalId, Atom>,
 ) -> Atom {
     match &expression.kind {
+        ExprKind::Function(_, never)
+        | ExprKind::ConstructorFunction(_, never)
+        | ExprKind::Invoke(.., never)
+        | ExprKind::Lambda(.., never) => never.absurd(),
         ExprKind::Block(_) => unreachable!("pattern compiling takes a block's bindings out"),
         ExprKind::If(..) | ExprKind::Is(..) | ExprKind::Match(..) => {
             unreachable!("pattern compiling binds each `if` on its own")
