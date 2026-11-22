@@ -81,9 +81,39 @@ pub enum Item {
     Signature(SignatureDecl),
     Clause(Clause),
     /// `expect body`: a claim the module makes of its definitions, which
-    /// `faun test` runs. It is a clause of no parameters answering a `Bool`,
-    /// named by its `expect` keyword.
-    Expect(Clause),
+    /// `faun test` runs.
+    Expect(Expect),
+}
+
+/// An `expect`: a clause of no parameters answering a `Bool`, named by its
+/// `expect` keyword.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Expect {
+    pub clause: Clause,
+    /// The definition it is an example of, where it is written directly
+    /// beneath one: below its last line, or another of its examples, with
+    /// no blank line between.
+    pub example_of: Option<Example>,
+}
+
+/// The definition an `expect` is an example of: a type, a value or a
+/// function, or a method, which `owner` holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Example {
+    pub owner: Option<Name>,
+    pub name: Name,
+}
+
+impl Example {
+    /// The definition as a caller names it: `trim`, or `Str.trim`.
+    #[must_use]
+    pub fn text(self, source: &str) -> String {
+        let name = self.name.text(source);
+        self.owner.map_or_else(
+            || name.to_owned(),
+            |owner| format!("{}.{name}", owner.text(source)),
+        )
+    }
 }
 
 /// `Name = Type`, or `Name(a) = Type`: a second spelling of a type, which

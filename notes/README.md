@@ -55,7 +55,8 @@ syntax shown on purpose, marks its fence `` ```ruby ignore ``.
 - [Operators](forms/operators.md): operators as methods, one `cmp`,
   shifts, and precedence: what other languages do, the designs considered,
   and why `^` and the shifts take parentheses
-- [Modules](forms/modules.md): imports, exports, packages and `expect`
+- [Modules](forms/modules.md): imports, exports, packages, and `expect`
+  for tests and a definition's examples
 - [Naming](forms/naming.md): conversions, questions, fallbacks, errors and
   where a library's names live
 - [Effects](forms/effects.md): `!` calls, `Host`, capabilities and linear

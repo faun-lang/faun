@@ -5,6 +5,7 @@ mod support;
 
 use std::fs;
 
+use faun_x86_64_linux::X86_64Linux;
 use support::Package;
 
 /// Every expectation in the package is asked, the entry's and those of the
@@ -40,6 +41,50 @@ fn a_test_build_asks_every_expectation_in_the_package() {
     assert_eq!(failed, ["main.fn:9", "halves.fn:7"]);
     // Built as an application, the package is its own `main!`.
     assert_eq!(package.run(), 9);
+}
+
+/// An `expect` written directly beneath a definition, with no blank line
+/// between, is an example of it, as is one directly beneath another of its
+/// examples; a comment or the end of a block between keeps them together.
+/// A method's examples are written in its type's block, and named after
+/// the type. One after a blank line is an expectation of no definition.
+/// A failing example says which definition it is an example of.
+#[test]
+fn an_expect_directly_beneath_a_definition_is_its_example() {
+    let package = Package::new(
+        "examples",
+        "double : Nat -> Nat
+         double(n) -> (
+           n * 2
+         )
+         expect double(2) == 4
+         # Nought stays nought.
+         expect double(0) == 0
+
+         expect double(3) == 7
+
+         Box : [Box(Nat)].(
+           get : Box -> Nat
+           get(Box(n)) -> n
+           expect Box(3).get() == 4
+         )
+         expect Box(1).get() == 1",
+    );
+    let platform = faun_driver::platform(&X86_64Linux);
+    let tests = faun_frontend::lower_tests_to_barb(&package.entry(), &platform).unwrap();
+    let examples: Vec<_> = (tests.expectations.iter())
+        .map(|expectation| expectation.example_of.as_deref())
+        .collect();
+    let double = Some("double");
+    assert_eq!(
+        examples,
+        [double, double, None, Some("Box.get"), Some("Box")]
+    );
+    let mut faun = std::process::Command::new(env!("CARGO_BIN_EXE_faun"));
+    let output = faun.arg("test").arg(package.entry()).output().unwrap();
+    let told = String::from_utf8(output.stderr).unwrap();
+    assert!(told.contains("= note: an example of `Box.get`"), "{told}");
+    assert_eq!(told.matches("an example of").count(), 1, "{told}");
 }
 
 /// A record literal handed alone to a function pairing two values of one

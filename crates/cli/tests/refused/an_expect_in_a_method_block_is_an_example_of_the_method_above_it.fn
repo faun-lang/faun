@@ -1,0 +1,9 @@
+# An `expect` in a method block is there only to be beside the method it
+# is an example of, so one with no method directly above is refused.
+
+Box : [Box(Nat)].(
+  get : Box -> Nat
+  get(Box(n)) -> n
+
+  expect Box(3).get() == 3
+)

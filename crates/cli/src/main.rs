@@ -257,8 +257,8 @@ fn test(source: &Path, target: &dyn Target, color: Color) -> Result<(), Diagnost
         let message = format!("the expectations stopped with {}", output.status);
         let stopped = Diagnostic::new(message);
         return Err(match tests.expectations.get(answered.asked) {
-            Some(location) => stopped
-                .at_location(location.clone())
+            Some(asked) => stopped
+                .at_location(asked.location.clone())
                 .note("this expectation was being asked"),
             None => stopped,
         });
@@ -270,7 +270,11 @@ fn test(source: &Path, target: &dyn Target, color: Color) -> Result<(), Diagnost
 fn tell_failures(failed: &[Failure<'_>], color: Color) {
     for failure in failed {
         let diagnostic = Diagnostic::new("this expectation does not hold");
-        let mut diagnostic = diagnostic.at_location(failure.location.clone());
+        let expectation = failure.expectation;
+        let mut diagnostic = diagnostic.at_location(expectation.location.clone());
+        if let Some(definition) = &expectation.example_of {
+            diagnostic = diagnostic.note(format!("an example of `{definition}`"));
+        }
         match &failure.sides {
             Some((Side::Shown(left), Side::Shown(right))) => {
                 diagnostic = diagnostic

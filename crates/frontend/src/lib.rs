@@ -205,8 +205,17 @@ pub struct Tests {
     /// it asks, as its [`Reporting`] says, and exits with status nought:
     /// [`Self::answered`] reads what it prints.
     pub barb: barb::Program,
-    /// Where each expectation was written, the first numbered one.
-    pub expectations: Vec<diagnostic::Location>,
+    /// Each expectation, the first numbered one.
+    pub expectations: Vec<Expectation>,
+}
+
+/// An expectation of a package: where it was written, and the definition
+/// it is an example of, where it is written directly beneath one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Expectation {
+    pub location: diagnostic::Location,
+    /// As a caller names it: `trim`, or `Str.trim`.
+    pub example_of: Option<String>,
 }
 
 /// What the expectations' records say: how many were asked, and each that
@@ -222,7 +231,7 @@ pub struct Answered<'a> {
 /// An expectation that does not hold.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure<'a> {
-    pub location: &'a diagnostic::Location,
+    pub expectation: &'a Expectation,
     /// Both sides, where its last line is a comparison.
     pub sides: Option<(Side, Side)>,
 }
@@ -263,7 +272,7 @@ impl Tests {
                 Some(number) => (number, true),
                 None => (opening.strip_suffix('-').ok_or_else(refused)?, false),
             };
-            let location = number
+            let expectation = number
                 .parse::<usize>()
                 .ok()
                 .and_then(|number| number.checked_sub(1))
@@ -283,7 +292,7 @@ impl Tests {
                 (Some(left), Some(right)) => Some((side(left), side(right))),
                 _ => None,
             };
-            answered.failed.push(Failure { location, sides });
+            answered.failed.push(Failure { expectation, sides });
         }
         Ok(answered)
     }

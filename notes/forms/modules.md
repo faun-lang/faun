@@ -2,7 +2,8 @@
 
 This note owns how a Faun program is divided into files and packages:
 modules, `import` and `export`, the prelude every module sees, `package {}`
-headers and their dependencies, and `expect`, the tests a module holds. What
+headers and their dependencies, and `expect`, the tests a module holds and
+the examples a definition shows. What
 a type's export hides of it is shared with [methods](methods.md) and
 [tags](../values/tags.md).
 
@@ -312,6 +313,76 @@ reference interpreter, within 100 million of its steps for the file; one
 that runs out of them is named, with what those before it took and the
 most of them.
 
+### Examples
+
+An `expect` written directly beneath a definition, below its last line or
+below another of its examples, with no blank line between, is an example of
+that definition. A comment between them, or the `)` ending a block, keeps
+them together; a blank line ends the examples. From the standard `Str`:
+
+```ruby ignore
+Str : List(U8).(
+  # The pieces between each `separator`, empty ones kept, so there is one
+  # more piece than separators. An empty separator leaves the text whole.
+  split : (Str, Str) -> List(Str)
+  split(text, Str([])) -> [text]
+  split(Str(bytes), Str([first, *more])) -> split_into(bytes, (first, more), [], [])
+  expect "a,b,c".split(",") == ["a", "b", "c"]
+  expect "a,,b".split(",") == ["a", "", "b"]
+  expect "abc".split("") == ["abc"]
+)
+```
+
+A definition then reads top to bottom as its comment, which says what it
+means, its signature, its clauses, and its examples, which show it used.
+
+An example is an expectation and nothing more: it is checked whenever its
+package is, asked by `faun test` with every other, and sees the module's
+private definitions. What it adds is a name. A failing one says which
+definition it is an example of, after the line `faun test` shows:
+
+```text
+error: this expectation does not hold
+   --> std/str.fn:164:3
+    |
+164 |   expect "a,,b".split(",") == ["a", "b"]
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: an example of `Str.split`
+    = note: left:  ["a", "", "b"]
+    = note: right: ["a", "b"]
+```
+
+A method's examples are written in its type's block, beneath it, and are
+named after the type. They are the module's expectations all the same,
+read as though written after the block, so an example calls a method as a
+caller does, `"a,b".split(",")`, and not as the block's own clauses may,
+`split(text, ",")`. An `expect` in a block that no method stands directly
+above is refused: a block holds a type's methods and their examples, and a
+test of the module as a whole is written outside it. An `expect` directly
+beneath a block is an example of the type.
+
+```ruby
+# Twice `n`.
+double : Nat -> Nat
+double(n) -> n * 2
+expect double(2) == 4
+expect double(0) == 0
+
+expect [1, 2].map(double) == [2, 4]
+```
+
+Here the first two are examples of `double`, and the third, after a blank
+line, a test of the module.
+
+The standard library's public `Str` and `List` methods each have examples,
+but `hash_into`, which only a hasher calls.
+
+Nothing reads examples yet but `faun test`: Faun has no documentation
+generator and no language server. Either would show a definition as above,
+its comment, signature and examples, and find the examples by the rule that
+names them here.
+
 ## Rationale
 
 ### Why are imports absolute?
@@ -451,14 +522,73 @@ sees its private definitions, so nothing is exported only to be tested.
 Since an expectation is a definition, a test that no longer type-checks is
 an error under `faun check`, not a failure found later. And a test is only
 a `Bool`, so no test framework, assertion library or runner protocol is
-needed; the standard library holds 83 expectations and the examples about
-780. What the compiler can settle while compiling it settles there, before
+needed; the standard library holds 224 expectations, 138 of them examples,
+and the examples directory about 780. What the compiler can settle while compiling it settles there, before
 the program runs.
 
 The cost: a failing expectation says which values made it fail only where
 its last line is a comparison, and an expectation is pure, so a test of
 effects is a program of its own. Property tests are a library, `examples/libraries/proptest`, whose
 `forall` takes a generator, a property and a shrinker as callbacks.
+
+### Why are examples expectations beside a definition?
+
+So that what a definition's documentation shows is what holds. An example is
+written once, in the language, where the definition is: it is type-checked
+with the module, run by `faun test`, and fails beside what it shows when
+the definition changes. There is one way to write a check, `expect`, and an
+example is a check written in a place; the association is a rule about
+where it stands, not a second syntax, so an editor, the grammar and the
+formatter already read it, and the only tooling it needs is a lookup of
+what stands above.
+
+The cost is that whitespace means something: a blank line decides whether
+an `expect` is an example or a test. It is the rule a comment documenting
+the definition below it already follows by convention, and Go's for its
+doc comments. Its recourse is that nothing changes but a name: an `expect`
+on the wrong side of a blank line still runs, and its failure is only
+labelled differently.
+
+### Why not examples in comments, run by extracting them?
+
+That is what most languages do. Rust's `` ``` `` blocks in `///`
+comments are compiled and run by `cargo test --doc`, each as a crate of its
+own; Elixir's `iex>` lines in `@doc` are run by `doctest Module` in an
+ExUnit file, comparing what the shell would print; Python's `doctest`
+compares the printed `repr` of `>>>` lines in docstrings. Each makes an
+example code in a second language, the comment's, that an editor sees as
+text, that the type checker reaches only once a tool extracts it, and that
+a separate runner, `rustdoc --test`, ExUnit or `doctest`, asks. Rust and
+Elixir check examples well, at the cost of that second pipeline and of
+examples that type-check only when tested.
+
+Languages without the pipeline show examples nothing checks. Gleam renders
+`///` comments with `gleam docs`, and its examples are text; a community
+tool, gleedoc, extracts them into tests. Roc's reference says a code block
+in a doc comment is "for readers only. The compiler does not type-check
+them or run them", and that an example to be checked should be written as a
+top-level `expect` next to the function too: its builtins write
+`## expect "z".repeat(3) == "zzz"` in comments, so an example is written
+twice where it is checked at all. Faun has `expect` already, so the second
+copy is the one to drop.
+
+### Why not a block of examples belonging to the definition?
+
+Pyret's functions may end in a `where:` block in place of `end`, holding
+tests that run as a `check:` block does, named after the function: real
+code attached to the definition by syntax, the closest design to this one.
+In Faun it would be a new form beside `expect` holding nothing `expect`
+cannot, and a definition is clauses, each a line, with nothing to end; a
+`where:` would have to attach to the last clause, or the signature, and
+`where` already introduces a signature's bounds. Adjacency gives the same
+association with the form there is.
+
+Go names the association instead: a function `ExampleSplit` in a test file
+is an example of `Split`, run by `go test`, compared with its
+`// Output:` comment, and shown by `go doc`. Naming the definition, as
+`expect split: ...` might, would survive a blank line, but is a second
+spelling of `expect` that must be kept in step with the name, and an
+example's own call already says what it shows.
 
 ## History
 
@@ -468,6 +598,14 @@ effects is a program of its own. Property tests are a library, `examples/librari
   test suite's interpreter out of steps, is named. Before, a failed
   expectation gave only its line, and running out of steps only
   `FuelExhausted`.
+- **2026-11-22:** an `expect` directly beneath a definition became its
+  example, allowed in a method block beneath a method, and named in what
+  `faun test` says when it fails; the standard `Str` and `List` methods
+  gained 138 examples, 17 of them tests from the end of `str.fn` and
+  `list.fn` that read as illustrations, moved beneath what they show, and
+  33 tests an example now shows were dropped. Before, a method block held
+  only signatures and clauses, and a std definition's examples were prose
+  in its comment, where it had any.
 
 ## Related
 
