@@ -48,7 +48,7 @@ passes(values, shift, largest) if largest >> shift == 0 -> values
 passes(values, shift, largest) -> (
   buckets = values.fold(List.repeat([], 256), |buckets, value| (
     digit = (value >> shift) & 255
-    buckets.put(digit, buckets.get(digit).ok_or([]).append(value))
+    buckets.update(digit, |bucket| bucket.append(value))
   ))
   passes(buckets.flatten(), shift + 8, largest)
 )
