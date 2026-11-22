@@ -386,20 +386,6 @@ const PRODUCTS: &str = "import std.host {Host}
                           host.exit!(U8.of_nat(status(choose(flag, kept))))
                         )";
 
-#[test]
-fn products_cross_calls_joins_and_cells_as_their_fields() {
-    let program = read(PRODUCTS).expect("a program holding products");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program any target holds");
-    // One argument: the flag is set, so the triple is rotated to
-    // T(P(False True) True). Two: it is kept as T(P(True False) True).
-    assert_eq!(
-        execute_counts(&prepared, &[1, 2]),
-        [(4, String::new()), (0, String::new())]
-    );
-}
-
 /// Numbers inside a product are as wide as what is built into them, so a
 /// pair of small counts is two small words: nothing allocated, and an exit
 /// status proven to fit.
@@ -875,40 +861,407 @@ const LIST_OF_LISTS: &str = listed!(
     "([xs, xs.drop(3)].reverse().get(0).ok_or([]).get(0).ok_or(9) % 10) + ([[xs], [xs.drop(4)]].flatten().get(1).ok_or([]).get(0).ok_or(9) % 10) * 10"
 );
 
-/// Programs using the standard list, and what each leaves with. A lookup
-/// that can miss answers a `Result`, which a target holds as a cell, so
-/// each is prepared before it runs.
-const LISTED: &[(&str, &str, i32)] = &[
-    ("a list read at an index", LIST_GET, 93),
-    ("a list with an element replaced", LIST_SET, 7),
-    ("a list searched", LIST_FIND, 91),
-    ("a list filtered and counted", LIST_FILTER, 2),
-    ("a list dropped from and taken from", LIST_DROP_TAKE, 2),
-    ("a list taken past its end", LIST_TAKE_PAST, 5),
-    ("the last of a list", LIST_LAST, 4),
-    ("a list put before itself", LIST_CONCAT, 14),
-    ("a list reversed", LIST_REVERSE, 40),
+/// Programs written in Faun, each prepared for the target and run handed
+/// each count of arguments, and the status it leaves with for each. A
+/// lookup that can miss answers a `Result`, which a target holds as a cell,
+/// so each is prepared before it runs.
+const PREPARED: &[(&str, &str, &[u16], &[i32])] = &[
+    // The standard list.
+    ("a list read at an index", LIST_GET, &[1], &[93]),
+    ("a list with an element replaced", LIST_SET, &[1], &[7]),
+    ("a list searched", LIST_FIND, &[1], &[91]),
+    ("a list filtered and counted", LIST_FILTER, &[1], &[2]),
+    ("a list dropped from and taken from", LIST_DROP_TAKE, &[1], &[2]),
+    ("a list taken past its end", LIST_TAKE_PAST, &[1], &[5]),
+    ("the last of a list", LIST_LAST, &[1], &[4]),
+    ("a list put before itself", LIST_CONCAT, &[1], &[14]),
+    ("a list reversed", LIST_REVERSE, &[1], &[40]),
+    // Lists of lists reversed and flattened: elements holding a claim to a
+    // buffer of their own, and a count of them no bound is known for.
+    ("lists of lists", LIST_OF_LISTS, &[1], &[43]),
+    // One argument: the flag is set, so the triple is rotated to
+    // T(P(False True) True). Two: it is kept as T(P(True False) True).
+    ("products", PRODUCTS, &[1, 2], &[4, 0]),
+    // A list of small tags holds each tag and its fields packed by their bits:
+    // a literal byte, or a match's length below 259 and distance up to 32768,
+    // share four bytes. Built by pushing and appending, then matched, compared,
+    // replaced and reversed, it reads back what was written.
+    // 7 + 258 + 68 + 200 + 3 + 1 = 537, 537 % 32 = 25; replacing the 200
+    // by 258 + 68 makes 663, 663 % 32 = 23; and they compare as they should.
+    (
+        "a list of small tags reads back its packed fields",
+        "import std.host {Host}
+
+         Symbol = [Literal(U8), Match(Nat, Nat)]
+
+         weigh : (Nat, Symbol) -> Nat
+         weigh(total, Literal(byte)) -> total + byte.to_nat()
+         weigh(total, Match(length, distance)) -> total + length + distance % 100
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len() % 4
+           symbols = [Literal(U8.of_nat(n + 6))].concat([Match(n + 257, n + 32767), Literal(200)]).append(Match(3, 1))
+           changed = symbols.put(2, Match(258, 32768)).reverse()
+           same = symbols.reverse().reverse() == symbols & symbols != changed
+           host.exit!(U8.of_nat(symbols.fold(0, weigh) % 32 + changed.fold(0, weigh) % 32 + same.select(64, 0)))
+         )",
+        &[1],
+        &[25 + 23 + 64],
+    ),
+    // A shift down read as a byte is worked out as wide as the bits it moves
+    // down: 1300 moved down nine places is 2, not what its low byte moved
+    // down nine places would be.
+    (
+        "a shift down read narrow keeps what it moves down",
+        "import std.host {Host}
+
+         main! : Host -> []
+         main!(host) -> (
+           x = U16.of_nat(host.args.len() * 1000 + 300)
+           host.exit!(U8.of_nat((x.shift_right(9) & 0x7f).to_nat()))
+         )",
+        &[1],
+        &[2],
+    ),
+    // A match on a mantissa a float routine took apart compares it with
+    // nought, which the tier above holds in no bits, and the mantissa in
+    // fifty-three: the comparison reads both at the wider width. Read at the
+    // narrower one's, `2^52 + 2^51` was nought, whose low thirty-two bits it
+    // shares, and the sum took the arm a zero takes: the x86 backends
+    // compiled mandelbrot's software floats wrong this way.
+    (
+        "a wide number is not nought where its low bits are",
+        "import std.host {Host}
+
+         Unpacked : [Inf, Finite(Nat, Nat)]
+
+         classify : (Nat, Nat) -> Unpacked
+         classify(0, fraction) -> Finite(fraction, 1)
+         classify(field, fraction) -> Finite(fraction + 0x10000000000000, field)
+
+         add : Unpacked -> Nat
+         add(Finite(mantissa, _)) -> aligned(mantissa)
+         add(_) -> 3
+
+         aligned : Nat -> Nat
+         aligned(m) if 0 > m -> 1
+         aligned(m) if m > 0 -> m + 2
+         aligned(_) -> 0
+
+         main! : Host -> []
+         main!(host) -> (
+           bits = 0x4008000000000000 + host.args.len() - 1
+           field = bits / 0x10000000000000 % 2048
+           host.exit!(U8.of_nat(add(classify(field, bits % 0x10000000000000)) % 251))
+         )",
+        &[1],
+        &[8],
+    ),
+    // An `if` works out only the branch it chooses, so the recursion its
+    // other branch would start never begins, and a branch may be a block of
+    // its own; the count of arguments says which branch runs.
+    (
+        "an if works out only the branch it chooses",
+        "import std.host {Host}
+
+         count : Nat -> Nat
+         count(n) -> if n == 0 then 0 else 1 + count(n - 1)
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           answer = if n > 1 then 99 else (
+             more = n + 4
+             count(more)
+           )
+           host.exit!(U8.of_nat(answer))
+         )",
+        &[1, 2],
+        &[5, 99],
+    ),
+    // A test binds where it holds: along its `&` chain and into `then`, a
+    // tuple tested whole, and a list by its end; the count of arguments picks
+    // the way it goes.
+    (
+        "a test binds where it holds",
+        "import std.host {Host}
+
+         parsed : Nat -> Result(Nat, [Few])
+         parsed(n) -> if n > 1 then Ok(n * 10) else Err(Few)
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           r = parsed(n)
+           a = if r is Ok(v) & v < 25 then v else 1
+           b = if (r, n) is (Ok(_), 2) then 2 else 3
+           c = if [n, n + 1] is [*_, last] then last else 0
+           host.exit!(U8.of_nat(a + b + c))
+         )",
+        &[1, 2, 3],
+        &[1 + 3 + 2, 20 + 2 + 3, 1 + 3 + 4],
+    ),
+    // An `expect` line goes on where its condition holds, with what it bound,
+    // and leaves where it fails, from a clause and from a branch answering it.
+    (
+        "an expect goes on or leaves",
+        "import std.host {Host}
+
+         first_or : (List(Nat), Nat) -> Nat
+         first_or(xs, fallback) -> (
+           xs is [x, *_] else return fallback
+           x * 10
+         )
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           listed = if n > 1 then [n] else []
+           answer = first_or(listed, 7)
+           host.exit!(U8.of_nat(answer))
+         )",
+        &[1, 2],
+        &[7, 20],
+    ),
+    // A pattern names a whole value and takes it apart, compares with a name
+    // by `==name`, and a guard's test, and names both sides of an `|` bind,
+    // are seen by what follows.
+    (
+        "patterns name wholes compare and bind from guards",
+        "import std.host {Host}
+
+         merge : (List(Nat), List(Nat)) -> List(Nat)
+         merge([], right) -> right
+         merge(left, []) -> left
+         merge([x, *xs], right is [y, *_]) if x <= y -> [x, *merge(xs, right)]
+         merge(left is [_, *_], [y, *ys]) -> [y, *merge(left, ys)]
+
+         lookup : (List(Nat), Nat) -> Nat
+         lookup(xs, i) if xs.get(i) is Ok(found) -> found
+         lookup(_, _) -> 0
+
+         either : (Result(Nat, [Gone]), Result(Nat, [Gone])) -> Nat
+         either(a, b) -> if a is Ok(v) | b is Ok(v) then v else 1
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           merged = merge([n, 5], [2, 4])
+           second = lookup(merged, 1)
+           found = if merged is [_, ==n, *_] then 100 else 0
+           tried = if n > 1 then Ok(n) else Err(Gone)
+           answer = second + found + either(Err(Gone), tried) * 10
+           host.exit!(U8.of_nat(answer))
+         )",
+        &[1, 2],
+        &[12, 122],
+    ),
+    // An arm leaves where `then` would stand: `return` answers the clause,
+    // from arms that are a binding's value and from arms on a line of their
+    // own, which go on with `{}`, and a walk goes on by calling itself.
+    (
+        "an arm may leave",
+        "import std.host {Host}
+
+         picked : List(Nat) -> Nat
+         picked([]) -> 9
+         picked([x, *xs]) -> (
+           step = x is (
+             0 return 9
+             1 return picked(xs)
+             n if n > 2 return n
+             n then n
+           )
+           x is (
+             2 return step * 10
+             _ then {}
+           )
+           picked(xs)
+         )
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           answer = picked([1, n + 1, 0, 7]) + picked([0, 5])
+           host.exit!(U8.of_nat(answer))
+         )",
+        &[1, 2],
+        &[29, 12],
+    ),
+    // An `is` with arms answers by the first arm whose pattern matches and
+    // whose guard holds, as a value the body goes on from and as a clause's
+    // answer.
+    (
+        "arms answer by the first that matches",
+        "import std.host {Host}
+
+         Shape : [Circle(Nat), Square(Nat), Dot]
+
+         area : Shape -> Nat
+         area(shape) -> shape is (
+           Circle(r) then 3 * r * r
+           Square(s) then s * s
+           Dot then 0
+         )
+
+         sized : List(Nat) -> Nat
+         sized(xs) -> xs.first() is (
+           Ok(n) if n > 1 then 100
+           Ok(1 | 0) then 10
+           Ok(_) then 5
+           Err(_) then 1
+         )
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           shape = if n > 1 then Square(n) else Dot
+           counted = sized([n]) + sized([])
+           answer = area(shape) + counted
+           host.exit!(U8.of_nat(answer))
+         )",
+        &[1, 2],
+        &[11, 105],
+    ),
+    // A branch whose value goes on into more of the body may leave by `?`
+    // or a line's `else`, the rest of the body going on from each branch that
+    // does not.
+    (
+        "a branch whose value goes on may leave",
+        "import std.host {Host}
+
+         parsed : (Bool, Str) -> Result(Nat, [Malformed])
+         parsed(strict, text) -> (
+           n = if strict then Nat.from_str(text)? else 3
+           Ok(n + 1)
+         )
+
+         scaled : (Nat, Nat) -> Nat
+         scaled(n, k) -> (
+           step = (
+             k > 0 else return 7
+             n / k
+           )
+           step * 10
+         )
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           text = if n > 1 then \"x\" else \"5\"
+           tried = parsed(True, text).ok_or(9) + parsed(False, text).ok_or(9)
+           answer = tried + scaled(4, n - 1)
+           host.exit!(U8.of_nat(answer))
+         )",
+        &[1, 2],
+        &[17, 53],
+    ),
+    // A branch, an arm or a `return` that never answers takes the type the
+    // others answer: where it is taken the program ends with its status, and
+    // where it is not the program goes on with the other's value.
+    (
+        "a way that never answers meets one that does",
+        "import std.host {Host}
+
+         fail! : (Host, Nat) -> []
+         fail!(host, status) -> host.exit!(U8.of_nat(status))
+
+         port! : (Host, Str) -> Nat
+         port!(host, text) -> (
+           Nat.from_str(text) is Ok(n) else return host.exit!(6)
+           n
+         )
+
+         main! : Host -> []
+         main!(host) -> (
+           count = host.args.len()
+           n = if count > 1 then 3 else host.exit!(2)
+           p = port!(host, if count == 3 then \"x\" else \"1\")
+           m = count is (
+             2 | 3 then 4
+             _ then fail!(host, 5)
+           )
+           host.exit!(U8.of_nat(n + p + m))
+         )",
+        &[1, 2, 3, 4],
+        &[2, 8, 6, 5],
+    ),
+    // A name bound again shadows the one before it on the lines below, to the
+    // end of its block: a branch's binding is the branch's alone.
+    (
+        "a name bound again shadows to the end of its block",
+        "import std.host {Host}
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len()
+           count = n
+           count = count * 10
+           label = if n > 1 then (
+             count = count + 5
+             count
+           ) else 2
+           host.exit!(U8.of_nat(count + label))
+         )",
+        &[1, 2],
+        &[12, 45],
+    ),
+    // A list is written where it lies where nothing else holds it, and copied
+    // first where something does, which then reads what it held: numbers and
+    // strings, each replaced in a list threaded through a fold and in one held
+    // twice, and a position past the end refused.
+    (
+        "a list set where nothing else holds it is written in place",
+        "import std.host {Host}
+
+         main! : Host -> []
+         main!(host) -> (
+           n = host.args.len() % 4
+           host.exit!(U8.of_nat(held(threaded(n)) + held(shared(n)) * 2 + held(strings(n)) * 4 + held(past(n)) * 8))
+         )
+
+         held : Bool -> Nat
+         held(True) -> 1
+         held(False) -> 0
+
+         threaded : Nat -> Bool
+         threaded(n) -> List.range(n + 5).fold(List.repeat(0, n + 5), |xs, i| xs.set(i, i * i).ok_or([])) == [0, 1, 4, 9, 16, 25]
+
+         shared : Nat -> Bool
+         shared(n) -> (
+           xs = [n, 2, 3]
+           ys = xs.set(0, 7).ok_or([])
+           xs == [1, 2, 3] & ys == [7, 2, 3]
+         )
+
+         strings : Nat -> Bool
+         strings(n) -> (
+           names = [\"a${n}\", \"b\", \"c\"]
+           renamed = names.set(1, \"d${n}\").ok_or([])
+           again = renamed.set(2, \"e\").ok_or([])
+           names == [\"a1\", \"b\", \"c\"] & again == [\"a1\", \"d1\", \"e\"]
+         )
+
+         past : Nat -> Bool
+         past(n) -> [n].set(n, 5).is_err()",
+        &[1],
+        &[15],
+    ),
 ];
 
-/// Lists of lists reversed and flattened: elements holding a claim to a
-/// buffer of their own, and a count of them no bound is known for.
 #[test]
-fn lists_of_lists_are_put_before_one_another() {
-    let program = read(LIST_OF_LISTS).expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    assert_eq!(status(&prepared), 43);
-}
-
-#[test]
-fn the_standard_list_answers_what_a_program_says() {
-    for (name, text, answer) in LISTED {
+fn prepared_programs_answer_what_they_say() {
+    for (name, text, counts, answers) in PREPARED {
         let program = read(text).unwrap_or_else(|error| panic!("{name}: {error}\n{text}"));
         let prepared = TARGET
             .prepare(&program)
             .unwrap_or_else(|error| panic!("{name}: {error}"));
-        assert_eq!(status(&prepared), *answer, "{name}");
+        let statuses: Vec<_> = execute_counts(&prepared, counts)
+            .into_iter()
+            .map(|(status, _)| status)
+            .collect();
+        assert_eq!(statuses, *answers, "{name}");
     }
 }
 
@@ -982,145 +1335,6 @@ fn lists_of_every_element_hold_what_they_were_given() {
     }
 }
 
-/// A list of small tags holds each tag and its fields packed by their bits:
-/// a literal byte, or a match's length below 259 and distance up to 32768,
-/// share four bytes. Built by pushing and appending, then matched, compared,
-/// replaced and reversed, it reads back what was written.
-#[test]
-fn a_list_of_small_tags_reads_back_its_packed_fields() {
-    let program = read(
-        "import std.host {Host}
-
-         Symbol = [Literal(U8), Match(Nat, Nat)]
-
-         weigh : (Nat, Symbol) -> Nat
-         weigh(total, Literal(byte)) -> total + byte.to_nat()
-         weigh(total, Match(length, distance)) -> total + length + distance % 100
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len() % 4
-           symbols = [Literal(U8.of_nat(n + 6))].concat([Match(n + 257, n + 32767), Literal(200)]).append(Match(3, 1))
-           changed = symbols.put(2, Match(258, 32768)).reverse()
-           same = symbols.reverse().reverse() == symbols & symbols != changed
-           host.exit!(U8.of_nat(symbols.fold(0, weigh) % 32 + changed.fold(0, weigh) % 32 + same.select(64, 0)))
-         )",
-    )
-    .expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    // 7 + 258 + 68 + 200 + 3 + 1 = 537, 537 % 32 = 25; replacing the 200
-    // by 258 + 68 makes 663, 663 % 32 = 23; and they compare as they should.
-    assert_eq!(status(&prepared), 25 + 23 + 64);
-}
-
-/// A shift down read as a byte is worked out as wide as the bits it moves
-/// down: 1300 moved down nine places is 2, not what its low byte moved
-/// down nine places would be.
-#[test]
-fn a_shift_down_read_narrow_keeps_what_it_moves_down() {
-    let program = read(
-        "import std.host {Host}
-
-         main! : Host -> []
-         main!(host) -> (
-           x = U16.of_nat(host.args.len() * 1000 + 300)
-           host.exit!(U8.of_nat((x.shift_right(9) & 0x7f).to_nat()))
-         )",
-    )
-    .expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    assert_eq!(status(&prepared), 2);
-}
-
-/// A match on a mantissa a float routine took apart compares it with
-/// nought, which the tier above holds in no bits, and the mantissa in
-/// fifty-three: the comparison reads both at the wider width. Read at the
-/// narrower one's, `2^52 + 2^51` was nought, whose low thirty-two bits it
-/// shares, and the sum took the arm a zero takes: the x86 backends
-/// compiled mandelbrot's software floats wrong this way.
-#[test]
-fn a_wide_number_is_not_nought_where_its_low_bits_are() {
-    let program = read(
-        "import std.host {Host}
-
-         Unpacked : [Inf, Finite(Nat, Nat)]
-
-         classify : (Nat, Nat) -> Unpacked
-         classify(0, fraction) -> Finite(fraction, 1)
-         classify(field, fraction) -> Finite(fraction + 0x10000000000000, field)
-
-         add : Unpacked -> Nat
-         add(Finite(mantissa, _)) -> aligned(mantissa)
-         add(_) -> 3
-
-         aligned : Nat -> Nat
-         aligned(m) if 0 > m -> 1
-         aligned(m) if m > 0 -> m + 2
-         aligned(_) -> 0
-
-         main! : Host -> []
-         main!(host) -> (
-           bits = 0x4008000000000000 + host.args.len() - 1
-           field = bits / 0x10000000000000 % 2048
-           host.exit!(U8.of_nat(add(classify(field, bits % 0x10000000000000)) % 251))
-         )",
-    )
-    .expect("a program");
-    let prepared = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    assert_eq!(status(&prepared), 8);
-}
-
-/// A list is written where it lies where nothing else holds it, and copied
-/// first where something does, which then reads what it held: numbers and
-/// strings, each replaced in a list threaded through a fold and in one held
-/// twice, and a position past the end refused.
-#[test]
-fn a_list_set_where_nothing_else_holds_it_is_written_in_place() {
-    let text = "import std.host {Host}
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len() % 4
-           host.exit!(U8.of_nat(held(threaded(n)) + held(shared(n)) * 2 + held(strings(n)) * 4 + held(past(n)) * 8))
-         )
-
-         held : Bool -> Nat
-         held(True) -> 1
-         held(False) -> 0
-
-         threaded : Nat -> Bool
-         threaded(n) -> List.range(n + 5).fold(List.repeat(0, n + 5), |xs, i| xs.set(i, i * i).ok_or([])) == [0, 1, 4, 9, 16, 25]
-
-         shared : Nat -> Bool
-         shared(n) -> (
-           xs = [n, 2, 3]
-           ys = xs.set(0, 7).ok_or([])
-           xs == [1, 2, 3] & ys == [7, 2, 3]
-         )
-
-         strings : Nat -> Bool
-         strings(n) -> (
-           names = [\"a${n}\", \"b\", \"c\"]
-           renamed = names.set(1, \"d${n}\").ok_or([])
-           again = renamed.set(2, \"e\").ok_or([])
-           names == [\"a1\", \"b\", \"c\"] & again == [\"a1\", \"d1\", \"e\"]
-         )
-
-         past : Nat -> Bool
-         past(n) -> [n].set(n, 5).is_err()";
-    let program = read(text).expect("a program");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    assert_eq!(status(&program), 15);
-}
-
 /// Memory two and four bytes wide, as well as a byte and a word.
 #[test]
 fn it_stores_narrower_than_a_word() {
@@ -1156,345 +1370,6 @@ fn it_reads_standard_input() {
         assert_eq!(status, (100_100 + 4) % 256);
         assert_eq!(echoed.len(), long.len());
     }
-}
-
-/// An `if` works out only the branch it chooses, so the recursion its
-/// other branch would start never begins, and a branch may be a block of
-/// its own; the count of arguments says which branch runs.
-#[test]
-fn an_if_works_out_only_the_branch_it_chooses() {
-    let program = read(
-        "import std.host {Host}
-
-         count : Nat -> Nat
-         count(n) -> if n == 0 then 0 else 1 + count(n - 1)
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           answer = if n > 1 then 99 else (
-             more = n + 4
-             count(more)
-           )
-           host.exit!(U8.of_nat(answer))
-         )",
-    )
-    .expect("a program choosing a branch");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [5, 99]);
-}
-
-/// A test binds where it holds: along its `&` chain and into `then`, a
-/// tuple tested whole, and a list by its end; the count of arguments picks
-/// the way it goes.
-#[test]
-fn a_test_binds_where_it_holds() {
-    let program = read(
-        "import std.host {Host}
-
-         parsed : Nat -> Result(Nat, [Few])
-         parsed(n) -> if n > 1 then Ok(n * 10) else Err(Few)
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           r = parsed(n)
-           a = if r is Ok(v) & v < 25 then v else 1
-           b = if (r, n) is (Ok(_), 2) then 2 else 3
-           c = if [n, n + 1] is [*_, last] then last else 0
-           host.exit!(U8.of_nat(a + b + c))
-         )",
-    )
-    .expect("a program testing what it has");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2, 3])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [1 + 3 + 2, 20 + 2 + 3, 1 + 3 + 4]);
-}
-
-/// An `expect` line goes on where its condition holds, with what it bound,
-/// and leaves where it fails, from a clause and from a branch answering it.
-#[test]
-fn an_expect_goes_on_or_leaves() {
-    let program = read(
-        "import std.host {Host}
-
-         first_or : (List(Nat), Nat) -> Nat
-         first_or(xs, fallback) -> (
-           xs is [x, *_] else return fallback
-           x * 10
-         )
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           listed = if n > 1 then [n] else []
-           answer = first_or(listed, 7)
-           host.exit!(U8.of_nat(answer))
-         )",
-    )
-    .expect("a program leaving early");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [7, 20]);
-}
-
-/// A pattern names a whole value and takes it apart, compares with a name
-/// by `==name`, and a guard's test, and names both sides of an `|` bind,
-/// are seen by what follows.
-#[test]
-fn patterns_name_wholes_compare_and_bind_from_guards() {
-    let program = read(
-        "import std.host {Host}
-
-         merge : (List(Nat), List(Nat)) -> List(Nat)
-         merge([], right) -> right
-         merge(left, []) -> left
-         merge([x, *xs], right is [y, *_]) if x <= y -> [x, *merge(xs, right)]
-         merge(left is [_, *_], [y, *ys]) -> [y, *merge(left, ys)]
-
-         lookup : (List(Nat), Nat) -> Nat
-         lookup(xs, i) if xs.get(i) is Ok(found) -> found
-         lookup(_, _) -> 0
-
-         either : (Result(Nat, [Gone]), Result(Nat, [Gone])) -> Nat
-         either(a, b) -> if a is Ok(v) | b is Ok(v) then v else 1
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           merged = merge([n, 5], [2, 4])
-           second = lookup(merged, 1)
-           found = if merged is [_, ==n, *_] then 100 else 0
-           tried = if n > 1 then Ok(n) else Err(Gone)
-           answer = second + found + either(Err(Gone), tried) * 10
-           host.exit!(U8.of_nat(answer))
-         )",
-    )
-    .expect("a program naming wholes, comparing and binding from guards");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [12, 122]);
-}
-
-/// An arm leaves where `then` would stand: `return` answers the clause,
-/// from arms that are a binding's value and from arms on a line of their
-/// own, which go on with `{}`, and a walk goes on by calling itself.
-#[test]
-fn an_arm_may_leave() {
-    let program = read(
-        "import std.host {Host}
-
-         picked : List(Nat) -> Nat
-         picked([]) -> 9
-         picked([x, *xs]) -> (
-           step = x is (
-             0 return 9
-             1 return picked(xs)
-             n if n > 2 return n
-             n then n
-           )
-           x is (
-             2 return step * 10
-             _ then {}
-           )
-           picked(xs)
-         )
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           answer = picked([1, n + 1, 0, 7]) + picked([0, 5])
-           host.exit!(U8.of_nat(answer))
-         )",
-    )
-    .expect("a program whose arms leave");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [29, 12]);
-}
-
-/// An `is` with arms answers by the first arm whose pattern matches and
-/// whose guard holds, as a value the body goes on from and as a clause's
-/// answer.
-#[test]
-fn arms_answer_by_the_first_that_matches() {
-    let program = read(
-        "import std.host {Host}
-
-         Shape : [Circle(Nat), Square(Nat), Dot]
-
-         area : Shape -> Nat
-         area(shape) -> shape is (
-           Circle(r) then 3 * r * r
-           Square(s) then s * s
-           Dot then 0
-         )
-
-         sized : List(Nat) -> Nat
-         sized(xs) -> xs.first() is (
-           Ok(n) if n > 1 then 100
-           Ok(1 | 0) then 10
-           Ok(_) then 5
-           Err(_) then 1
-         )
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           shape = if n > 1 then Square(n) else Dot
-           counted = sized([n]) + sized([])
-           answer = area(shape) + counted
-           host.exit!(U8.of_nat(answer))
-         )",
-    )
-    .expect("a program choosing by arms");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [11, 105]);
-}
-
-/// A branch whose value goes on into more of the body may leave by `?`
-/// or a line's `else`, the rest of the body going on from each branch that
-/// does not.
-#[test]
-fn a_branch_whose_value_goes_on_may_leave() {
-    let program = read(
-        "import std.host {Host}
-
-         parsed : (Bool, Str) -> Result(Nat, [Malformed])
-         parsed(strict, text) -> (
-           n = if strict then Nat.from_str(text)? else 3
-           Ok(n + 1)
-         )
-
-         scaled : (Nat, Nat) -> Nat
-         scaled(n, k) -> (
-           step = (
-             k > 0 else return 7
-             n / k
-           )
-           step * 10
-         )
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           text = if n > 1 then \"x\" else \"5\"
-           tried = parsed(True, text).ok_or(9) + parsed(False, text).ok_or(9)
-           answer = tried + scaled(4, n - 1)
-           host.exit!(U8.of_nat(answer))
-         )",
-    )
-    .expect("a program leaving from branches");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [17, 53]);
-}
-
-/// A branch, an arm or a `return` that never answers takes the type the
-/// others answer: where it is taken the program ends with its status, and
-/// where it is not the program goes on with the other's value.
-#[test]
-fn a_way_that_never_answers_meets_one_that_does() {
-    let program = read(
-        "import std.host {Host}
-
-         fail! : (Host, Nat) -> []
-         fail!(host, status) -> host.exit!(U8.of_nat(status))
-
-         port! : (Host, Str) -> Nat
-         port!(host, text) -> (
-           Nat.from_str(text) is Ok(n) else return host.exit!(6)
-           n
-         )
-
-         main! : Host -> []
-         main!(host) -> (
-           count = host.args.len()
-           n = if count > 1 then 3 else host.exit!(2)
-           p = port!(host, if count == 3 then \"x\" else \"1\")
-           m = count is (
-             2 | 3 then 4
-             _ then fail!(host, 5)
-           )
-           host.exit!(U8.of_nat(n + p + m))
-         )",
-    )
-    .expect("a program whose ways never answer");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2, 3, 4])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [2, 8, 6, 5]);
-}
-
-/// A name bound again shadows the one before it on the lines below, to the
-/// end of its block: a branch's binding is the branch's alone.
-#[test]
-fn a_name_bound_again_shadows_to_the_end_of_its_block() {
-    let program = read(
-        "import std.host {Host}
-
-         main! : Host -> []
-         main!(host) -> (
-           n = host.args.len()
-           count = n
-           count = count * 10
-           label = if n > 1 then (
-             count = count + 5
-             count
-           ) else 2
-           host.exit!(U8.of_nat(count + label))
-         )",
-    )
-    .expect("a program binding names again");
-    let program = TARGET
-        .prepare(&program)
-        .expect("a program this machine holds");
-    let answers: Vec<_> = execute_counts(&program, &[1, 2])
-        .into_iter()
-        .map(|(status, _)| status)
-        .collect();
-    assert_eq!(answers, [12, 45]);
 }
 
 /// A walk calling itself runs once for each element, handing on what it
