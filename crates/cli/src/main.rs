@@ -7,7 +7,6 @@
 
 mod args;
 mod bundle;
-mod compiler;
 mod fetch;
 
 use std::fs;
@@ -16,7 +15,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitCode};
 
 use args::{Command, Stage};
-use compiler::Compiler;
 use faun_aarch64_macos::Aarch64Macos;
 use faun_core::targets::{Favour, SymbolTable, Target};
 use faun_frontend::diagnostic::Diagnostic;
@@ -72,23 +70,23 @@ fn answer(command: Command) -> ExitCode {
     let outcome = match command {
         Command::Check { target, source } => check(&source, target).map(|()| ExitCode::SUCCESS),
         Command::Build {
-            compiler,
+            target,
             source,
             output,
             favour,
             symbols,
-        } => build(&source, compiler, &output, favour, symbols).map(|()| ExitCode::SUCCESS),
+        } => build(&source, target, &output, favour, symbols).map(|()| ExitCode::SUCCESS),
         Command::Run {
-            compiler,
+            target,
             source,
             args,
-        } => run(&source, compiler, &args),
-        Command::Test { compiler, source } => test(&source, compiler).map(|()| ExitCode::SUCCESS),
+        } => run(&source, target, &args),
+        Command::Test { target, source } => test(&source, target).map(|()| ExitCode::SUCCESS),
         Command::Emit {
-            compiler,
+            target,
             stage,
             source,
-        } => emit(stage, &source, compiler).map(|()| ExitCode::SUCCESS),
+        } => emit(stage, &source, target).map(|()| ExitCode::SUCCESS),
         Command::Bundle {
             target,
             source,
@@ -133,14 +131,16 @@ fn check(source: &Path, target: &dyn Target) -> Result<(), Diagnostic> {
 /// build, so building one checks it.
 fn build(
     source: &Path,
-    compiler: Compiler,
+    target: &dyn Target,
     output: &Path,
     favour: Favour,
     symbols: SymbolTable,
 ) -> Result<(), Diagnostic> {
-    let target = compiler.host();
-    let faun_frontend::Package::Application(barb) =
-        faun_frontend::check_package_using(source, &compiler.platform(), &fetched(source)?)?
+    let faun_frontend::Package::Application(barb) = faun_frontend::check_package_using(
+        source,
+        &faun_driver::platform(target),
+        &fetched(source)?,
+    )?
     else {
         println!(
             "checked {}, a library with no `main!` to build",
@@ -148,7 +148,7 @@ fn build(
         );
         return Ok(());
     };
-    let image = compiler.compile(*barb, favour, symbols)?;
+    let image = faun_driver::compile_barb(*barb, target, favour, symbols)?;
     let written = write(target, &image, output)?;
     println!("wrote {}", written.display());
     Ok(())
@@ -157,11 +157,15 @@ fn build(
 /// Compile for the machine this runs on, run it, and answer how it exited.
 /// Where a signal stopped it, say which, and answer as a shell does,
 /// 128 and the signal's number.
-fn run(source: &Path, compiler: Compiler, args: &[String]) -> Result<ExitCode, Diagnostic> {
-    let target = compiler.host();
+fn run(source: &Path, target: &dyn Target, args: &[String]) -> Result<ExitCode, Diagnostic> {
     let runner = runner(target)?;
-    let image = compiler.compile(
-        faun_frontend::lower_to_barb_using(source, &compiler.platform(), &fetched(source)?)?,
+    let image = faun_driver::compile_barb(
+        faun_frontend::lower_to_barb_using(
+            source,
+            &faun_driver::platform(target),
+            &fetched(source)?,
+        )?,
+        target,
         Favour::Speed,
         SymbolTable::Omitted,
     )?;
@@ -195,13 +199,12 @@ fn stopping_signal(_status: std::process::ExitStatus) -> Option<i32> {
 /// Build a package's expectations for the machine this runs on, run them,
 /// and say where each one that does not hold was written, and what each
 /// comparison among them saw.
-fn test(source: &Path, compiler: Compiler) -> Result<(), Diagnostic> {
-    let target = compiler.host();
+fn test(source: &Path, target: &dyn Target) -> Result<(), Diagnostic> {
     let runner = runner(target)?;
     let packages = fetched(source)?;
     let mut tests = faun_frontend::lower_tests_to_barb_using(
         source,
-        &compiler.platform(),
+        &faun_driver::platform(target),
         &packages,
         Reporting::Each,
     )?;
@@ -211,7 +214,7 @@ fn test(source: &Path, compiler: Compiler) -> Result<(), Diagnostic> {
         return Ok(());
     }
     let barb = std::mem::take(&mut tests.barb);
-    let image = compiler.compile(barb, Favour::Speed, SymbolTable::Omitted)?;
+    let image = faun_driver::compile_barb(barb, target, Favour::Speed, SymbolTable::Omitted)?;
     let output = execute(target, runner, &image, Process::output)?;
     let answered = tests.answered(&output.stdout).map_err(Diagnostic::new)?;
     if !output.status.success() {
@@ -314,11 +317,19 @@ fn execute<T>(
 }
 
 /// Print one stage of a program.
-fn emit(stage: Stage, source: &Path, compiler: Compiler) -> Result<(), Diagnostic> {
-    let mut barb =
-        faun_frontend::lower_to_barb_using(source, &compiler.platform(), &fetched(source)?)?;
+fn emit(stage: Stage, source: &Path, target: &dyn Target) -> Result<(), Diagnostic> {
+    let mut barb = faun_frontend::lower_to_barb_using(
+        source,
+        &faun_driver::platform(target),
+        &fetched(source)?,
+    )?;
     barb::optimize(&mut barb);
-    let text = compiler.render(stage, &barb).map_err(Diagnostic::new)?;
+    let machine = || faun_driver::machine_ir(&barb, target).map_err(Diagnostic::new);
+    let text = match stage {
+        Stage::Barb => barb.render_analyzed(&barb.analyze()),
+        Stage::Machine => machine()?.render(),
+        Stage::Target => target.render(&target.prepare(&machine()?).map_err(Diagnostic::new)?),
+    };
     print!("{text}");
     Ok(())
 }

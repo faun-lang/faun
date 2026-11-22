@@ -19,8 +19,7 @@ target/release/faun emit target crates/frontend/examples/hello.fn
 This crate began as `faun-x86-lab`, an experimental second backend that
 started from the x86 emitter and machine IR at Faun commit `711f676`,
 beside a stock x86 emitter and a stock lowering. The command chose it with
-`--backend=lab` or `--backend=x86-lab`, which it still accepts and which
-change nothing now. Its lowering became the one every target uses, its
+`--backend=lab` or `--backend=x86-lab`, a flag that has since gone. Its lowering became the one every target uses, its
 private copy of the machine tier went, and it replaced the stock emitter.
 What follows was measured along the way, against the
 [experiment contract](../../frontend/examples/benchmarks-game/LAB.md).

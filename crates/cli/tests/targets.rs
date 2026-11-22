@@ -58,51 +58,6 @@ fn apple_silicon_builds_the_greeting() {
     }
 }
 
-/// Every target has one backend. `--backend lab` names it still, for a
-/// script written when there were two, and builds the same image as
-/// leaving it out; the stock backend is gone, and asking for it says so.
-#[test]
-fn the_backend_named_lab_is_the_only_one() {
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../frontend/examples/minimal-hello.fn");
-    let dir = Package::new("one-backend", "main!(host) -> host.exit!(0)");
-    for target in ["x86_64-linux", "wasm32-wasi", "mos6502-sim65"] {
-        let images: Vec<Vec<u8>> = [&[][..], &["--backend", "lab"][..]]
-            .into_iter()
-            .enumerate()
-            .map(|(at, backend)| {
-                let path = dir.entry().with_file_name(format!("{target}-{at}"));
-                let output = Command::new(env!("CARGO_BIN_EXE_faun"))
-                    .args(["build", "--target", target])
-                    .args(backend)
-                    .arg("-o")
-                    .arg(&path)
-                    .arg(&source)
-                    .output()
-                    .unwrap();
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let written = stdout.trim().strip_prefix("wrote ").unwrap_or_else(|| {
-                    panic!("{target}: {}", String::from_utf8_lossy(&output.stderr))
-                });
-                std::fs::read(written).unwrap()
-            })
-            .collect();
-        assert_eq!(images[0], images[1], "{target}");
-        let refused = Command::new(env!("CARGO_BIN_EXE_faun"))
-            .args(["build", "--target", target, "--backend", "stock", "-o"])
-            .arg(dir.entry().with_file_name("stock"))
-            .arg(&source)
-            .output()
-            .unwrap();
-        assert!(!refused.status.success(), "{target}");
-        assert!(
-            String::from_utf8_lossy(&refused.stderr).contains("the stock backend is gone"),
-            "{target}: {}",
-            String::from_utf8_lossy(&refused.stderr)
-        );
-    }
-}
-
 #[test]
 fn shared_semantic_facts_lower_on_wasm_and_6502() {
     let package = Package::new(
