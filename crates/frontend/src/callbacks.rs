@@ -208,7 +208,7 @@ impl<'a> Callbacks<'a> {
             };
             for clause in clauses {
                 let mut found = |expression: &'a Expr| {
-                    if let ExprKind::Lambda(site, patterns, body) = &expression.kind {
+                    if let ExprKind::Lambda(site, patterns, body, _) = &expression.kind {
                         lambdas
                             .entry((function.key.clone(), *site))
                             .or_insert(LambdaSite {
@@ -428,7 +428,7 @@ impl<'a> Callbacks<'a> {
                     "a function may only be passed straight into a call",
                 ));
             }
-            ExprKind::Function(_) | ExprKind::ConstructorFunction(_) | ExprKind::Lambda(..) => {
+            ExprKind::Function(..) | ExprKind::ConstructorFunction(..) | ExprKind::Lambda(..) => {
                 return Err(located(
                     expression,
                     "a function may only be passed straight into a call",
@@ -505,7 +505,7 @@ impl<'a> Callbacks<'a> {
                     .collect::<Result<_, Refusal>>()?,
             ),
             ExprKind::DirectCall(key, arguments) => self.call(frame, key, arguments)?,
-            ExprKind::Invoke(head, arguments) => {
+            ExprKind::Invoke(head, arguments, _) => {
                 let (callback, carried) = callback(frame, head)?;
                 self.invoke(frame, callback, carried, arguments, &expression.ty)?
             }
@@ -607,8 +607,8 @@ fn callback(frame: &Frame, expression: &Expr) -> Result<(Callback, Vec<d::Expr>)
         kind: d::ExprKind::Local(*local),
     };
     match &expression.kind {
-        ExprKind::Function(key) => Ok((Callback::Function(key.clone()), Vec::new())),
-        ExprKind::ConstructorFunction(constructor) => Ok((
+        ExprKind::Function(key, _) => Ok((Callback::Function(key.clone()), Vec::new())),
+        ExprKind::ConstructorFunction(constructor, _) => Ok((
             Callback::Constructor(*constructor, expression.ty.clone()),
             Vec::new(),
         )),
@@ -619,7 +619,7 @@ fn callback(frame: &Frame, expression: &Expr) -> Result<(Callback, Vec<d::Expr>)
                 .ok_or_else(|| located(expression, "a function value no callback is known for"))?;
             Ok((callback.clone(), carried.iter().map(local).collect()))
         }
-        ExprKind::Lambda(site, patterns, body) => {
+        ExprKind::Lambda(site, patterns, body, _) => {
             let site = *site;
             let mut callbacks = Vec::new();
             let mut carried = Vec::new();

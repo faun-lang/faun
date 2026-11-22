@@ -945,6 +945,10 @@ impl<'f, 'a> Walk<'f, 'a> {
     )]
     fn value(&mut self, expr: &d::Expr) -> Vec<Origin> {
         match &expr.kind {
+            ExprKind::Function(_, never)
+            | ExprKind::ConstructorFunction(_, never)
+            | ExprKind::Invoke(.., never)
+            | ExprKind::Lambda(.., never) => never.absurd(),
             ExprKind::Local(_) => self.take(expr),
             ExprKind::Natural(_) | ExprKind::Bytes(_) => Vec::new(),
             ExprKind::Construct(_, fields) | ExprKind::Tuple(fields) => {
