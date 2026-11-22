@@ -63,7 +63,13 @@ Checking the whole program in one step is the same code with an empty
 frontend's own tests, are checked.
 
 Once the library is checked its modules' syntax is dropped, so nothing after
-can read it: a snapshot will not have it.
+can read it: a snapshot will not have it. So are its expectations, its
+`expect`s and their examples: each is checked with the library, so one that
+no longer checks still stops the compiler's build, but no program checked
+after the library can name or ask one, and `just test-std` checks the
+library from its text in one step. Leaving them out took the snapshot from
+323,346 bytes to 276,298, and the empty program's compile from 33.97 to
+31.23 million instructions.
 
 ## What crosses it
 

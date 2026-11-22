@@ -217,6 +217,18 @@ impl std::fmt::Debug for Environment {
 }
 
 impl Environment {
+    /// Without the definitions named in `forgotten`, which nothing checked
+    /// after it may name.
+    pub(crate) fn forget(&mut self, forgotten: &HashSet<Symbol>) {
+        let kept = |name: &Symbol| !forgotten.contains(name);
+        self.values.retain(|name, _| kept(name));
+        self.open.retain(kept);
+        self.bounds.retain(|name, _| kept(name));
+        self.variable_names.retain(|name, _| kept(name));
+        self.partial.retain(|name, _| kept(name));
+        self.defined.retain(|name, _| kept(name));
+    }
+
     /// Every type it holds resolved, as a snapshot writes it: what
     /// inference has bound is then written into the types themselves.
     pub(crate) fn close(&mut self) {
