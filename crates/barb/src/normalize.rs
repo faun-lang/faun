@@ -71,6 +71,11 @@ struct Rules {
     /// with the same operands answered, where that is still in scope: see
     /// [`Rewrite::shared`].
     share: bool,
+    /// Share too a construction, a match, or a call of a pure definition
+    /// the same as one still in scope, so long as none of them builds a
+    /// structure holding itself: see [`Rewrite::shape`]. Only once lists
+    /// are fused, since a list two readers share is a list built.
+    values: bool,
     /// Read nothing recognized: rewrite every definition, a recognizable
     /// one too, let no recognized operation decide anything, and leave
     /// questions of tags uncomposed for a walk that can first ask them as
@@ -232,6 +237,7 @@ const SIMPLIFY: Rules = Rules {
     algebra: true,
     evaluate: true,
     share: true,
+    values: true,
     blind: false,
 };
 
@@ -422,6 +428,12 @@ struct Rewrite<'a> {
     /// rebuilt, by what it was called with: the local it was written to, and
     /// the expression that wrote it, which says whether it still stands.
     calls: HashMap<Call, (Atom, ExprId)>,
+    /// Indexed by definition, where the walk shares: see
+    /// [`super::calls::pure`].
+    pure: Vec<bool>,
+    /// Each construction and match written so far, by its shape: see
+    /// [`Rewrite::shape`].
+    shapes: HashMap<Vec<usize>, (Atom, ExprId)>,
     /// What [`Self::known_as`] has written over, by level: a local an arm
     /// knows the constructor of is still the binding that wrote it.
     shadowed: Vec<(usize, ExprId)>,
@@ -478,7 +490,13 @@ impl<'a> Rewrite<'a> {
         } else {
             program.recognised().clone()
         };
+        let pure = if rules.values {
+            super::calls::pure(program, &recognised)
+        } else {
+            Vec::new()
+        };
         Self {
+            pure,
             program,
             recognised,
             inlining,
@@ -487,6 +505,7 @@ impl<'a> Rewrite<'a> {
             inline_depth: 0,
             written: Vec::new(),
             calls: HashMap::default(),
+            shapes: HashMap::default(),
             shadowed: Vec::new(),
         }
     }
@@ -835,7 +854,83 @@ impl Rewrite<'_> {
                 }
             }
         };
-        self.push(expr, scope)
+        let Some(shape) = self.shape(expr, scope.level) else {
+            return self.push(expr, scope);
+        };
+        if let Some(&(held, wrote)) = self.shapes.get(&shape)
+            && self.stands(held, wrote, scope)
+        {
+            return held;
+        }
+        let held = self.push(expr, scope);
+        let wrote = *scope.bindings.last().expect("a value just written");
+        self.shapes.insert(shape, (held, wrote));
+        held
+    }
+
+    /// A construction or a match as two the same are written, where the walk
+    /// shares and every call in it is pure: each local read by its level
+    /// where it was bound before `base`, and by how far past `base` where
+    /// the match bound it itself, so that two matches the same but for the
+    /// levels their arms bind are one shape.
+    fn shape(&self, expr: Expr, base: usize) -> Option<Vec<usize>> {
+        if !self.rules.values || matches!(expr, Expr::Atom(_) | Expr::Static(_)) {
+            return None;
+        }
+        let mut shape = Vec::new();
+        self.shaped(expr, base, &mut shape)?;
+        Some(shape)
+    }
+
+    fn shaped(&self, expr: Expr, base: usize, shape: &mut Vec<usize>) -> Option<()> {
+        let local = |atom: Atom| {
+            let level = atom.0.index();
+            level
+                .checked_sub(base)
+                .map_or(level * 2, |past| past * 2 + 1)
+        };
+        let atoms = |shape: &mut Vec<usize>, range| {
+            let atoms = self.program.atoms(range);
+            shape.push(atoms.len());
+            shape.extend(atoms.iter().map(|&atom| local(atom)));
+        };
+        match expr {
+            Expr::Atom(atom) => shape.extend([0, local(atom)]),
+            Expr::Static(value) => {
+                let constant = self.program.constant(value);
+                let bytes = constant.encoded();
+                shape.extend([1, constant.owner().index(), bytes.len()]);
+                shape.extend(bytes.iter().map(|&byte| usize::from(byte)));
+            }
+            Expr::Con(ctor, fields) => {
+                (!self.holds_itself(self.program.ctor(ctor).owner)).then_some(())?;
+                shape.extend([2, ctor.index()]);
+                atoms(shape, fields);
+            }
+            Expr::Call(called, args) => {
+                (self.recognised.answered(called) || self.shareable(called)).then_some(())?;
+                shape.extend([3, called.index()]);
+                atoms(shape, args);
+            }
+            Expr::Match(on, arms) => {
+                let arms = self.program.arms(arms);
+                shape.extend([4, local(on), arms.len()]);
+                for arm in arms {
+                    shape.push(arm.ctor.index());
+                    self.shaped_body(arm.body, base, shape)?;
+                }
+            }
+        }
+        Some(())
+    }
+
+    fn shaped_body(&self, body: Body, base: usize, shape: &mut Vec<usize>) -> Option<()> {
+        let bindings = self.program.bindings(body.bindings);
+        shape.push(bindings.len());
+        for &binding in bindings {
+            self.shaped(self.program.expr(binding), base, shape)?;
+        }
+        self.shaped(self.program.expr(body.tail), base, shape)
     }
 
     /// The arm a match takes where its scrutinee was written as one
@@ -1645,7 +1740,7 @@ impl Rewrite<'_> {
     /// Operands known as values are compared by what they are, and those of
     /// a commutative operation in order.
     fn sharing(&self, called: FnId, args: &[Atom]) -> Option<Call> {
-        if !self.rules.share || !self.recognised.answered(called) {
+        if !self.rules.share || !(self.recognised.answered(called) || self.shareable(called)) {
             return None;
         }
         let mut operands: Vec<_> = args
@@ -1682,10 +1777,38 @@ impl Rewrite<'_> {
     /// an arm knows it to be.
     fn shared(&self, call: &Call, scope: &Scope) -> Option<Atom> {
         let &(atom, wrote) = self.calls.get(call)?;
+        self.stands(atom, wrote, scope).then_some(atom)
+    }
+
+    /// Whether a call of `called`, which is not answered, answers the same
+    /// as one the same before it: it reaches nothing outside, and answers
+    /// no structure holding itself. A tree two calls build is two trees as
+    /// written, though equal, and sharing one would build half of them.
+    fn shareable(&self, called: FnId) -> bool {
+        self.pure.get(called.index()) == Some(&true)
+            && !self.holds_itself(self.program.function(called).result)
+    }
+
+    /// Whether a value of `ty` may hold another of it, as a list or a tree
+    /// does; a natural is a number, however it is written.
+    fn holds_itself(&self, ty: super::TypeId) -> bool {
+        !matches!(
+            super::type_shape(self.program, ty),
+            super::TypeShape::Natural { .. }
+        ) && self
+            .program
+            .ctors(ty)
+            .iter()
+            .any(|ctor| self.program.types_of(ctor.fields).contains(&ty))
+    }
+
+    /// Whether `wrote` still stands as the local `atom` in `scope`: below
+    /// the next level it binds, and written there still or written over
+    /// only by what an arm knows it to be.
+    fn stands(&self, atom: Atom, wrote: ExprId, scope: &Scope) -> bool {
         let level = atom.0.index();
-        let stands = level < scope.level && self.written.get(level) == Some(&Some(wrote))
-            || self.shadowed.contains(&(level, wrote));
-        stands.then_some(atom)
+        level < scope.level && self.written.get(level) == Some(&Some(wrote))
+            || self.shadowed.contains(&(level, wrote))
     }
 
     /// The known value a local was written as, in this scope or one

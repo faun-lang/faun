@@ -135,7 +135,10 @@ Fold what is known:
    follows a match of one arm goes on inside it, however deep the match
    is nested in others of one arm, so a call worked out there is shared
    with the rest of the body: a map lookup then an update hashes the key
-   once.
+   once. A construction, a match, or a call of a pure definition the same
+   as one still in scope is shared too, so the update finds the key's
+   slot once, unless it builds a structure holding itself: two trees
+   written are two trees built.
    Then a list a counting walk builds, `List.range(n).map(f)`, handed to a
    definition reading it only by its length and by what dropping a
    position leaves, goes to a copy taking what the walk was handed: the
