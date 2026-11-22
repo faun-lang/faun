@@ -1,5 +1,5 @@
 //! Value identities applied before storage or instruction selection.
-use super::{Atom, Called, Expr, FnId, Rewrite, Scope};
+use super::{Again, Atom, Called, Expr, FnId, Rewrite, Scope, Step};
 use crate::float::{Float, Format, Operation};
 
 impl Rewrite<'_> {
@@ -19,8 +19,7 @@ impl Rewrite<'_> {
             if elements.len() == 4 {
                 return None;
             }
-            let written = (*self.written.get(rest.0.index())?)?;
-            let Expr::Con(ctor, fields) = self.program.expr(written) else {
+            let Expr::Con(ctor, fields) = self.written_as(rest)? else {
                 return None;
             };
             if ctor != push {
@@ -34,7 +33,7 @@ impl Rewrite<'_> {
         for element in elements {
             let mut fields = [element; 2];
             fields[recursive] = answer;
-            let fields = self.program.terms.hold_atoms(fields.into_iter());
+            let fields = self.held(&fields);
             answer = self.push(Expr::Con(push, fields), scope);
         }
         Some(answer)
@@ -51,7 +50,8 @@ impl Rewrite<'_> {
 
     /// Under Faun's IEEE semantics, doubling has the same rounded result
     /// through addition, including infinities and the sign of zero.
-    pub(super) fn float_double(&self, called: FnId, args: &[Atom]) -> Option<Called> {
+    pub(super) fn float_double(&mut self, _: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
         let float = self.recognised.floats[called.index()]?;
         if float.operation != Operation::Mul {
             return None;
@@ -83,6 +83,6 @@ impl Rewrite<'_> {
                     && self.program.function(id).result == self.program.function(called).result)
                     .then_some(id)
             })?;
-        Some(Called(function, vec![value, value]))
+        Some(Again(Called(function, vec![value, value])))
     }
 }
