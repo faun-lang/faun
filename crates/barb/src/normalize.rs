@@ -820,31 +820,10 @@ impl Rewrite<'_> {
                 let args = self.args(args, locals);
                 return self.call(Called(called, args), scope);
             }
-            Expr::Match(value, arms) => {
-                let scrutinee = locals[value.0.index()];
-                if let Some(answer) = self.selected(scrutinee, arms, locals, scope) {
-                    return answer;
-                }
-                if let Some(answer) = self.evaluated_match(id, scrutinee, locals, scope) {
-                    return answer;
-                }
-                // Composing questions of tags is left to a walk reading what
-                // is recognized, which may first ask them as one comparison.
-                if !self.rules.blind {
-                    if let Some(answer) = self.composed(scrutinee, arms, scope) {
-                        return answer;
-                    }
-                    if let Some(answer) = self.composed_within(scrutinee, arms, scope) {
-                        return answer;
-                    }
-                }
-                match self.matching(value, arms, locals, scope) {
-                    Matched::Rebuilt(held) => held,
-                    Matched::Same(body) => return self.spliced(body, scope),
-                    // One that puts back what it took apart is what it took apart.
-                    Matched::Scrutinee => return scrutinee,
-                }
-            }
+            Expr::Match(value, arms) => match self.match_site(id, value, arms, locals, scope) {
+                Ok(rebuilt) => rebuilt,
+                Err(answer) => return answer,
+            },
         };
         let Some(shape) = self.shape(expr, scope.level) else {
             return self.push(expr, scope);
@@ -858,6 +837,41 @@ impl Rewrite<'_> {
         let wrote = *scope.bindings.last().expect("a value just written");
         self.shapes.insert(shape, (held, wrote));
         held
+    }
+
+    /// A match as the walk writes it: the expression it is rebuilt as, or
+    /// the local a rule or splicing answered it with.
+    fn match_site(
+        &mut self,
+        id: ExprId,
+        value: Atom,
+        arms: Range,
+        locals: &[Atom],
+        scope: &mut Scope,
+    ) -> Result<Expr, Atom> {
+        let scrutinee = locals[value.0.index()];
+        if let Some(answer) = self.selected(scrutinee, arms, locals, scope) {
+            return Err(answer);
+        }
+        if let Some(answer) = self.evaluated_match(id, scrutinee, locals, scope) {
+            return Err(answer);
+        }
+        // Composing questions of tags is left to a walk reading what
+        // is recognized, which may first ask them as one comparison.
+        if !self.rules.blind {
+            if let Some(answer) = self.composed(scrutinee, arms, scope) {
+                return Err(answer);
+            }
+            if let Some(answer) = self.composed_within(scrutinee, arms, scope) {
+                return Err(answer);
+            }
+        }
+        match self.matching(value, arms, locals, scope) {
+            Matched::Rebuilt(held) => Ok(held),
+            Matched::Same(body) => Err(self.spliced(body, scope)),
+            // One that puts back what it took apart is what it took apart.
+            Matched::Scrutinee => Err(scrutinee),
+        }
     }
 
     /// A construction or a match as two the same are written, where the walk
