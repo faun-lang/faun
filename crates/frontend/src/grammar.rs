@@ -139,6 +139,44 @@ const fn begins_expr(kind: Kind) -> bool {
 }
 
 /// Whether a type can begin with `kind`.
+/// A row a type writes, tags or fields, and how its `*` is told.
+struct Row {
+    /// What the row is called.
+    what: &'static str,
+    /// What it holds besides its `*`.
+    holds: &'static str,
+    /// What begins a member, and what is looked for there.
+    begins: fn(Kind) -> bool,
+    member: &'static str,
+    /// Whether a member is a name and its `:`.
+    named: bool,
+    brackets: [&'static str; 2],
+    close: Kind,
+    closing: &'static str,
+}
+
+const TAGS: Row = Row {
+    what: "tag row",
+    holds: "tags",
+    begins: |kind| kind == Kind::TypeIdent,
+    member: "a type name",
+    named: false,
+    brackets: ["[", "]"],
+    close: Kind::RBracket,
+    closing: "`]`",
+};
+
+const FIELDS: Row = Row {
+    what: "record type",
+    holds: "fields",
+    begins: |kind| kind == Kind::Ident,
+    member: "a name",
+    named: true,
+    brackets: ["{", "}"],
+    close: Kind::RBrace,
+    closing: "`}`",
+};
+
 const fn begins_type(kind: Kind) -> bool {
     matches!(
         kind,
@@ -923,96 +961,109 @@ impl Parser<'_> {
     /// `[A, B(x)]`: a tag row's constructors, or with `*`, `[A, *]`, open
     /// to tags a caller's row holds besides.
     fn variants(&mut self) -> Parsed<Type> {
-        let open = self.bump();
-        let mut written: Option<Span> = None;
-        let (constructors, trailing) = self.separated(
-            false,
-            |kind| kind == Kind::TypeIdent,
-            "a type name",
-            |parser| {
-                let head = parser.bump();
-                let (fields, end) = parser.type_arguments(head.span())?;
-                written = Some(written.unwrap_or_else(|| head.span()).through(end));
-                Ok(ConstructorDecl {
-                    name: name(head),
-                    fields,
-                })
-            },
-        )?;
-        let open_row = (constructors.is_empty() || trailing) && {
-            self.note("`*`");
-            self.eat(Kind::Star).is_some()
-        };
-        if open_row {
-            self.eat(Kind::Comma);
-        }
-        if let Some(error) = self.misplaced_star(open_row, written) {
-            return Err(error);
-        }
-        let close = self.expect(Kind::RBracket, "`]`")?;
+        let (constructors, open, span) = self.row(&TAGS, |parser| {
+            let head = parser.bump();
+            let (fields, end) = parser.type_arguments(head.span())?;
+            let constructor = ConstructorDecl {
+                name: name(head),
+                fields,
+            };
+            Ok((constructor, head.span().through(end)))
+        })?;
         Ok(Type::Variants {
-            span: open.span().through(close.span()),
+            span,
             constructors,
-            open: open_row,
+            open,
         })
-    }
-
-    /// What is wrong with a `*` where a tag row's `]` belongs: a second
-    /// rest after `open_row`'s, or a rest with no comma before it, and how
-    /// to write the row whose tags are `written`.
-    fn misplaced_star(&self, open_row: bool, written: Option<Span>) -> Option<SyntaxError> {
-        let star = self.tokens[self.at];
-        let is_star = match star.kind {
-            Kind::Star => true,
-            Kind::Apart => star.text(self.source) == "*",
-            _ => false,
-        };
-        if !is_star {
-            return None;
-        }
-        let message = if open_row {
-            "a tag row holds one `*`, written last"
-        } else {
-            "a tag row's `*` follows its tags after a comma"
-        };
-        let help = written.map_or_else(
-            || "for any tags, write `[*]`".to_owned(),
-            |tags| {
-                format!(
-                    "for these tags or any others, write `[{}, *]`",
-                    tags.text(self.source)
-                )
-            },
-        );
-        Some(SyntaxError::new(star.span(), message).help(help))
     }
 
     /// `{x: A}`, or `{x: A, *}`, open to more fields.
     fn record_type(&mut self) -> Parsed<Type> {
+        let (fields, open, span) = self.row(&FIELDS, |parser| {
+            let field = parser.bump();
+            parser.expect(Kind::Colon, "`:`")?;
+            let ty = parser.ty()?;
+            let written = field.span().through(ty.span());
+            Ok(((name(field), ty), written))
+        })?;
+        Ok(Type::Record { span, fields, open })
+    }
+
+    /// A row's members, each read by `member` with where it is written,
+    /// then its `*` if it is open: whether it is, and where it stands.
+    fn row<T>(
+        &mut self,
+        row: &Row,
+        mut member: impl FnMut(&mut Self) -> Parsed<(T, Span)>,
+    ) -> Parsed<(Vec<T>, bool, Span)> {
         let open = self.bump();
-        let (fields, trailing) = self.separated(
-            false,
-            |kind| kind == Kind::Ident,
-            "a name",
-            |parser| {
-                let field = parser.bump();
-                parser.expect(Kind::Colon, "`:`")?;
-                Ok((name(field), parser.ty()?))
-            },
-        )?;
-        let open_record = (fields.is_empty() || trailing) && {
-            self.note("`*`");
-            self.eat(Kind::Star).is_some()
+        let mut written = Vec::new();
+        let mut each = |parser: &mut Self| {
+            let (one, span) = member(parser)?;
+            written.push(span);
+            Ok(one)
         };
-        if open_record {
-            self.eat(Kind::Comma);
+        let (members, trailing) = self.separated(false, row.begins, row.member, &mut each)?;
+        let star = if members.is_empty() || trailing {
+            self.note("`*`");
+            self.eat(Kind::Star)
+        } else {
+            None
+        };
+        let mut after = false;
+        if star.is_some() && self.eat(Kind::Comma).is_some() && self.begins_member(row) {
+            after = true;
+            self.separated(false, row.begins, row.member, &mut each)?;
         }
-        let close = self.expect(Kind::RBrace, "`}`")?;
-        Ok(Type::Record {
-            span: open.span().through(close.span()),
-            fields,
-            open: open_record,
-        })
+        if let Some(error) = self.misplaced_star(row, star, after, &written) {
+            return Err(error);
+        }
+        let close = self.expect(row.close, row.closing)?;
+        Ok((members, star.is_some(), open.span().through(close.span())))
+    }
+
+    /// Whether a member of `row` begins here, after its `*`: a field's name
+    /// only with its `:`, as `{x: A, *r}` is a rest named where none is.
+    fn begins_member(&self, row: &Row) -> bool {
+        (row.begins)(self.peek()) && (!row.named || self.tokens[self.at + 1].kind == Kind::Colon)
+    }
+
+    /// What is wrong with a row's `*`, if anything: members `after` it, a
+    /// second `*` after `star`, or a `*` with no comma before it; and how to
+    /// write the row whose members are `written`.
+    fn misplaced_star(
+        &self,
+        row: &Row,
+        star: Option<Token>,
+        after: bool,
+        written: &[Span],
+    ) -> Option<SyntaxError> {
+        let here = self.tokens[self.at];
+        let at_star = match here.kind {
+            Kind::Star => true,
+            Kind::Apart => here.text(self.source) == "*",
+            _ => false,
+        };
+        let (Row { what, holds, .. }, [open, close]) = (row, row.brackets);
+        let (place, message) = match star {
+            Some(star) if after => (star, format!("a {what}'s `*` comes after all its {holds}")),
+            Some(_) if at_star => (here, format!("a {what} holds one `*`, written last")),
+            None if at_star => (
+                here,
+                format!("a {what}'s `*` follows its {holds} after a comma"),
+            ),
+            _ => return None,
+        };
+        let help = if written.is_empty() {
+            format!("for any {holds}, write `{open}*{close}`")
+        } else {
+            let members: Vec<_> = written.iter().map(|span| span.text(self.source)).collect();
+            format!(
+                "for these {holds} or any others, write `{open}{}, *{close}`",
+                members.join(", ")
+            )
+        };
+        Some(SyntaxError::new(place.span(), message).help(help))
     }
 
     /// A type name's arguments, `(A, B)`, if it is given any, and where it
