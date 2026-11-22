@@ -40,6 +40,12 @@ given is refused. The message numbers the two rests, `*1` and `*2`, where
 they would otherwise read alike; writing the answer's type as `_` answers
 the records given, whatever they hold.
 
+A declared type holds no record with `*`, as its whole or anywhere in
+what it holds: `P : {x: Nat, *}` is refused as "a declared type's record
+is closed", and `P : [A({x: Nat, *})]` as "a declared type holds no row
+with `*`", since the type would hold a rest no one chose. A record with
+`*` is written where it is taken, in a signature.
+
 ### Reading a field
 
 `r.name` reads a field. In an unsigned definition, a read off a value of
@@ -263,6 +269,12 @@ with an `x`"; the recourse is to leave that definition unsigned.
 
 ## History
 
+- **2026-11-21:** a declared type holding a record with `*` anywhere
+  below its whole, `P : [A({x: Nat, *})]`, came to be refused. It had
+  been accepted, and its program failed to build. A message naming a
+  record whose `*` a signature wrote shows it, `{x: Nat, *}`, where it
+  showed `{x: Nat}`, the closed record that `*` is not.
+
 - **2026-11-21:** a mismatch whose types differ only in a rest a caller
   chooses shows that rest, as `*` or numbered `*1` and `*2`. Before,
   sorting a `List({x: Nat, *})` into one answered as
@@ -287,8 +299,8 @@ with an `x`"; the recourse is to leave that definition unsigned.
 
 ## Related
 
-- [Tags](tags.md): variant rows, the other kind of row, which have no
-  written tail
+- [Tags](tags.md): variant rows, the other kind of row, whose `*` means
+  what a record's does
 - [Tuples](tuples.md): positional products, which do have `cmp`
 - [Types](../types.md): row polymorphism and inference
 - [Methods](../forms/methods.md): declared types over records, and asking

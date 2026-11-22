@@ -1,0 +1,5 @@
+error: `[A, *]` may hold tags a caller adds, which it cannot say `equals` of
+ --> a_row_with_a_caller_s_rest_has_no_equals.fn:3:15
+  |
+3 | same(a, b) -> a == b
+  |               ^^^^^^

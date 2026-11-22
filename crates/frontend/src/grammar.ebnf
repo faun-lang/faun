@@ -75,7 +75,8 @@ type-operand      = TYPE [ CALL_PAREN types ")" ]
                   | "[" [ variants ] "]"
                   | "{" [ field-types ] "}" ;
 types             = type [ "," [ types ] ] ;
-variants          = TYPE [ CALL_PAREN types ")" ] [ "," [ variants ] ] ;
+variants          = TYPE [ CALL_PAREN types ")" ] [ "," [ variants ] ]
+                  | "*" [ "," ] ;
 field-types       = NAME ":" type [ "," [ field-types ] ]
                   | "*" [ "," ] ;
 

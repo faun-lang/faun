@@ -144,7 +144,7 @@ fn buildable(ty: &h::Type, data: &HashMap<Symbol, n::Data>, built: &HashSet<Symb
     match ty {
         h::Type::Named(name, _) => !data.contains_key(name) || built.contains(name),
         h::Type::Variable(_) | h::Type::Hole | h::Type::Function(..) => true,
-        h::Type::Variants(tags) => {
+        h::Type::Variants(tags, _) => {
             tags.is_empty()
                 || tags
                     .iter()

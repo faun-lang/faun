@@ -265,6 +265,107 @@ const RUNNING: &[(&str, &str, u32)] = &[
          main!(host) -> host.exit!(U8.of_nat(code(both(8)) + code(both(3)) + code(both(40))))",
         34,
     ),
+    (
+        "a parameter's row with `*` takes tags a caller adds, which its catch-all handles",
+        "describe : [NotFound, Denied(Nat), *] -> Nat
+         describe(NotFound) -> 1
+         describe(Denied(n)) -> n
+         describe(_) -> 50
+
+         lookup : Nat -> Result(Nat, [NotFound, TimedOut])
+         lookup(0) -> Err(NotFound)
+         lookup(1) -> Err(TimedOut)
+         lookup(n) -> Ok(n)
+
+         failure(n) -> lookup(n) is (
+           Err(e) then describe(e)
+           Ok(_) then 0
+         )
+
+         main! : Host -> []
+         main!(host) -> host.exit!(U8.of_nat(describe(Denied(3)) + describe(Gone) + failure(0) * 100 + failure(1)))",
+        203,
+    ),
+    (
+        "a result's row with `*` is the row without it, closed for the body and joined by callers",
+        "starred : Nat -> [Small, Big(Nat), *]
+         starred(n) -> if n < 10 then Small else Big(n)
+
+         plain : Nat -> [Small, Big(Nat)]
+         plain(n) -> if n < 10 then Small else Big(n)
+
+         pick : (Bool, Nat) -> [Small, Big(Nat), Neither]
+         pick(True, n) -> starred(n)
+         pick(False, 0) -> Neither
+         pick(False, n) -> plain(n)
+
+         code : [Small, Big(Nat), Neither] -> Nat
+         code(Small) -> 1
+         code(Big(n)) -> n
+         code(Neither) -> 7
+
+         main! : Host -> []
+         main!(host) -> host.exit!(U8.of_nat(code(pick(True, 3)) + code(pick(True, 20)) + code(pick(False, 0)) * 10 + code(pick(False, 30))))",
+        121,
+    ),
+    (
+        "a row with `*` inside other types, through an alias, and in a callback's answer, is each use's own",
+        "Failure = [NotFound, *]
+
+         first_code : (List(Result(Nat, Failure)), Nat -> [Stop, *]) -> Nat
+         first_code([], _) -> 0
+         first_code([Ok(n), *rest], judge) -> judge(n) is (
+           Stop then n
+           _ then first_code(rest, judge)
+         )
+         first_code([Err(NotFound), *rest], judge) -> 100 + first_code(rest, judge)
+         first_code([Err(_), *rest], judge) -> 10 + first_code(rest, judge)
+
+         judge(n) -> if n > 5 then Stop else if n == 0 then Zero else Go(n)
+
+         main! : Host -> []
+         main!(host) -> host.exit!(U8.of_nat(first_code([Err(Odd), Ok(1), Err(NotFound), Ok(0), Ok(9), Ok(20)], judge)))",
+        119,
+    ),
+    (
+        "a row with `*` is passed on where one is wanted, and a callback is given rows as a result is",
+        "inner : [A, *] -> Nat
+         inner(A) -> 1
+         inner(_) -> 4
+
+         outer : [A, *] -> Nat
+         outer(A) -> 10
+         outer(x) -> inner(x) + loose(x)
+
+         loose(A) -> 100
+         loose(_) -> 200
+
+         apply : ([A, *] -> Nat) -> Nat
+         apply(f) -> f(A)
+
+         main! : Host -> []
+         main!(host) -> host.exit!(U8.of_nat(outer(A) + outer(B) + apply(outer)))",
+        224,
+    ),
+    (
+        "the rows a message prints of a failure and of a lone tag are written in signatures",
+        "say! : Host -> Result({}, [BrokenPipe, NoSpace, Other(Nat), *])
+         say!(host) -> host.print!(\"\")
+
+         found : [NotFound, *] -> Nat
+         found(NotFound) -> 3
+         found(_) -> 0
+
+         main! : Host -> []
+         main!(host) -> (
+           said = say!(host) is (
+             Ok(_) then 1
+             Err(_) then 0
+           )
+           host.exit!(U8.of_nat(said + found(NotFound) + found(Other)))
+         )",
+        4,
+    ),
 ];
 
 #[test]

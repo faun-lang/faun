@@ -1,0 +1,5 @@
+error: `[Go, Stop, *]` may hold tags a caller adds, which no pattern here matches: write a catch-all
+ --> arms_over_a_row_with_a_caller_s_rest_take_the_rest_with_a_catch_all.fn:4:22
+  |
+4 | first_stop(judge) -> judge(0) is (
+  |                      ^^^^^^^^

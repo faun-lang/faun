@@ -1,0 +1,7 @@
+error: `Denied` is not among the tags of `[NotFound, *]`, whose others are a caller's
+ --> a_body_names_only_the_tags_its_row_writes_before_the_star.fn:6:1
+  |
+6 | describe(Denied) -> 2
+  | ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: a body names only the tags its row writes: write it there, before the `*`

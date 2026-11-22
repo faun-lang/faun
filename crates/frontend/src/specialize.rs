@@ -2186,7 +2186,7 @@ pub(crate) fn surface_type(
                 .collect::<Result<_, _>>()?,
             result: Box::new(surface_type(result, variables, symbols)?),
         })),
-        h::Type::Variants(constructors) => Ok(Type::row(
+        h::Type::Variants(constructors, _) => Ok(Type::row(
             constructors
                 .iter()
                 .map(|constructor| {

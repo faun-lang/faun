@@ -69,13 +69,43 @@ what the definition handles, and stays closed. Clauses, or an `is`'s arms,
 that take a row apart with no catch-all close it too, so after `f(A) -> 1`
 and `f(B) -> 2`, the call `f(C)` is refused.
 
+A row may write `*` last, as a record does: `[A, *]` holds `A` and
+whatever other tags the caller's row holds, a rest the caller chooses.
+Where the definition receives the row, as a parameter or as what a
+callback it is handed answers, the body must take it apart with a
+catch-all, may name only the tags the row writes, and cannot compare or
+print it:
+
+```ruby
+describe : [NotFound, Denied(Str), *] -> Str
+describe(NotFound) -> "missing"
+describe(Denied(who)) -> "denied to ${who}"
+describe(_) -> "failed"
+
+expect describe(Denied("ada")) == "denied to ada"
+expect describe(TimedOut) == "failed"
+```
+
+Without `*`, `describe(TimedOut)` is refused, whatever catch-all the
+clauses have. Where the definition gives the row, as its result or as a
+callback's parameter, a written row is already closed for the body and
+open to callers, so `[A, *]` there is `[A]`. Each `*` is a rest of its
+own, so `[A, *] -> [A, *]` cannot answer what it was given; writing the
+answer as `_` does. An alias's `*` is each use's own, and a declared type
+holds no `*`: its tags, and what its tags hold, are its own.
+
 A signature may write `_` for a row it leaves to its `?`s:
 `parse_pair : (Str, Str) -> Result((Nat, Nat), _)` answers whatever its
 producers and its own `Err(Zero)` join.
 
 A closed row has `equals` and `to_str` without declaring them. Two values
 are equal where they are one tag with equal payloads, and a tag is written
-as its name with its payloads after it: `Invalid(3)`.
+as its name with its payloads after it: `Invalid(3)`. A row with a
+caller's rest has neither, as a record with `*` has none:
+
+```text
+error: `[A, *]` may hold tags a caller adds, which it cannot say `equals` of
+```
 
 ## Nominal types
 
@@ -212,40 +242,44 @@ means. A signature on `glow` is the recourse.
 
 ### Why may a row write `*`?
 
-Proposed, not yet built: `[A, *]` is a type a signature may write, as
-`{name: Str, *}` is. It overturns the earlier answer, that a variant row
-needs no written tail, for two reasons. A clause list with a catch-all
-takes any tag, but no signature could say so: `f : [A] -> Nat` with
-`f(A) -> 1` and `f(_) -> 0` still refuses a caller's `f(C)`, so the
-definition had to stay unsigned. And inference makes open rows that
-messages print, `Result({}, [BrokenPipe, NoSpace, Other(Nat), *])`, which
-no signature could then write.
+Ori had no written tail, and Faun kept that at first: a variant is
+matched, and matching covers the whole row, so "at least these tags"
+seemed a promise about a catch-all clause rather than a fact about a
+type. But the promise could not be written where a caller reads it. A
+clause list with a catch-all takes any tag, yet `f : [A] -> Nat` with
+`f(A) -> 1` and `f(_) -> 0` refused a caller's `f(C)`, so such a
+definition stayed unsigned. And inference makes open rows, which messages
+print, `Result({}, [BrokenPipe, NoSpace, Other(Nat), *])`, and which no
+signature could then write.
 
 `*` means what it means in a record: a rest its caller chooses, never
-named, each `*` a rest of its own. `[A, *]` holds `A` and whatever other
-tags the caller's row holds. What it changes depends on which way the row
-flows, not on how deep it lies.
+named, each `*` a rest of its own. What it changes depends on which way
+the row flows, not on how deep it lies.
 
 - **Where a definition receives the row**: a parameter, or the answer of
   a callback it is handed. `f : [A, *] -> Nat` takes any row that holds
   `A` or may: the literal `B`, a closed `[A, B]`, an unsigned producer's
   open row. Like `{name: Str, *}` refusing a record with no `name`, it
   refuses a closed row lacking `A`. The body sees the rest as a caller's,
-  as with a record's `*`, and the checker refuses three things. Clauses or
-  arms that take the row apart without a catch-all, `_` or a name:
-  `` `[A, *]` may hold tags a caller adds, which no pattern here matches:
-  write a catch-all ``. A pattern naming a tag the row does not write,
-  `f(B)`: `B` is not among its tags, with help to write `[A, B, *]`, as
-  `r.age` under `{name: Str, *}` is refused. And `equals`, `to_str` or
-  `hash_into` on the row, whose other tags it cannot compare or print.
-  The value may be bound, passed where a row with `*` is wanted, and
-  matched; it may not be answered where another `*` is wanted.
+  and three things are refused. Clauses that take the row apart without
+  a catch-all are refused as any clauses not covering their type are,
+  `` no clause matches `f(_)` ``, and arms the same way: `` `[A, *]` may
+  hold tags a caller adds, which no pattern here matches: write a
+  catch-all ``. A pattern naming a tag the row does not write, as
+  `r.age` under `{name: Str, *}` is refused: `` `B` is not among the
+  tags of `[A, *]`, whose others are a caller's ``, with help to write it
+  in the row before its `*`; so is passing the value where `[A, B, *]`
+  is wanted, as a record with `*` cannot be passed where it would need a
+  field it may not have. And `equals` or `to_str` of the row, `` `[A, *]`
+  may hold tags a caller adds, which it cannot say `equals` of ``. The
+  value may be bound, passed where a row with `*` is
+  wanted, and matched; it may not be answered where another `*` is.
 - **Where a definition gives the row**: its result, or a callback's
   parameter. A written row there is already closed for the body and open
   to callers, so `[A, *]` and `[A]` are one type. `*` is allowed rather
-  than refused as redundant, so that any type a message prints may be
-  pasted where it was printed, and means nothing more. A message shows
-  such a row as `[A]`, as it is most often written.
+  than refused as redundant, so that a type a message prints may be
+  pasted where it was printed; a message shows such a row as `[A]`, as
+  it is most often written.
 - **Inside other types**: `Result(a, [A, *])` and `List([A, *])` take the
   position of the type around them. As a parameter, a match on the
   `Err`'s row needs a catch-all; as a result, either spelling is the
@@ -254,10 +288,10 @@ flows, not on how deep it lies.
   and is `([A] -> Nat) -> Nat`.
 - **Several `*`**: each is its own rest, as for records.
   `([A, *], [A, *]) -> Bool` takes two rows whose rests the caller
-  chooses apart, so it compares neither, and `[A, *] -> [A, *]` written
-  `f(x) -> x` is refused: the answer's rest is not the parameter's. A
-  message numbers them `*1` and `*2` where they would read alike, with
-  help to write the answer as `_`.
+  chooses apart, and `[A, *] -> [A, *]` written `f(x) -> x` is refused:
+  the answer's rest is not the parameter's. The message tells the two
+  apart, `` expected `[A]`, found `[A, *]` ``, numbering them where they
+  would still read alike, with help to write the answer as `_`.
 - **Payloads**: `[A(Nat), *]` fixes the written tags' payloads; a
   caller's other tags carry what they carry, and a caller's `A` must
   carry a `Nat`, since one row cannot hold two `A`s.
@@ -267,25 +301,26 @@ flows, not on how deep it lies.
 - **`_`**: a hole is whatever the clauses make it, so `_` and `*` do not
   meet. In a signature that writes `_` somewhere, its written types are
   where inference starts and a `*` is a rest inference may fill, as a
-  record's `*` is today.
+  record's `*` is there.
 - **Aliases**: transparent, so `Failure = [NotFound, *]` gives each use
   its own rest, read in the position of that use.
 - **Declared types**: a declared type's tags are its own, so
-  `Light : [Low, High, *]` is refused, and so is a `*` anywhere in what a
-  declared type holds, a record's included: the type would hold a rest
-  no one chose. Today `P : [A({x: Nat, *})]` is accepted and its program
-  fails to build.
+  `Light : [Low, High, *]` is refused, "a declared type's tags are its
+  own", and so is a `*` anywhere in what a declared type holds, a
+  record's included, "a declared type holds no row with `*`": the type
+  would hold a rest no one chose.
 - **Coverage**: a row with a caller's rest is covered only by a
-  catch-all, which the coverage check already says of an open row.
-- **Derived members**: a row with a caller's rest has no `equals`,
-  `to_str` or `hash_into` in the body, as an open record has none. A
-  caller, who knows the rest, compares and prints its own rows.
+  catch-all, which the coverage check says of any open row.
+- **Derived members**: a row with a caller's rest has no `equals` or
+  `to_str` in the body, as a record with `*` has none; no tag row has
+  `hash_into`. A caller, who knows the rest, compares and prints its own
+  rows.
 
 Messages print only writable types. A row still open to inference, or
 one whose `*` a signature wrote where the definition receives it, shows
-`*`; a result row's rest, which no one writes, does not. At a use, a row
-its signature closed shows `*`, since the use may add tags to it, which
-`[Green, Red, *]` now says in a form a signature takes.
+`*`; the rest of a row a definition gives, which no one need write, does
+not. At a use, a row its signature closed shows `*`, `[Green, Red, *]`
+for a constant written `[Red, Green]`, since the use may add tags to it.
 
 The cost is a second spelling of a result row, and one more thing a
 reader of a parameter must notice. Wrapping a producer's row in a tag
@@ -326,9 +361,20 @@ holds its players as a sum, `Bot : [AlwaysRock(AlwaysRock), ...]`, each
 constructor carrying a bot's state, and `Bot`'s methods forward to each
 bot's own.
 
+## History
+
+- **2026-11-21:** a row may write `*`, `[A, *]`, a rest its caller
+  chooses, as a record's `*` is. Before, the grammar refused it, "expected
+  one of `]`, a type name, found `*`", though inference made such rows
+  and messages printed them, and a signature could not say that clauses
+  with a catch-all take any tag. A declared type holding a record with
+  `*` in a constructor, `P : [A({x: Nat, *})]`, came to be refused at
+  the same time; it had been accepted, and its program failed to build.
+
 ## Related
 
-- [Records](records.md): the other row, read by field, with a written tail
+- [Records](records.md): the other row, read by field, whose `*` a tag
+  row's follows
 - [Types](../types.md): inference, rows in general, and `where` bounds
 - [Methods](../forms/methods.md): type blocks, derived members, and a sum's
   name standing for its constructors

@@ -1,0 +1,7 @@
+# What a callback answers is received, so its `*` is a caller's rest that
+# the arms must take with a catch-all.
+first_stop : (Nat -> [Stop, Go, *]) -> Nat
+first_stop(judge) -> judge(0) is (
+  Stop then 1
+  Go then 2
+)

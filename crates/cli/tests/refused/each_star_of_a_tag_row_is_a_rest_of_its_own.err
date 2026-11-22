@@ -1,0 +1,10 @@
+error: mismatched types
+ --> each_star_of_a_tag_row_is_a_rest_of_its_own.fn:4:12
+  |
+3 | kept : [A, B, *] -> [A, B, *]
+  |                     --------- expected `[A, B]` because of return type
+4 | kept(x) -> x
+  |            ^ expected `[A, B]`, found `[A, B, *]`
+  |
+  = note: each `*` a signature writes is a rest of its own, which its caller chooses, so a row with one `*` is not a row with another
+  = help: to answer a row with the rest it was given, write the answer's type as `_`

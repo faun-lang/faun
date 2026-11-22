@@ -271,9 +271,12 @@ pub enum Type {
         parameters: Vec<Self>,
         result: Box<Self>,
     },
+    /// `[A, B(T)]`, or with `*`, `[A, *]`: a tag row holding at least these
+    /// tags, whatever else a caller's holds.
     Variants {
         span: Span,
         constructors: Vec<ConstructorDecl>,
+        open: bool,
     },
     /// `{x: T}`, or with `*`, `{x: T, *}`: a record with at least these
     /// fields, whatever else a caller's has.

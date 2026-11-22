@@ -1,0 +1,4 @@
+# The answer's `*` is not the parameter's, so what was given is not what
+# may be answered; the answer's rest shows as written, without its `*`.
+kept : [A, B, *] -> [A, B, *]
+kept(x) -> x

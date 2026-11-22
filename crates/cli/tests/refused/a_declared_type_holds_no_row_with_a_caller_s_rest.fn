@@ -1,0 +1,3 @@
+# Whose rest would a value of the type hold? None chose it: a record with
+# `*` in a constructor was accepted, and its program failed to build.
+Shape : [Labelled({label: Str, *}), Plain]

@@ -83,6 +83,38 @@ f : (List(a), a -> b) -> {x: a, *} where Show(a), Eq(a), a.show : a -> Str
           (type_identifier))))))
 
 ========================================
+An open tag row in a signature
+========================================
+
+f : ([A, B(Nat), *], [*]) -> Result(a, [C, *])
+
+---
+
+(source_file
+  (signature
+    (identifier)
+    (function_type
+      (tuple_type
+        (variant_type
+          (variant
+            (type_identifier))
+          (variant
+            (type_identifier)
+            (type_arguments
+              (type_identifier)))
+          (rest))
+        (variant_type
+          (rest)))
+      (generic_type
+        (type_identifier)
+        (type_arguments
+          (type_variable)
+          (variant_type
+            (variant
+              (type_identifier))
+            (rest)))))))
+
+========================================
 Aliases
 ========================================
 

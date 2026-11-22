@@ -1,0 +1,7 @@
+# The caller's rest may or may not hold `Denied`: the body cannot say, so
+# naming it is refused, as reading a field a record with `*` does not
+# write is.
+describe : [NotFound, *] -> Nat
+describe(NotFound) -> 1
+describe(Denied) -> 2
+describe(_) -> 0

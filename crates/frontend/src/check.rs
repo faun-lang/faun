@@ -2211,8 +2211,15 @@ impl Checker<'_> {
         reason: &Mismatch,
     ) -> Refusal {
         // Which tag or field does not fit is the whole of it.
-        if let Mismatch::NotAmong { .. } = reason {
-            return failure(module, span, reason.describe(self.symbols));
+        if let Mismatch::NotAmong { tags, .. } = reason {
+            let refused = failure(module, span, reason.describe(self.symbols));
+            if reason.written_rest() {
+                let them = if tags.len() == 1 { "it" } else { "them" };
+                return refused.help(format!(
+                    "a body names only the tags its row writes: write {them} there, before the `*`"
+                ));
+            }
+            return refused;
         }
         let actual = self.infer.resolve(actual);
         let nothing = matches!(&actual, Ty::Record(fields, None) if fields.is_empty());

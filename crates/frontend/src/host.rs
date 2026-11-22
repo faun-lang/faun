@@ -71,7 +71,7 @@ impl HostIds {
             name,
             spelling,
             parameters: vec![h::Type::Named(self.host, Vec::new())],
-            result: h::Type::Variants(Vec::new()),
+            result: h::Type::Variants(Vec::new(), false),
             result_span: None,
             constraints: Vec::new(),
         })
