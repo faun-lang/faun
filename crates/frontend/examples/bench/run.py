@@ -149,7 +149,6 @@ def main():
     parser.add_argument(
         "--perf", default=os.environ.get("PERF") or shutil.which("perf")
     )
-    parser.add_argument("--backend", help="Faun backend passed to every compiler")
     parser.add_argument(
         "--only", default="", help="run only benchmarks whose names hold this"
     )
@@ -160,7 +159,6 @@ def main():
         parser.error("CPU is outside this process's allowed affinity")
     os.sched_setaffinity(0, {args.cpu})
     compilers = []
-    backend = [f"--backend={args.backend}"] if args.backend else []
     for given in args.faun or [f"faun={REPOSITORY / 'target/release/faun'}"]:
         label, _, path = given.partition("=")
         compilers.append((label, path or label))
@@ -191,7 +189,6 @@ def main():
                     [
                         compiler,
                         "build",
-                        *backend,
                         str(source),
                         "-o",
                         str(image),
