@@ -407,6 +407,7 @@ impl<'a> Checker<'a> {
                     bare: false,
                     through,
                     numeral: None,
+                    origin: None,
                 });
                 progress = true;
             }
