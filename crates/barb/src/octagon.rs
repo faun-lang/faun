@@ -189,6 +189,18 @@ impl Octagon {
         self.entries[from * self.side + to] = bound;
     }
 
+    /// Row `from` to write and row `via` to read, two different rows.
+    fn rows(&mut self, from: usize, via: usize) -> (&mut [Bound], &[Bound]) {
+        let side = self.side;
+        if from < via {
+            let (before, after) = self.entries.split_at_mut(via * side);
+            (&mut before[from * side..][..side], &after[..side])
+        } else {
+            let (before, after) = self.entries.split_at_mut(from * side);
+            (&mut after[..side], &before[via * side..][..side])
+        }
+    }
+
     /// Say `constraint` without closing: for building a matrix to close.
     pub(super) fn assume(&mut self, constraint: Constraint) {
         for Constraint { from, to, bound } in [constraint, constraint.turned()] {
@@ -396,10 +408,23 @@ impl Octagon {
             if first >= INFINITE {
                 continue;
             }
+            if from == via {
+                // `via`'s own row, written only where its own entry is
+                // below nought, and then read as written.
+                for &to in reach.iter() {
+                    let through = plus(first, self.get(via, to));
+                    if through < self.get(from, to) {
+                        self.put(from, to, through);
+                    }
+                }
+                continue;
+            }
+            // Every entry `via` reaches is bounded, and so is `first`.
+            let (row, along) = self.rows(from, via);
             for &to in reach.iter() {
-                let through = plus(first, self.get(via, to));
-                if through < self.get(from, to) {
-                    self.put(from, to, through);
+                let through = first + along[to];
+                if through < row[to] {
+                    row[to] = through;
                 }
             }
         }
@@ -526,8 +551,20 @@ impl Octagon {
     /// What either of two closed octagons holds: the looser of each entry,
     /// which is closed again.
     pub(super) fn join(&mut self, other: &Self) {
-        for (held, other) in self.entries.iter_mut().zip(&other.entries) {
-            *held = (*held).max(*other);
+        // Range analysis joins the states its arms left, and an arm writes
+        // only the rows its constraints reach: the rows it left as it found
+        // them are the same in both, compared far faster than joined.
+        let side = self.side.max(1);
+        for (held, other) in self
+            .entries
+            .chunks_mut(side)
+            .zip(other.entries.chunks(side))
+        {
+            if held != other {
+                for (held, other) in held.iter_mut().zip(other) {
+                    *held = (*held).max(*other);
+                }
+            }
         }
     }
 
