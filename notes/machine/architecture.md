@@ -5,7 +5,8 @@ through, what each tier decides and leaves to the next, and the three
 targets at the bottom. A Faun program is checked and made first-order in
 the frontend, optimized as Barb, given a representation in machine IR, and
 written out by a target for x86-64 Linux, wasm32 WASI, or the 6502 under
-cc65's sim65 simulator. How values are counted and reused in memory is in
+cc65's sim65 simulator. A fourth, for Apple Silicon macOS, takes only a
+baseline so far: exiting, the argument count and writes of static data. How values are counted and reused in memory is in
 [memory](memory.md).
 
 ## The tiers

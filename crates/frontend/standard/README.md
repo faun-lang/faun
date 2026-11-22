@@ -36,7 +36,7 @@ basic operations and `fma`, `sqrt`, the roundings to integers, conversions,
 `to_precision`. `cmp` is the standard's total order, and `equals` follows it:
 a NaN equals itself and `-0.0` is not `0.0`; `partial_cmp` and
 `numeric_equals` are the hardware's. Ori's contract for them, rule by rule,
-is `examples/floats/`.
+is `crates/frontend/examples/floats/`.
 
 Their `add`, `sub`, `mul`, `div` and `sqrt` are recognized by their code:
 nothing an equation says makes a definition IEEE 754's addition, so Barb
@@ -45,7 +45,7 @@ and everything it calls, in a table `just bless` writes from this
 directory. Editing them means blessing that table again. The definitions
 stay, and answer wherever nothing faster does: on a target without float
 instructions, and in a program that walks every body to check them, as
-`examples/floats/` is asked both ways. Folding answers a recognized call
+`crates/frontend/examples/floats/` is asked both ways. Folding answers a recognized call
 from its operands with the host's own arithmetic, and x86-64
 with one SSE2 instruction; a NaN may then be any NaN's pattern, which no
 program can tell, since `to_bits`, `cmp` and `sign_bit` read every NaN as
@@ -63,8 +63,8 @@ recognized as nothing, and so what lets a `U64`, and an `F64` over it, be
 held in a machine word rather than as a natural of any size.
 
 `Nat.from_str` and `Int.from_str` read decimal text, `Err(Malformed)` where it
-is not one: digits only, and for an `Int` a leading `-`. `Nat`, `Int` and `U8`
-have `min` and `max`, and `U8` the ASCII tests `is_digit`, `is_ascii_lower`,
+is not one: digits only, and for an `Int` a leading `-`. Every number type
+has `min` and `max`, and `U8` the ASCII tests `is_digit`, `is_ascii_lower`,
 `is_ascii_upper` and `is_ascii_letter`, and `to_ascii_lower` and
 `to_ascii_upper`.
 
@@ -216,7 +216,8 @@ parts of the tree holding them, as Rust's `BTreeSet::range` does.
 `words.from(prefix).take_while(|w| w.starts_with(prefix))` is every word
 with that prefix. Both update a key as
 Python's `defaultdict` does with `update_or(key, missing, change)`, which
-changes the value there, or `missing` where the key is absent: `counts =
+changes the value there, or `missing` where the key is absent, so a key
+first met answers `change(missing)`: `counts =
 counts.update_or(word, 0, |count| count + 1)`. Two containers are equal
 where they hold the same entries, however each was built. A container's
 `to_str` writes the call building it, its entries in `to_list`'s order:
@@ -318,11 +319,13 @@ instruction. Where the number fits a machine word, a shift by a known count
 is one shift instruction, and a mask of low bits, `& 7`, is read as the
 width it keeps, as `% 8` is, which costs nothing where the value is no wider. `Int` has no bitwise operations.
 
-`Nat`, `Int`, and `U8` define `+`, `-`, `*`, `/`, and `%`. A type is ordered by
+`Nat`, `Int` and the words define `+`, `-`, `*`, `/`, and `%`, and the floats
+all but `%`. A type is ordered by
 defining one `cmp : (T, T) -> Order`, and `<`, `<=`, `>` and `>=` are fixed views of
-its `Order`, as `equals` is, so they cannot disagree; `Bool`, `Nat`, `Int` and `U8` define it. Natural subtraction is
+its `Order`, as `equals` is, so they cannot disagree; `Bool` and every number type define it. Natural subtraction is
 monus. Signed division is Euclidean, as Ori's is: the remainder is never negative,
-so `-7 / 3` is `-3` and `-7 % 3` is `2`. For every type, division by zero returns zero and `a % 0` returns `a`.
+so `-7 / 3` is `-3` and `-7 % 3` is `2`. For every integer type, division by zero returns zero and `a % 0` returns `a`;
+a float's division by zero answers an infinity, or NaN for `0.0 / 0.0`, as above.
 `U8` arithmetic uses unsigned representatives and wraps modulo 256; in particular,
 `0 - 1` is 255 rather than natural zero.
 
@@ -333,7 +336,9 @@ ordinary available constructor spelling. Each target has its own host module,
 `hosts/common.fn`, which each imports as `hosts.common`: the rows, `Mode`,
 and the walks that go on until a stream is done. What a host module keeps
 for itself is its target's: its descriptors, its flags and its error
-numbers. Each declares Ori's host streams:
+numbers. Each declares Ori's host streams, but for Apple Silicon macOS's,
+a baseline that does not import `hosts.common` and offers only `args`,
+`exit!`, `stdout`, and a `print!` and `write!` that answer `{}`:
 
 ```
 Host : {args: List(Str)}.(
