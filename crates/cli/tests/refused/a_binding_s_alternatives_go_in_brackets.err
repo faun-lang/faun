@@ -1,0 +1,7 @@
+error: `turn` is bound by some alternatives of this `|` and not others
+ --> a_binding_s_alternatives_go_in_brackets.fn:4:9
+  |
+4 | turned([turn is 'L' | 'R', *_]) -> turn == 'L'
+  |         ^^^^^^^^^^^ this binds `turn` to `'L'` alone
+  |
+  = help: to bind `turn` to any of them, bracket the alternatives: `turn is ('L' | 'R')`

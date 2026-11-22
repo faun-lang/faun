@@ -1285,6 +1285,45 @@ fn standing_in(
     }
 }
 
+/// The names `pattern` binds, as written.
+fn names_bound<'s>(pattern: &s::Pattern, source: &'s str) -> std::collections::BTreeSet<&'s str> {
+    let mut names = std::collections::BTreeSet::new();
+    let mut waiting = vec![pattern];
+    while let Some(pattern) = waiting.pop() {
+        match pattern {
+            s::Pattern::Bind(name) => {
+                names.insert(name.text(source));
+            }
+            s::Pattern::As { name, pattern, .. } => {
+                names.insert(name.text(source));
+                waiting.push(pattern);
+            }
+            s::Pattern::Constructor { fields: parts, .. }
+            | s::Pattern::Tuple { members: parts, .. }
+            | s::Pattern::Or {
+                alternatives: parts,
+                ..
+            } => waiting.extend(parts),
+            s::Pattern::List { elements, rest, .. } => {
+                waiting.extend(elements.iter().chain(rest.as_deref()));
+            }
+            s::Pattern::Ending { front, last, .. } => {
+                waiting.push(front);
+                waiting.extend(last);
+            }
+            s::Pattern::Record { fields, .. } => {
+                waiting.extend(fields.iter().map(|(_, field)| field));
+            }
+            s::Pattern::Wild(_)
+            | s::Pattern::Equal { .. }
+            | s::Pattern::Number { .. }
+            | s::Pattern::Range { .. }
+            | s::Pattern::String { .. } => {}
+        }
+    }
+    names
+}
+
 /// Where `pattern` names a whole value it also takes apart, if anywhere.
 fn named_whole(pattern: &s::Pattern) -> Option<s::Span> {
     match pattern {
@@ -1769,14 +1808,13 @@ impl ClauseResolver<'_> {
                 .chain(these.keys())
                 .find(|name| bound.get(name) != these.get(name))
             {
-                return Err(error(
-                    self.module,
-                    span,
-                    format!(
-                        "`{}` is bound by some alternatives of this `|` and not others",
-                        self.symbols.text(*name)
-                    ),
-                ));
+                let name = self.symbols.text(*name);
+                let message =
+                    format!("`{name}` is bound by some alternatives of this `|` and not others");
+                if let Some(refused) = self.unbracketed(alternatives, name, &message) {
+                    return Err(refused);
+                }
+                return Err(error(self.module, span, message));
             }
             self.locals = after_first;
             resolved.push(pattern);
@@ -1784,6 +1822,60 @@ impl ClauseResolver<'_> {
         self.alternative = outer;
         self.choosing = choosing;
         Ok(h::Pattern::Or(resolved))
+    }
+
+    /// Where one of `alternatives` binds `name` to a pattern, `name is P`,
+    /// and the others bind just what `P` does, they were meant inside it:
+    /// `turn is 'L' | 'R'` is `(turn is 'L') | 'R'`, as `is` binds tighter
+    /// than `|`. The refusal points there, and shows the brackets.
+    fn unbracketed(
+        &self,
+        alternatives: &[s::Pattern],
+        name: &str,
+        message: &str,
+    ) -> Option<Refusal> {
+        let (at, span, inner) = alternatives
+            .iter()
+            .enumerate()
+            .find_map(|(at, alternative)| match alternative {
+                s::Pattern::As {
+                    span,
+                    name: bound,
+                    pattern,
+                } if bound.text(self.source) == name => Some((at, *span, &**pattern)),
+                _ => None,
+            })?;
+        let inside = names_bound(inner, self.source);
+        let others = alternatives
+            .iter()
+            .enumerate()
+            .filter(|&(other, _)| other != at);
+        if others
+            .clone()
+            .any(|(_, other)| names_bound(other, self.source) != inside)
+        {
+            return None;
+        }
+        let shown = |pattern: &s::Pattern| pattern.span().text(self.source).to_owned();
+        let bracketed: Vec<String> = alternatives
+            .iter()
+            .enumerate()
+            .map(|(other, pattern)| {
+                if other == at {
+                    shown(inner)
+                } else {
+                    shown(pattern)
+                }
+            })
+            .collect();
+        Some(
+            error(self.module, span, message)
+                .label(format!("this binds `{name}` to `{}` alone", shown(inner)))
+                .help(format!(
+                    "to bind `{name}` to any of them, bracket the alternatives: `{name} is ({})`",
+                    bracketed.join(" | ")
+                )),
+        )
     }
 
     /// A pattern that must match whatever it is handed, a binding's or a
