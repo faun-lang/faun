@@ -130,7 +130,12 @@
   "export"
 ] @keyword.control.import
 
-"if" @keyword.control.conditional
+[
+  "if"
+  "then"
+  "else"
+  "is"
+] @keyword.control.conditional
 
 [
   "where"
