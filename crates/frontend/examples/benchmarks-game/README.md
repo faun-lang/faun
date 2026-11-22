@@ -51,7 +51,7 @@ runner checks the full digest against Python and reports median runtime,
 peak RSS and executable size. From the repository root, run
 
 ```console
-$ just bench 8 --backend x86-lab --only md5
+$ just bench 8 --only md5
 ```
 
 Choose an available CPU in place of 8. To count Faun heap allocations from
@@ -59,7 +59,7 @@ startup through hex output, run the probe on a symbolized build. The probe
 requires GDB on native x86-64 Linux.
 
 ```console
-$ target/release/faun build --backend=x86-lab --symbols crates/frontend/examples/benchmarks-game/md5/main.fn -o target/md5-profile
+$ target/release/faun build --symbols crates/frontend/examples/benchmarks-game/md5/main.fn -o target/md5-profile
 $ python3 crates/frontend/examples/benchmarks-game/md5/allocations.py target/md5-profile
 ```
 

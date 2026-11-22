@@ -1,6 +1,6 @@
 # Ratchet
 
-The ratchet improves the compiler: the frontend, Barb, the backends and the standard library. Each candidate is a git revision. `just eval <candidate> [incumbent]` builds both revisions' compilers, has each compile the suite's programs and the probes for every target with the lab backend, holds what the programs print to their twins', and measures them. The incumbent defaults to `origin/main`. Once the compilers are built, a run takes about ten seconds, on a busy machine too, because what decides is counted rather than timed.
+The ratchet improves the compiler: the frontend, Barb, the backends and the standard library. Each candidate is a git revision. `just eval <candidate> [incumbent]` builds both revisions' compilers, has each compile the suite's programs and the probes for every target, holds what the programs print to their twins', and measures them. The incumbent defaults to `origin/main`. Once the compilers are built, a run takes about ten seconds, on a busy machine too, because what decides is counted rather than timed.
 
 ## What is measured
 
@@ -10,7 +10,7 @@ The ratchet improves the compiler: the frontend, Barb, the backends and the stan
 
 **Spelling families** are probes too: one computation written each way one naturally writes it, a probe a spelling, named `family-spelling`, such as `count-fold` and `count-filter`. A family is at least two probes sharing the part of their names before a hyphen; its spellings share their sizes and their twin, which the evaluator checks, so each prints the same. Faun should run a computation as well however it is spelled, so a family's **spread** on a target and measure, its worst spelling's measure over its best's, is a cliff: a spelling that loses an optimisation another keeps. Spreads are taken of speed, memory, size and small; not of compiling, one group across the targets whose counts vary by a percent.
 
-**A cell** is one program on one target. The targets are x86-64 Linux, wasm32 WASI and the 6502 under sim65. One backend is measured, lab: every build names it with `--backend lab`, the probes' twins' too, so an incumbent whose default was the stock backend builds with lab all the same. A cell has five measures, and lower is better in each:
+**A cell** is one program on one target. The targets are x86-64 Linux, wasm32 WASI and the 6502 under sim65, each with one backend, so no build names one. A cell has five measures, and lower is better in each:
 
 | Metric  | x86-64 Linux            | wasm32 WASI    | 6502 sim65    |
 | ------- | ----------------------- | -------------- | ------------- |
