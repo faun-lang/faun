@@ -467,6 +467,58 @@ impl Builder<'_> {
         self.push(op, results)
     }
 
+    /// Do `then` where `condition` holds, and nothing where it does not.
+    pub fn when(&mut self, condition: ValueId, then: impl FnOnce(&mut Builder)) {
+        self.if_(
+            condition,
+            &[],
+            |b| {
+                then(b);
+                b.yield_(&[]);
+            },
+            |b| b.yield_(&[]),
+        );
+    }
+
+    /// Do `otherwise` where `condition` does not hold.
+    pub fn unless(&mut self, condition: ValueId, otherwise: impl FnOnce(&mut Builder)) {
+        self.if_(
+            condition,
+            &[],
+            |b| b.yield_(&[]),
+            |b| {
+                otherwise(b);
+                b.yield_(&[]);
+            },
+        );
+    }
+
+    /// Where `condition` holds, do `then`, which leaves the region itself:
+    /// it returns, breaks, continues or calls what never returns.
+    pub fn leave_if(&mut self, condition: ValueId, then: impl FnOnce(&mut Builder)) {
+        self.if_(condition, &[], then, |b| b.yield_(&[]));
+    }
+
+    /// Where `condition` does not hold, do `otherwise`, which leaves the
+    /// region itself.
+    pub fn leave_unless(&mut self, condition: ValueId, otherwise: impl FnOnce(&mut Builder)) {
+        self.if_(condition, &[], |b| b.yield_(&[]), otherwise);
+    }
+
+    /// Call `fail`, which never returns, where `condition` holds.
+    pub fn fail_if(&mut self, condition: ValueId, fail: FunctionId) {
+        self.leave_if(condition, |b| {
+            b.call(fail, &[]);
+        });
+    }
+
+    /// Call `fail`, which never returns, where `condition` does not hold.
+    pub fn fail_unless(&mut self, condition: ValueId, fail: FunctionId) {
+        self.leave_unless(condition, |b| {
+            b.call(fail, &[]);
+        });
+    }
+
     /// The body runs with `initial`, then with whatever each `Continue`
     /// carries. `results` are the classes a `Break` leaves with.
     pub fn loop_(

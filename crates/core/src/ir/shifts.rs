@@ -70,7 +70,7 @@ fn looped(b: &mut Builder, direction: Direction, value: ValueId, count: ValueId)
         let (value, count) = (state[0], state[1]);
         let zero = b.constant(counted, 0);
         let done = b.compare(Relation::Equal, count, zero);
-        b.if_(done, &[], |b| b.break_(&[value]), |b| b.yield_(&[]));
+        b.leave_if(done, |b| b.break_(&[value]));
         let moved = b.shift(class, direction, value, 1);
         let one = b.constant(counted, 1);
         let rest = b.binary_at(counted, Binary::Sub, count, one);

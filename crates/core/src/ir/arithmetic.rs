@@ -169,7 +169,7 @@ fn power(b: &mut Builder, result: Class, base: ValueId, exponent: ValueId) -> Va
         let [built, base, exponent] = [state[0], state[1], state[2]];
         let zero = b.constant(counted, 0);
         let done = compare(b, Relation::Equal, exponent, zero);
-        b.if_(done, &[], |b| b.break_(&[built]), |b| b.yield_(&[]));
+        b.leave_if(done, |b| b.break_(&[built]));
         let two = b.constant(Class::fixed(2), 2);
         let low = lower(b, Operation::Mod, bit, exponent, two);
         let built = b.if_(
