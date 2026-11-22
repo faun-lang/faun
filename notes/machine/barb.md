@@ -131,7 +131,11 @@ Remove list work:
 Fold what is known:
 
 9. **Simplification.** Callee-first constant folding, identities, and
-   sharing repeated calls, so a caller sees its callees' answers.
+   sharing repeated calls, so a caller sees its callees' answers. What
+   follows a match of one arm goes on inside it, however deep the match
+   is nested in others of one arm, so a call worked out there is shared
+   with the rest of the body: a map lookup then an update hashes the key
+   once.
    Then a list a counting walk builds, `List.range(n).map(f)`, handed to a
    definition reading it only by its length and by what dropping a
    position leaves, goes to a copy taking what the walk was handed: the
