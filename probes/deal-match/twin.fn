@@ -1,0 +1,18 @@
+# `n` values dealt into 16 buckets by their last hex digit, as a radix
+# sort's pass deals them, and joined in order: each bucket the values
+# filtered by its digit, a walk a bucket. The family's twin.
+package {}
+
+import std.host {Host}
+
+dealt : List(Nat) -> List(Nat)
+dealt(values) -> List.range(16).map(|at| values.filter(|value| value % 16 == at)).flatten()
+
+main! : Host -> []
+main!(host) -> (
+  n = Nat.from_str(host.args.get(1).ok_or("1000")).ok_or(1000)
+  out = dealt(List.range(n).map(|i| i * 7919 % 1000))
+  (_, sum) = out.fold((0, 0), |(at, sum), value| (at + 1, (sum + at * value) % 1000000007))
+  printed = host.println!("${out.len()} ${sum}")
+  host.exit!(0)
+)
