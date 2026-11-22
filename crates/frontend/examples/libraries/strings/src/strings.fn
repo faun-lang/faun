@@ -1,0 +1,181 @@
+# String algorithms over lists of anything comparable, and over text by its
+# characters: finding every place a pattern occurs, after Knuth, Morris
+# and Pratt, without going back over the text; the Z-array; the edit
+# distance between two sequences, Levenshtein's; and a longest common
+# subsequence.
+#
+# Each takes lists, so it serves bytes, characters, words or tokens alike.
+# `scalars` reads text as its characters, the Unicode scalars UTF-8
+# writes, for an edit distance counted the way a reader counts.
+
+package {}
+
+export {prefix_function, z_function, find_all, find_first, occurrences, edit_distance, text_distance, common_subsequence, scalars}
+
+# For each place in `values`, how long the longest proper prefix of the
+# list up to there is that also ends there: what a matcher falls back to
+# after a mismatch, so it never reads a value twice.
+prefix_function : List(a) -> List(Nat) where Equatable(a)
+prefix_function(values) -> (
+  (_, borders) = values.drop(1).fold((0, [0]), |(border, borders), value| (
+    longer = fallen(values, borders, border, value)
+    (longer, borders.append(longer))
+  ))
+  if values.is_empty() then [] else borders
+)
+
+# The border after `value`, the border before it being `border`: as long
+# as the value after the border differs, fall back to the border's own.
+fallen : (List(a), List(Nat), Nat, a) -> Nat where Equatable(a)
+fallen(pattern, borders, border, value) -> (
+  if pattern.get(border) == Ok(value) return border + 1
+  if border == 0 return 0
+  fallen(pattern, borders, borders.get(border - 1).ok_or(0), value)
+)
+
+# Every place `pattern` begins in `text`, in order, overlapping ones too.
+# An empty pattern begins at every place, the end included.
+find_all : (List(a), List(a)) -> List(Nat) where Equatable(a)
+find_all(text, []) -> List.range(text.len() + 1)
+find_all(text, pattern) -> (
+  borders = prefix_function(pattern)
+  matched(text, pattern, borders, pattern.len(), 0, 0, [])
+)
+
+# The first place `pattern` begins in `text`.
+find_first : (List(a), List(a)) -> Result(Nat, [NotFound]) where Equatable(a)
+find_first(text, pattern) -> find_all(text, pattern).first().err_as(NotFound)
+
+# Every place `pattern` begins in `text`, counting bytes, as `Str.slice`
+# does.
+occurrences : (Str, Str) -> List(Nat)
+occurrences(text, pattern) -> find_all(text.to_utf8(), pattern.to_utf8())
+
+# The walk down the text: `at` values read, `border` of them matching the
+# pattern's front, the places found so far last first.
+matched : (List(a), List(a), List(Nat), Nat, Nat, Nat, List(Nat)) -> List(Nat) where Equatable(a)
+matched([], _, _, _, _, _, found) -> found.reverse()
+matched([value, *rest], pattern, borders, length, at, border, found) -> (
+  border = fallen(pattern, borders, border, value)
+  if border < length return matched(rest, pattern, borders, length, at + 1, border, found)
+  next = borders.get(length - 1).ok_or(0)
+  matched(rest, pattern, borders, length, at + 1, next, [at + 1 - length, *found])
+)
+
+# For each place in `values`, how long a run from there matches the list's
+# front; nought at the front itself, as is usual.
+z_function : List(a) -> List(Nat) where Equatable(a)
+z_function([]) -> []
+z_function(values) -> (
+  n = values.len()
+  (_, _, z) = List.range(n).drop(1).fold((0, 0, [0]), |(left, right, z), at| (
+    known = if at < right then (right - at).min(z.get(at - left).ok_or(0)) else 0
+    length = extended(values, known, at, n)
+    if at + length > right then (at, at + length, z.append(length)) else (left, right, z.append(length))
+  ))
+  z
+)
+
+# How far a match of the front from `at` goes, `length` of it known.
+extended : (List(a), Nat, Nat, Nat) -> Nat where Equatable(a)
+extended(values, length, at, n) if at + length < n & values.get(length) == values.get(at + length) ->
+  extended(values, length + 1, at, n)
+extended(_, length, _, _) -> length
+
+# The fewest insertions, deletions and substitutions that make `a` into
+# `b`, Levenshtein's distance, a row of the table at a time.
+edit_distance : (List(a), List(a)) -> Nat where Equatable(a)
+edit_distance(a, b) -> (
+  last = a.fold(List.range(b.len() + 1), |above, x| row_below(above, x, b))
+  last.last().ok_or(0)
+)
+
+# The table's next row, `above` the one before it, for `x` against each of
+# `b`: each cell the cheapest of the one above plus one, the one to its left
+# plus one, and the one above to the left plus a substitution where the two
+# differ.
+row_below : (List(Nat), a, List(a)) -> List(Nat) where Equatable(a)
+row_below(above, x, b) -> (
+  first = above.first().ok_or(0) + 1
+  [first, *cells(above, above.drop(1), b, x, first)]
+)
+
+cells : (List(Nat), List(Nat), List(a), a, Nat) -> List(Nat) where Equatable(a)
+cells([diagonal, *diagonals], [up, *ups], [y, *ys], x, left) -> (
+  cost = (diagonal + (x != y).to_nat()).min(up + 1).min(left + 1)
+  [cost, *cells(diagonals, ups, ys, x, cost)]
+)
+cells(_, _, _, _, _) -> []
+
+# The edit distance between two texts, counted in characters.
+text_distance : (Str, Str) -> Nat
+text_distance(a, b) -> edit_distance(scalars(a), scalars(b))
+
+# A longest list that is a subsequence of both: elements of each in order,
+# not necessarily neighbours.
+common_subsequence : (List(a), List(a)) -> List(a) where Equatable(a)
+common_subsequence(a, b) -> (
+  # A row for each suffix of `a`, the whole of it first, each saying how
+  # long a common subsequence it has with each suffix of `b`, shortest
+  # first.
+  rows = a.reverse().fold([List.repeat(0, b.len() + 1)], |rows, x| [suffix_row(rows.first().ok_or([]), x, b.reverse()), *rows])
+  traced(a, b, rows, [])
+)
+
+# The row for `x` before a suffix of `a` whose row is `below`, over `b`
+# turned round: for each suffix of `b`, one more than `below` has without
+# its first element where that is `x`, or else the longer of `below`'s and
+# the row's for the suffix one shorter.
+suffix_row : (List(Nat), a, List(a)) -> List(Nat) where Equatable(a)
+suffix_row(below, x, b) -> [0, *lengths(below, below.drop(1), b, x, 0)]
+
+lengths : (List(Nat), List(Nat), List(a), a, Nat) -> List(Nat) where Equatable(a)
+lengths([diagonal, *diagonals], [down, *downs], [y, *ys], x, left) -> (
+  length = if x == y then diagonal + 1 else down.max(left)
+  [length, *lengths(diagonals, downs, ys, x, length)]
+)
+lengths(_, _, _, _, _) -> []
+
+# The table walked from the front of both: an element both begin with is
+# taken, and otherwise the side whose dropping keeps the longer common
+# subsequence is dropped. `rows` begins with the row of `a` as it is.
+traced : (List(a), List(a), List(List(Nat)), List(a)) -> List(a) where Equatable(a)
+traced([x, *xs], [y, *ys], rows, found) if x == y -> traced(xs, ys, rows.drop(1), [x, *found])
+traced(whole is [_, *xs], bs is [_, *ys], rows is [row, next, *], found) -> (
+  if next.get(bs.len()).ok_or(0) >= row.get(ys.len()).ok_or(0)
+    then traced(xs, bs, rows.drop(1), found)
+    else traced(whole, ys, rows, found)
+)
+traced(_, _, _, found) -> found.reverse()
+
+# The Unicode scalars `text` writes, each a number, UTF-8 read back.
+scalars : Str -> List(Nat)
+scalars(text) -> decoded(text.to_utf8())
+
+decoded : List(U8) -> List(Nat)
+decoded([]) -> []
+decoded([lead, *rest]) if lead < 0x80 -> [lead.to_nat(), *decoded(rest)]
+decoded([lead, a, *rest]) if lead < 0xe0 -> [((lead.to_nat() & 0x1f) << 6) | low(a), *decoded(rest)]
+decoded([lead, a, b, *rest]) if lead < 0xf0 -> [((lead.to_nat() & 0x0f) << 12) | (low(a) << 6) | low(b), *decoded(rest)]
+decoded([lead, a, b, c, *rest]) -> [((lead.to_nat() & 0x07) << 18) | (low(a) << 12) | (low(b) << 6) | low(c), *decoded(rest)]
+decoded(_) -> []
+
+# A continuation byte's six bits.
+low : U8 -> Nat
+low(byte) -> byte.to_nat() & 0x3f
+
+expect prefix_function("abacaba".to_utf8()) == [0, 0, 1, 0, 1, 2, 3] & prefix_function([0].drop(1)) == []
+expect prefix_function([1, 1, 1, 2, 1, 1]) == [0, 1, 2, 0, 1, 2]
+expect find_all([1, 1, 1, 1], [1, 1]) == [0, 1, 2] & find_all([1, 2], [3]) == [] & find_all([1, 2], [1, 2, 3]) == []
+expect occurrences("abracadabra", "abra") == [0, 7] & occurrences("aaa", "") == [0, 1, 2, 3]
+expect occurrences("héhé", "é") == [1, 4]
+expect find_first("needle in a haystack".split(" "), ["a", "haystack"]) == Ok(2)
+expect find_first([1, 2, 3], [3, 2]) == Err(NotFound)
+expect z_function("aabxaab".to_utf8()) == [0, 1, 0, 0, 3, 1, 0] & z_function("aaaa".to_utf8()) == [0, 3, 2, 1]
+expect edit_distance("kitten".to_utf8(), "sitting".to_utf8()) == 3 & edit_distance([1, 2], [0].drop(1)) == 2
+expect edit_distance("flaw".to_utf8(), "lawn".to_utf8()) == 2 & edit_distance([0].drop(1), [7]) == 1
+expect text_distance("café", "cafe") == 1 & edit_distance("café".to_utf8(), "cafe".to_utf8()) == 2
+expect scalars("aé€🦌") == [0x61, 0xe9, 0x20ac, 0x1f98c]
+expect common_subsequence("ABCBDAB".to_utf8(), "BDCABA".to_utf8()).len() == 4
+expect common_subsequence([1, 2, 3, 4, 1], [3, 4, 1, 2, 1, 3]) == [3, 4, 1] & common_subsequence([1], [2]) == []
+expect common_subsequence("the quick fox".split(" "), "the lazy fox".split(" ")) == ["the", "fox"]
