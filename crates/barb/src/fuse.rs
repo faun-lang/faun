@@ -15,6 +15,12 @@
 //! does both steps, handing the consumer each element as the producer makes
 //! it, and stops where the consumer would have stopped.
 //!
+//! A consumer may hand the rest of its list to another consumer rather than
+//! itself, as `min` takes the first element and folds the rest, and the
+//! fused walk then goes on as the producer fused with that one. A match
+//! taking apart a producer's list where it is built consumes it as a
+//! consumer's call would, and is read as a definition of its own.
+//!
 //! The consumer may itself be a producer, as `trail` is, and then so is the
 //! walk the two become. A chain of them therefore fuses a link at a time,
 //! within one pass over each body.
@@ -42,6 +48,8 @@ pub(crate) fn fuse(program: &mut Program) {
         consumers: HashMap::default(),
         fused: HashMap::default(),
         prepends: HashMap::default(),
+        within: FnId::at(0),
+        reading: Vec::new(),
         program,
     };
     let mut bodies = Vec::new();
@@ -72,6 +80,11 @@ pub(crate) fn fuse(program: &mut Program) {
             fusion.consumers.remove(&id);
         }
     }
+    // A match read as a walk of its own is a call where it stood, which
+    // inlining puts back where it can: one taking the first element of what
+    // a walk builds goes round nowhere but in what it calls.
+    fusion.reading.dedup();
+    super::normalize::reinline(fusion.program, &fusion.reading);
 }
 
 /// A walk building a list, as [`Fusion::producer`] reads it.
@@ -102,6 +115,9 @@ struct Pair {
     p_locals: Vec<Atom>,
     c_locals: Vec<Atom>,
     arity: usize,
+    /// Each consumer the consumer's step hands the rest of its list to, the
+    /// parameter it takes it as, and the walk fusing the producer into it.
+    onward: Vec<(FnId, usize, FnId)>,
 }
 
 /// A producer's call, held back until its one reader is written.
@@ -124,6 +140,10 @@ struct Fusion<'a> {
     /// The definition putting one sequence of each type before another in
     /// order, found or written the first time it is wanted.
     prepends: HashMap<TypeId, FnId>,
+    /// The definition whose body is being rewritten, and each in which a
+    /// match was read as a walk of its own.
+    within: FnId,
+    reading: Vec<FnId>,
 }
 
 /// A local no fused body may read: what a parameter or field the fused walk
@@ -144,9 +164,10 @@ impl Fusion<'_> {
         if !self.calls_a_producer(body) {
             return None;
         }
-        let params = self.program.params(id).len();
-        let locals = (0..params).map(|at| Atom(Local::at(at))).collect();
-        Some(self.rewrite_body(body, locals, params))
+        let types = self.program.params(id).to_vec();
+        let locals = (0..types.len()).map(|at| Atom(Local::at(at))).collect();
+        self.within = id;
+        Some(self.rewrite_body(body, locals, types))
     }
 
     /// Whether anything in a body calls a producer, which is all that makes
@@ -369,60 +390,108 @@ impl Fusion<'_> {
     /// ```text
     /// c(.. list ..) = match list
     ///   empty => ...
-    ///   push(x, rest) => ... c(.. rest ..) ... c(.. rest ..) ...
+    ///   push(x, rest) => ... c(.. rest ..) ... d(.. rest ..) ...
     /// ```
     ///
-    /// where `rest` is read only as that argument of calls in tail position,
-    /// and `list` is read only by the match.
+    /// where `list` is read only by the match, and `rest` only as the list
+    /// a consumer takes, `c` itself or another, at most once on any way
+    /// through the step: as `min` takes the first element and folds the
+    /// rest. A definition asked again while it is read is taken as none.
     fn consumer(&mut self, id: FnId) -> Option<Consumer> {
         if let Some(&known) = self.consumers.get(&id) {
             return known;
         }
+        self.consumers.insert(id, None);
         let found = self.find_consumer(id);
         self.consumers.insert(id, found);
         found
     }
 
-    fn find_consumer(&self, id: FnId) -> Option<Consumer> {
+    fn find_consumer(&mut self, id: FnId) -> Option<Consumer> {
         if !self.takes_part(id) {
             return None;
         }
         let body = self.program.function(id).body()?;
         let (list, arms) = walk::top_match(self.program, body)?;
         let params = self.program.params(id);
-        let (empty, push, recursive) = super::sequence::sequence(self.program, params[list])?;
-        let arity = params.len();
-        let [nil_arm, push_arm] = walk::split_arms(self.program, arms, empty, push)?;
-        if self.reads(nil_arm.body, list) + self.reads(push_arm.body, list) != 0 {
-            return None;
-        }
-        let rest = arity + recursive;
-        let tails = self.tail_reads(push_arm.body, id, list, rest)?;
-        (tails == self.reads(push_arm.body, rest)).then_some(Consumer { list })
+        let taken = (params[list], params.len());
+        self.consumes(arms, taken, list, Some(id))
+            .then_some(Consumer { list })
     }
 
-    /// How many calls of `id` in tail position of `body` read `rest` as
-    /// their `list` argument; nothing where `rest` is read in tail position
-    /// any other way.
-    fn tail_reads(&self, body: Body, id: FnId, list: usize, rest: usize) -> Option<usize> {
-        match self.program.expr(body.tail) {
-            Expr::Call(callee, args) => {
-                let args = self.program.atoms(args);
-                let here = args.iter().filter(|atom| atom.0.index() == rest).count();
-                if callee == id && args[list].0.index() == rest && here == 1 {
-                    Some(1)
-                } else {
-                    Some(0)
-                }
-            }
-            Expr::Match(_, arms) => self
-                .program
-                .arms(arms)
-                .iter()
-                .map(|arm| self.tail_reads(arm.body, id, list, rest))
-                .sum(),
-            Expr::Atom(_) | Expr::Con(..) | Expr::Static(_) => Some(0),
+    /// Whether a match taking apart local `list`, a sequence of type `ty`
+    /// whose fields an arm binds from level `at`, consumes it as
+    /// [`Self::consumer`] says. `own`, the definition the match is all of,
+    /// takes `list` as its parameter of that position.
+    fn consumes(
+        &mut self,
+        arms: super::Range,
+        (ty, at): (TypeId, usize),
+        list: usize,
+        own: Option<FnId>,
+    ) -> bool {
+        let Some((empty, push, recursive)) = super::sequence::sequence(self.program, ty) else {
+            return false;
+        };
+        let Some([nil_arm, push_arm]) = walk::split_arms(self.program, arms, empty, push) else {
+            return false;
+        };
+        if self.reads(nil_arm.body, list) + self.reads(push_arm.body, list) != 0 {
+            return false;
         }
+        let rest = at + recursive;
+        let handed = self.handed(push_arm.body, rest, own.map(|id| (id, list)));
+        handed.len() == self.reads(push_arm.body, rest) && self.most_reads(push_arm.body, rest) <= 1
+    }
+
+    /// Each consumer `body` hands local `rest` to as its list, once a call,
+    /// `own` counting as one taking its list at that position, and no other
+    /// that is a producer too.
+    fn handed(&mut self, body: Body, rest: usize, own: Option<(FnId, usize)>) -> Vec<FnId> {
+        let calls: Vec<_> = walk::within(self.program, body)
+            .filter_map(|id| match self.program.expr(id) {
+                Expr::Call(callee, args) => Some((callee, self.program.atoms(args).to_vec())),
+                _ => None,
+            })
+            .collect();
+        let mut handed = Vec::new();
+        for (callee, args) in calls {
+            // Another that builds a list in turn is left alone: what it
+            // builds may be read by a walk fused again, and so on forever.
+            let taken = match own {
+                Some((id, list)) if id == callee => Some(list),
+                _ if self.producer(callee).is_some() => None,
+                _ => self.consumer(callee).map(|Consumer { list }| list),
+            };
+            let once = args.iter().filter(|atom| atom.0.index() == rest).count() == 1;
+            if once && taken.is_some_and(|list| args[list].0.index() == rest) {
+                handed.push(callee);
+            }
+        }
+        handed
+    }
+
+    /// The most times any one way through `body` reads local `level`.
+    fn most_reads(&self, body: Body, level: usize) -> usize {
+        let exprs = self
+            .program
+            .bindings(body.bindings)
+            .iter()
+            .chain([&body.tail]);
+        exprs
+            .map(|&id| {
+                let arms = match self.program.expr(id) {
+                    Expr::Match(_, arms) => self.program.arms(arms).iter(),
+                    _ => [].iter(),
+                };
+                let own = walk::operands(self.program, id).filter(|atom| atom.0.index() == level);
+                own.count()
+                    + arms
+                        .map(|arm| self.most_reads(arm.body, level))
+                        .max()
+                        .unwrap_or(0)
+            })
+            .sum()
     }
 
     /// Whether an expression is the empty list: `empty` applied, or a known
@@ -461,13 +530,13 @@ impl Fusion<'_> {
         if let Some(&id) = self.fused.get(&(producer, consumer)) {
             return id;
         }
-        let made = self.fuse_pair(producer, consumer);
-        self.fused.insert((producer, consumer), made);
-        made
+        let mut pair = self.declared(producer, consumer);
+        self.fused.insert((producer, consumer), pair.id);
+        self.fuse_pair(producer, consumer, &mut pair);
+        pair.id
     }
 
-    fn fuse_pair(&mut self, producer: FnId, consumer: FnId) -> FnId {
-        let pair = self.declared(producer, consumer);
+    fn fuse_pair(&mut self, producer: FnId, consumer: FnId, pair: &mut Pair) {
         let p_body = self.program.function(producer).body().expect("a producer");
         let c_body = self.program.function(consumer).body().expect("a consumer");
         let list = pair.list;
@@ -480,6 +549,15 @@ impl Fusion<'_> {
         let [_, p_step] = walk::split_arms(self.program, p_arms, empty, push).expect("two arms");
         let [c_nil, c_step] =
             walk::split_arms(self.program, c_arms, c_empty, c_push).expect("two arms");
+        // Each consumer the step hands the rest to goes on as the walk
+        // fusing the producer into it.
+        let (_, _, recursive) = super::sequence::sequence(self.program, taken).expect("a list");
+        let rest = self.program.params(consumer).len() + recursive;
+        for onward in self.handed(c_step.body, rest, Some((consumer, pair.taken))) {
+            let Consumer { list } = self.consumers[&onward].expect("a consumer");
+            let fused = self.fused(producer, onward);
+            pair.onward.push((onward, list, fused));
+        }
         let mut arms = Vec::new();
         for arm in self.program.arms(p_arms).to_vec() {
             let body = if arm.ctor == empty {
@@ -487,7 +565,7 @@ impl Fusion<'_> {
                 let locals = pair.c_locals.clone();
                 copy::body(self.program, c_nil.body, locals, pair.arity, None)
             } else {
-                self.step(&pair, p_step, (c_step, c_nil))
+                self.step(pair, p_step, (c_step, c_nil))
             };
             arms.push(Arm {
                 ctor: arm.ctor,
@@ -501,8 +579,6 @@ impl Fusion<'_> {
             .push(Expr::Match(pair.p_locals[list], arms));
         let body = self.program.terms.hold_body(&[], tail);
         self.program.replace_bodies(vec![(pair.id, body)]);
-        self.pure.push(true);
-        pair.id
     }
 
     /// Declare the walk fusing `producer` into `consumer`, and say where each
@@ -510,15 +586,7 @@ impl Fusion<'_> {
     fn declared(&mut self, producer: FnId, consumer: FnId) -> Pair {
         let Producer { list, acc } = self.producers[&producer].expect("a producer");
         let Consumer { list: taken } = self.consumers[&consumer].expect("a consumer");
-        let but = |params: &[TypeId], skip: usize| -> Vec<TypeId> {
-            params
-                .iter()
-                .enumerate()
-                .filter(|&(at, _)| at != skip)
-                .map(|(_, &ty)| ty)
-                .collect()
-        };
-        let mut params = but(self.program.params(producer), acc);
+        let mut params: Vec<_> = but(self.program.params(producer), acc).collect();
         let before = params.len();
         params.extend(but(self.program.params(consumer), taken));
         let name = format!(
@@ -528,6 +596,7 @@ impl Fusion<'_> {
         );
         let result = self.program.function(consumer).result;
         let id = self.program.declare(&name, &params, result);
+        self.pure.push(true);
         // Each is the next of the fused walk's, but the one it has no use for.
         let placed = |count: usize, skip: usize, from: usize| -> Vec<Atom> {
             (0..count)
@@ -547,6 +616,7 @@ impl Fusion<'_> {
             p_locals: placed(self.program.params(producer).len(), acc, 0),
             c_locals: placed(self.program.params(consumer).len(), taken, before),
             arity: params.len(),
+            onward: vec![(consumer, taken, id)],
         }
     }
 
@@ -646,16 +716,8 @@ impl Fusion<'_> {
         scope: &mut Scope,
     ) -> Atom {
         let mut going = Vec::with_capacity(pair.arity);
-        for (at, atom) in again.iter().enumerate() {
-            if at != pair.acc {
-                going.push(locals[atom.0.index()]);
-            }
-        }
-        for (at, &atom) in pair.c_locals.iter().enumerate() {
-            if at != pair.taken {
-                going.push(atom);
-            }
-        }
+        going.extend(but(again, pair.acc).map(|atom| locals[atom.0.index()]));
+        going.extend(but(&pair.c_locals, pair.taken));
         let args = self.program.terms.hold_atoms(going.into_iter());
         copy::push(self.program, scope, Expr::Call(pair.id, args))
     }
@@ -702,34 +764,29 @@ impl Fusion<'_> {
         let element = locals[element.0.index()];
         // What the producer goes on with, but for the list it is building:
         // that is what the consumer is handed instead.
-        let going_on: Vec<_> = again
-            .iter()
-            .enumerate()
-            .filter(|&(at, _)| at != pair.acc)
-            .map(|(_, atom)| locals[atom.0.index()])
+        let going_on: Vec<_> = but(&again, pair.acc)
+            .map(|atom| locals[atom.0.index()])
             .collect();
         let mut consumed = pair.c_locals.clone();
         consumed.extend((0..2).map(|at| if at == recursive { rest } else { element }));
-        // The consumer going round on the rest of the list goes round as
-        // the fused walk, on what the producer goes on with.
-        let (going_round, taken, fused) = (pair.consumer, pair.taken, pair.id);
-        let mut redirect = |program: &mut Program, _: &mut Scope, _: ExprId, expr: Expr| match expr
-        {
-            Expr::Call(callee, args)
-                if callee == going_round && program.atoms(args)[taken] == rest =>
-            {
-                let mut going = going_on.clone();
-                going.extend(
-                    program
-                        .atoms(args)
-                        .iter()
-                        .enumerate()
-                        .filter(|&(at, _)| at != taken)
-                        .map(|(_, &atom)| atom),
-                );
-                Expr::Call(fused, program.terms.hold_atoms(going.into_iter()))
-            }
-            other => other,
+        // A consumer handed the rest of the list, the consumer going round
+        // or another, goes on as the walk fusing the producer into it, on
+        // what the producer goes on with.
+        let onward = &pair.onward;
+        let mut redirect = |program: &mut Program, _: &mut Scope, _: ExprId, expr: Expr| {
+            let Expr::Call(callee, args) = expr else {
+                return expr;
+            };
+            let atoms = program.atoms(args).to_vec();
+            let Some(&(_, taken, fused)) = onward
+                .iter()
+                .find(|&&(consumer, taken, _)| consumer == callee && atoms[taken] == rest)
+            else {
+                return expr;
+            };
+            let mut going = going_on.clone();
+            going.extend(but(&atoms, taken));
+            Expr::Call(fused, program.terms.hold_atoms(going.into_iter()))
         };
         let answer = copy::into(
             self.program,
@@ -811,12 +868,15 @@ impl Fusion<'_> {
     }
 
     /// Rewrite a body, fusing each producer read once by a consumer.
-    fn rewrite_body(&mut self, body: Body, locals: Vec<Atom>, level: usize) -> Body {
-        let mut scope = Scope::at(level);
-        let answer = self.rewrite_into(body, locals, &mut scope, level);
+    fn rewrite_body(&mut self, body: Body, locals: Vec<Atom>, types: Vec<TypeId>) -> Body {
+        let mut scope = Scope::at(locals.len());
+        let (answer, _) = self.rewrite_into(body, (locals, types), &mut scope);
         copy::close(self.program, scope, answer)
     }
 
+    /// Rewrite `body` into `scope`, each of its locals so far the atom
+    /// `locals` holds and of the type `types` holds, answering what its
+    /// tail comes to and its type.
     #[expect(
         clippy::too_many_lines,
         reason = "one walk rewrites calls and rebuilds arms, sharing the deferred producers"
@@ -824,10 +884,10 @@ impl Fusion<'_> {
     fn rewrite_into(
         &mut self,
         body: Body,
-        mut locals: Vec<Atom>,
+        (mut locals, mut types): (Vec<Atom>, Vec<TypeId>),
         scope: &mut Scope,
-        base: usize,
-    ) -> Atom {
+    ) -> (Atom, TypeId) {
+        let base = locals.len();
         let bindings = self.program.bindings(body.bindings).to_vec();
         let mut deferred: HashMap<usize, Deferred> = HashMap::default();
         let count = bindings.len();
@@ -837,41 +897,104 @@ impl Fusion<'_> {
             .enumerate()
         {
             let level = base + at;
-            let value = match self.program.expr(binding) {
-                Expr::Call(callee, args) => {
-                    let written = self.program.atoms(args).to_vec();
-                    let mapped: Vec<_> = written.iter().map(|a| locals[a.0.index()]).collect();
-                    let call = self.fusing(callee, &written, &mapped, &mut deferred);
-                    if at < count && self.defers(&call, body, base, level) {
-                        deferred.insert(level, call);
-                        UNREAD
-                    } else {
-                        let args = self.program.terms.hold_atoms(call.args.into_iter());
-                        copy::push(self.program, scope, Expr::Call(call.callee, args))
-                    }
+            let expr = self.program.expr(binding);
+            let called = match expr {
+                Expr::Call(callee, args) => Some((callee, self.program.atoms(args).to_vec())),
+                // Read by this match alone, which consumes it.
+                Expr::Match(on, _) if deferred.contains_key(&on.0.index()) => {
+                    Some(self.outlined(binding, &types))
                 }
-                Expr::Match(on, arms) => {
-                    let mut rebuilt = Vec::new();
-                    for arm in self.program.arms(arms).to_vec() {
-                        let fields = self.program.fields(arm.ctor).len();
-                        let mut inner = locals.clone();
-                        inner.extend((0..fields).map(|at| Atom(Local::at(scope.level + at))));
-                        let mut arm_scope = Scope::at(scope.level + fields);
-                        let answer =
-                            self.rewrite_into(arm.body, inner, &mut arm_scope, level + fields);
-                        rebuilt.push(Arm {
-                            ctor: arm.ctor,
-                            body: copy::close(self.program, arm_scope, answer),
-                        });
-                    }
-                    let arms = self.program.terms.hold_arms(&rebuilt);
-                    copy::push(self.program, scope, Expr::Match(locals[on.0.index()], arms))
+                _ => None,
+            };
+            let (value, ty) = if let Some((callee, written)) = called {
+                let mapped: Vec<_> = written.iter().map(|a| locals[a.0.index()]).collect();
+                let call = self.fusing(callee, &written, &mapped, &mut deferred);
+                let value = if at < count && self.defers(&call, body, base, level) {
+                    deferred.insert(level, call);
+                    UNREAD
+                } else {
+                    let args = self.program.terms.hold_atoms(call.args.into_iter());
+                    copy::push(self.program, scope, Expr::Call(call.callee, args))
+                };
+                (value, self.program.function(callee).result)
+            } else if let Expr::Match(on, arms) = expr {
+                let mut rebuilt = Vec::new();
+                let mut answers = None;
+                for arm in self.program.arms(arms).to_vec() {
+                    let fields = self.program.fields(arm.ctor);
+                    let mut inner = (locals.clone(), types.clone());
+                    inner
+                        .0
+                        .extend((0..fields.len()).map(|at| Atom(Local::at(scope.level + at))));
+                    inner.1.extend_from_slice(fields);
+                    let mut arm_scope = Scope::at(scope.level + fields.len());
+                    let (answer, ty) = self.rewrite_into(arm.body, inner, &mut arm_scope);
+                    answers = Some(ty);
+                    rebuilt.push(Arm {
+                        ctor: arm.ctor,
+                        body: copy::close(self.program, arm_scope, answer),
+                    });
                 }
-                _ => copy::expr(self.program, binding, &locals, scope, None),
+                let arms = self.program.terms.hold_arms(&rebuilt);
+                let value =
+                    copy::push(self.program, scope, Expr::Match(locals[on.0.index()], arms));
+                (value, answers.expect("a match has an arm"))
+            } else {
+                let ty = typed(self.program, binding, &types);
+                (copy::expr(self.program, binding, &locals, scope, None), ty)
             };
             locals.push(value);
+            types.push(ty);
         }
-        locals.pop().expect("a body answers")
+        (
+            locals.pop().expect("a body answers"),
+            types.pop().expect("a body answers"),
+        )
+    }
+
+    /// The match `id`, taking apart the list a producer's call builds and
+    /// consuming it, as a definition of its own taking the list and what
+    /// its arms read from outside them, so that it is fused as any consumer
+    /// is: `match xs { [] => a; [x, *rest] => rest.fold(x, f) }` walks what
+    /// `xs` was made of. Its locals so far are of `types`. Answers the
+    /// definition and the locals its call reads.
+    fn outlined(&mut self, id: ExprId, types: &[TypeId]) -> (FnId, Vec<Atom>) {
+        let Expr::Match(on, arms) = self.program.expr(id) else {
+            unreachable!("only a match is outlined")
+        };
+        let mut read = vec![on.0.index()];
+        for arm in self.program.arms(arms) {
+            let operands = walk::within(self.program, arm.body)
+                .flat_map(|expr| walk::operands(self.program, expr))
+                .map(|atom| atom.0.index());
+            read.extend(operands.filter(|&at| at < types.len()));
+        }
+        read[1..].sort_unstable();
+        read.dedup();
+        let mut map = vec![UNREAD; types.len()];
+        for (at, &level) in read.iter().enumerate() {
+            map[level] = Atom(Local::at(at));
+        }
+        let params: Vec<_> = read.iter().map(|&level| types[level]).collect();
+        let name = format!(
+            "{}.read",
+            self.program.name(self.program.function(self.within).name)
+        );
+        let reader = self
+            .program
+            .declare(&name, &params, typed(self.program, id, types));
+        self.pure.push(true);
+        self.reading.push(self.within);
+        let mut inner = Scope::at(params.len());
+        let answer = copy::expr(self.program, id, &map, &mut inner, None);
+        let body = copy::close(self.program, inner, answer);
+        self.program.replace_bodies(vec![(reader, body)]);
+        (
+            reader,
+            read.into_iter()
+                .map(|level| Atom(Local::at(level)))
+                .collect(),
+        )
     }
 
     /// A call as written, or fused with the producer it reads.
@@ -900,17 +1023,8 @@ impl Fusion<'_> {
         };
         let Producer { acc, .. } = self.producer(made.callee).expect("deferred producers are");
         let fused = self.fused(made.callee, callee);
-        let others = |held: &[Atom], skip: usize| -> Vec<Atom> {
-            held.iter()
-                .enumerate()
-                .filter(|&(at, _)| at != skip)
-                .map(|(_, &atom)| atom)
-                .collect()
-        };
-        let mut written_args = others(&made.written, acc);
-        written_args.extend(others(written, taken));
-        let mut mapped = others(&made.args, acc);
-        mapped.extend(others(args, taken));
+        let written_args = but(&made.written, acc).chain(but(written, taken)).collect();
+        let mapped = but(&made.args, acc).chain(but(args, taken)).collect();
         // The fused walk may produce in turn, which it does where the
         // consumer did; it is asked again as it stands.
         self.producers.remove(&fused);
@@ -942,16 +1056,24 @@ impl Fusion<'_> {
         if !self.empty_constant(onto, empty) || self.reads_after(body, base, level) != 1 {
             return false;
         }
+        // A match reading it may consume it, as a consumer's call does.
+        let built = self.program.function(call.callee).result;
         let mut rest = self.program.bindings(body.bindings)[level + 1 - base..].to_vec();
         rest.push(body.tail);
-        rest.into_iter().any(|id| {
-            let Expr::Call(callee, args) = self.program.expr(id) else {
-                return false;
-            };
-            let args = self.program.atoms(args).to_vec();
-            self.consumer(callee)
-                .is_some_and(|Consumer { list }| args[list].0.index() == level)
-        })
+        rest.into_iter()
+            .enumerate()
+            .any(|(at, id)| match self.program.expr(id) {
+                Expr::Call(callee, args) => {
+                    let args = self.program.atoms(args).to_vec();
+                    self.consumer(callee)
+                        .is_some_and(|Consumer { list }| args[list].0.index() == level)
+                }
+                Expr::Match(on, arms) => {
+                    on.0.index() == level
+                        && self.consumes(arms, (built, level + 1 + at), level, None)
+                }
+                _ => false,
+            })
     }
 }
 
@@ -973,4 +1095,32 @@ fn walked(program: &Program, ty: TypeId) -> Option<(super::CtorId, super::CtorId
         } => Some((empty, push, recursive)),
         _ => None,
     }
+}
+
+/// The type of what `id` comes to, the locals so far of `types`.
+fn typed(program: &Program, id: ExprId, types: &[TypeId]) -> TypeId {
+    match program.expr(id) {
+        Expr::Atom(atom) => types[atom.0.index()],
+        Expr::Static(value) => program.constant(value).owner(),
+        Expr::Con(ctor, _) => program.ctor(ctor).owner,
+        Expr::Call(callee, _) => program.function(callee).result,
+        Expr::Match(_, arms) => {
+            let arm = program.arms(arms)[0];
+            let mut inner = types.to_vec();
+            inner.extend_from_slice(program.fields(arm.ctor));
+            for &binding in program.bindings(arm.body.bindings) {
+                let ty = typed(program, binding, &inner);
+                inner.push(ty);
+            }
+            typed(program, arm.body.tail, &inner)
+        }
+    }
+}
+
+/// Each of `held` but the one at `skip`.
+fn but<T: Copy>(held: &[T], skip: usize) -> impl Iterator<Item = T> + '_ {
+    held.iter()
+        .enumerate()
+        .filter(move |&(at, _)| at != skip)
+        .map(|(_, &item)| item)
 }

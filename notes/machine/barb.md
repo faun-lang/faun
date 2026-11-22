@@ -121,7 +121,11 @@ Remove list work:
    list ends, as `zip` stops where its second list does; a chain written
    inside a fused walk's step, as a recursion through `map` writes one, is
    fused there too. So `List.range(n).fold(...)` is one loop counting up,
-   and so is `xs.zip(ys).map(f).sum()`, with `ys` built.
+   and so is `xs.zip(ys).map(f).sum()`, with `ys` built. The reading walk
+   may hand the rest of the list to another walk rather than itself, and
+   a match taking the list apart reads it as a walk of its own does, so
+   `[first, *rest] -> rest.fold(first, f)`, as `min` and `max` are
+   written, reads what the list was made of with nothing built.
 7. **First element.** A list read only for its first element, such as a
    search, stops once it has it.
 8. **In place.** A walk rebuilding a list element for element becomes
@@ -148,8 +152,9 @@ Fold what is known:
     to a definition that takes it apart, goes to a copy of the definition
     taking its fields, where simplifying the copy decides a match: so
     `key == [grey]` compares without building `[grey]`. Then copy a loop
-    for each known value its callers pass, where that decides a match, and
-    simplify again.
+    for each known value its callers pass, where that decides a match,
+    hold a value every caller hands alike however far down a chain of
+    definitions it is handed, and simplify again.
 11. **Joining rounds.** Inline again where specializing left two
     definitions calling each other, so the loop calls itself.
 
