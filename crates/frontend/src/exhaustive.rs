@@ -6,7 +6,8 @@
 //! does not depend on what the list holds. It is Maranget's usefulness
 //! ("Warnings for pattern matching", 2007): the clauses cover everything
 //! exactly when a row of wildcards after them would match nothing, and when
-//! it would, what it matches is an example the diagnostic names.
+//! it would, what it matches are examples the diagnostic names: a few of
+//! them, gathered by asking past the first, and how many more there are.
 //!
 //! A clause with a guard covers nothing here, since the guard may fail. A
 //! place whose patterns take a list apart from its end, as a stack popped
@@ -30,6 +31,7 @@ use rustc_hash::FxHashMap as HashMap;
 
 use num_bigint::BigUint;
 
+use crate::ast::Span;
 use crate::blessed::PreludeIds;
 use crate::check::{InferredType, failure};
 use crate::context::Context;
@@ -42,21 +44,25 @@ use crate::{Symbol, Symbols};
 /// A column's type, where checking knew one.
 type Column = Option<InferredType>;
 
+/// How many missing cases are looked for: enough to count those a
+/// diagnostic leaves unnamed, few enough to stay cheap however many there
+/// are.
+const ENUMERATED: usize = 64;
+
+/// How many missing cases a diagnostic names before counting the rest.
+const NAMED: usize = 3;
+
 /// Refuse the first definition whose clauses leave some value unmatched,
 /// and the first `is` whose arms do.
 /// Only the functions from `from` on are looked at: those before are
 /// already checked.
 pub(crate) fn check(program: &t::Program, from: usize, cx: &Context) -> Result<(), Diagnostic> {
-    covered(program, from, &cx.symbols, &cx.prelude).map_err(|refusal| cx.told(refusal))
+    covered(program, from, cx).map_err(|refusal| cx.told(refusal))
 }
 
-fn covered(
-    program: &t::Program,
-    from: usize,
-    symbols: &Symbols,
-    prelude: &PreludeIds,
-) -> Result<(), Refusal> {
-    let checker = Coverage::new(program, prelude, symbols);
+fn covered(program: &t::Program, from: usize, cx: &Context) -> Result<(), Refusal> {
+    let symbols = &cx.symbols;
+    let checker = Coverage::new(program, &cx.prelude, symbols);
     for function in &program.functions[from..] {
         let t::Definition::Body(clauses) = &function.definition else {
             continue;
@@ -76,14 +82,10 @@ fn covered(
             .collect();
         let ends = from_the_end(&rows, columns.len());
         let rows = rows.iter().map(|row| checker.row(row, &ends)).collect();
-        if let Some(missing) = checker.missing(rows, &columns) {
-            let example = checker.render_row(&missing, &ends, symbols);
-            let spelled = symbols.spelling(function.name);
-            let missing = format!("`{spelled}({example})`");
-            let message = format!("`{spelled}` does not cover every case");
-            return Err(failure(function.module, first.span, message)
-                .label(format!("no clause matches {missing}"))
-                .help(format!("add a clause matching {missing}")));
+        let missing = checker.missing(rows, &columns, ENUMERATED);
+        if !missing.is_empty() {
+            let text = cx.source(function.module).text();
+            return Err(checker.uncovered_function(function, clauses, &missing, &ends, text));
         }
         let mut found = Vec::new();
         for expression in clauses.iter().flat_map(t::Clause::exprs) {
@@ -101,21 +103,118 @@ fn covered(
                 .collect();
             let ends = from_the_end(&rows, 1);
             let rows = rows.iter().map(|row| checker.row(row, &ends)).collect();
-            if let Some(missing) = checker.missing(rows, &[Some(value.ty.clone())]) {
-                let missing = format!("`{}`", checker.render_row(&missing, &ends, symbols));
-                return Err(failure(
-                    function.module,
-                    value.span,
-                    "this `is` does not cover every case",
-                )
-                .label(format!("no arm matches {missing}"))
-                .help(format!(
-                    "add an arm matching {missing}, or `_ then …` for the rest"
-                )));
+            let column = [Some(value.ty.clone())];
+            let missing = checker.missing(rows, &column, ENUMERATED);
+            if !missing.is_empty() {
+                return Err(checker.uncovered_match(function.module, value, arms, &missing, &ends));
             }
         }
     }
     Ok(())
+}
+
+/// What is missing, as a diagnostic says it: one case named alone, a few
+/// listed, or the rest, where every case missing is anything at all.
+enum Missing {
+    /// Anything at all: nothing narrower to name.
+    Rest,
+    One(String),
+    /// The cases named, and how many more there are, where that was
+    /// counted.
+    Several(Vec<String>, Option<usize>),
+}
+
+impl Missing {
+    /// The note listing the cases, where there is more than the rest.
+    fn note(&self) -> Option<String> {
+        match self {
+            Self::Rest => None,
+            Self::One(case) => Some(format!("not handled: {case}")),
+            Self::Several(cases, more) => {
+                let mut items = cases.clone();
+                match more {
+                    Some(0) => {}
+                    Some(more) => items.push(format!("{more} more")),
+                    None => items.push("more".to_owned()),
+                }
+                Some(format!("not handled: {}", listed(&items)))
+            }
+        }
+    }
+
+    /// What no clause or arm (`what`) matches, as a label says it.
+    fn label(&self, what: &str) -> String {
+        match self {
+            Self::Rest => format!("no {what} catches the rest"),
+            Self::One(case) => format!("no {what} matches {case}"),
+            Self::Several(cases, Some(more)) => {
+                format!("no {what} matches the {} cases below", cases.len() + more)
+            }
+            Self::Several(_, None) => format!("no {what} matches the cases below"),
+        }
+    }
+
+    /// What to add, one `what` that catches the rest written `catch`.
+    fn help(&self, what: &str, catch: &str) -> String {
+        match self {
+            Self::Rest => format!("add {} that catches the rest: {catch}", article(what)),
+            Self::One(_) => format!(
+                "add {} for it, or one that catches the rest: {catch}",
+                article(what)
+            ),
+            Self::Several(..) => {
+                format!("add {what}s for them, or one that catches the rest: {catch}")
+            }
+        }
+    }
+}
+
+/// `a clause`, `an arm`.
+fn article(noun: &str) -> String {
+    if noun.starts_with(['a', 'e', 'i', 'o', 'u']) {
+        format!("an {noun}")
+    } else {
+        format!("a {noun}")
+    }
+}
+
+/// Items as a sentence lists them: `a`, `a and b`, `a, b, and c`.
+fn listed(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => only.clone(),
+        [first, second] => format!("{first} and {second}"),
+        [init @ .., last] => format!("{}, and {last}", init.join(", ")),
+    }
+}
+
+/// A small count in words, as `lists of three or more` says it.
+fn words(count: usize) -> String {
+    const WORDS: [&str; 11] = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    ];
+    WORDS
+        .get(count)
+        .map_or_else(|| count.to_string(), |word| (*word).to_owned())
+}
+
+/// The span from the start of the first of `spans` to the end of the last.
+fn spanning(spans: &[Span]) -> Option<Span> {
+    let (first, last) = (spans.first()?, spans.last()?);
+    Some(Span {
+        start: first.start,
+        end: last.end,
+    })
+}
+
+/// Whether `clause`'s guard is only what its head compares: a name
+/// written twice, or `==name`, asks its values equal as a guard would, and
+/// that guard lies within the head.
+fn compares_in_head(clause: &t::Clause) -> bool {
+    match (&clause.guard, clause.pattern_spans.last()) {
+        (Some(guard), Some(last)) => guard.span.end <= last.end,
+        _ => false,
+    }
 }
 
 /// A declared type's parameters, and each constructor's field types
@@ -334,24 +433,37 @@ impl<'a> Coverage<'a> {
         }
     }
 
-    /// Values of the columns no row matches, as one example pattern per
-    /// column, or `None` when the rows cover everything.
-    fn missing(&self, rows: Vec<Vec<Pattern>>, columns: &[Column]) -> Option<Vec<Pattern>> {
+    /// Values of the columns no row matches, as example patterns, one per
+    /// column, at most `budget` of them; none when the rows cover
+    /// everything.
+    fn missing(
+        &self,
+        rows: Vec<Vec<Pattern>>,
+        columns: &[Column],
+        budget: usize,
+    ) -> Vec<Vec<Pattern>> {
+        if budget == 0 {
+            return Vec::new();
+        }
         if columns.is_empty() {
-            return rows.is_empty().then(Vec::new);
+            return if rows.is_empty() {
+                vec![Vec::new()]
+            } else {
+                Vec::new()
+            };
         }
         let heads = || rows.iter().map(|row| &row[0]);
         if heads().any(|head| matches!(head, Pattern::Record(_))) {
-            return self.missing_record(rows, columns);
+            return self.missing_record(rows, columns, budget);
         }
         if let Some(arity) = heads().find_map(|head| match head {
             Pattern::Tuple(members) => Some(members.len()),
             _ => None,
         }) {
-            return self.missing_tuple(rows, columns, arity);
+            return self.missing_tuple(rows, columns, arity, budget);
         }
         if heads().any(|head| matches!(head, Pattern::Tag(..))) {
-            return self.missing_tag(&rows, columns);
+            return self.missing_tag(&rows, columns, budget);
         }
         let owner = heads().find_map(|head| match head {
             Pattern::Constructor(name, _) => Some(self.owners.get(name).copied()),
@@ -359,38 +471,73 @@ impl<'a> Coverage<'a> {
         });
         match owner {
             // Constructors of no declared type: nothing to enumerate.
-            Some(None) => None,
-            Some(Some(owner)) => self.missing_constructor(&rows, columns, owner),
-            None => self.missing_default(rows, columns),
+            Some(None) => Vec::new(),
+            Some(Some(owner)) => self.missing_constructor(&rows, columns, owner, budget),
+            None => self.missing_default(rows, columns, budget),
         }
     }
 
     /// What the rows taking anything in the first column leave unmatched.
-    fn missing_default(&self, rows: Vec<Vec<Pattern>>, columns: &[Column]) -> Option<Vec<Pattern>> {
+    fn missing_default(
+        &self,
+        rows: Vec<Vec<Pattern>>,
+        columns: &[Column],
+        budget: usize,
+    ) -> Vec<Vec<Pattern>> {
         let rest = rows
             .into_iter()
             .filter(|row| matches!(row[0], Pattern::Wild))
             .map(|row| row[1..].to_vec())
             .collect();
-        let mut missing = self.missing(rest, &columns[1..])?;
-        missing.insert(0, Pattern::Wild);
-        Some(missing)
+        let mut missing = self.missing(rest, &columns[1..], budget);
+        for row in &mut missing {
+            row.insert(0, Pattern::Wild);
+        }
+        missing
+    }
+
+    /// The cases missing under one constructor or tag: those the rows
+    /// specialized to it leave, its fields, the first `arity` columns,
+    /// gathered back under it by `whole`.
+    fn missing_under(
+        &self,
+        specialized: Vec<Vec<Pattern>>,
+        nested: &[Column],
+        arity: usize,
+        budget: usize,
+        whole: impl Fn(Vec<Pattern>) -> Pattern,
+    ) -> Vec<Vec<Pattern>> {
+        self.missing(specialized, nested, budget)
+            .into_iter()
+            .map(|mut fields| {
+                let rest = fields.split_off(arity);
+                let mut row = vec![whole(fields)];
+                row.extend(rest);
+                row
+            })
+            .collect()
     }
 
     /// A tag row is covered by its tags, each with its fields covered. What
     /// an open row may yet hold, only the rows taking anything can match.
-    fn missing_tag(&self, rows: &[Vec<Pattern>], columns: &[Column]) -> Option<Vec<Pattern>> {
+    fn missing_tag(
+        &self,
+        rows: &[Vec<Pattern>],
+        columns: &[Column],
+        budget: usize,
+    ) -> Vec<Vec<Pattern>> {
         let Some(InferredType::Variants(tags, tail)) = &columns[0] else {
             // A row checking did not settle: nothing to enumerate.
-            return None;
+            return Vec::new();
         };
-        // Tried in the order of their names, so the first left unmatched
-        // is the same whatever order checking holds them in.
+        // Tried in the order of their names, so the cases missing are named
+        // in the same order whatever order checking holds them in.
         let mut tags: Vec<_> = tags
             .iter()
             .map(|(label, fields)| (*label, fields))
             .collect();
         self.symbols.sort_named(&mut tags);
+        let mut found = Vec::new();
         for (label, field_types) in &tags {
             let arity = field_types.len();
             let specialized = rows
@@ -407,22 +554,28 @@ impl<'a> Coverage<'a> {
                 .collect();
             let mut nested: Vec<Column> = field_types.iter().cloned().map(Some).collect();
             nested.extend(columns[1..].iter().cloned());
-            if let Some(mut missing) = self.missing(specialized, &nested) {
-                let rest = missing.split_off(arity);
-                let mut found = vec![Pattern::Tag(*label, missing)];
-                found.extend(rest);
-                return Some(found);
-            }
+            let left = budget - found.len();
+            found.extend(
+                self.missing_under(specialized, &nested, arity, left, |fields| {
+                    Pattern::Tag(*label, fields)
+                }),
+            );
         }
         if tail.is_some() {
-            return self.missing_default(rows.to_vec(), columns);
+            let left = budget - found.len();
+            found.extend(self.missing_default(rows.to_vec(), columns, left));
         }
-        None
+        found
     }
 
     /// A record is one shape, whose fields are its columns: every field its
     /// type has, or where that is not known, every field a pattern names.
-    fn missing_record(&self, rows: Vec<Vec<Pattern>>, columns: &[Column]) -> Option<Vec<Pattern>> {
+    fn missing_record(
+        &self,
+        rows: Vec<Vec<Pattern>>,
+        columns: &[Column],
+        budget: usize,
+    ) -> Vec<Vec<Pattern>> {
         let (names, field_types): (Vec<Symbol>, Vec<Column>) =
             if let Some(InferredType::Record(fields, _)) = &columns[0] {
                 let mut fields: Vec<_> = fields
@@ -468,11 +621,9 @@ impl<'a> Coverage<'a> {
             .collect();
         let mut nested = field_types;
         nested.extend(columns[1..].iter().cloned());
-        let mut missing = self.missing(rows, &nested)?;
-        let rest = missing.split_off(arity);
-        let mut record = vec![Pattern::Record(names.into_iter().zip(missing).collect())];
-        record.extend(rest);
-        Some(record)
+        self.missing_under(rows, &nested, arity, budget, |fields| {
+            Pattern::Record(names.iter().copied().zip(fields).collect())
+        })
     }
 
     /// A tuple is one shape, whose members are its columns.
@@ -481,7 +632,8 @@ impl<'a> Coverage<'a> {
         rows: Vec<Vec<Pattern>>,
         columns: &[Column],
         arity: usize,
-    ) -> Option<Vec<Pattern>> {
+        budget: usize,
+    ) -> Vec<Vec<Pattern>> {
         let rows = rows
             .into_iter()
             .map(|mut row| {
@@ -501,11 +653,7 @@ impl<'a> Coverage<'a> {
             _ => vec![None; arity],
         };
         nested.extend(columns[1..].iter().cloned());
-        let mut missing = self.missing(rows, &nested)?;
-        let rest = missing.split_off(arity);
-        let mut tuple = vec![Pattern::Tuple(missing)];
-        tuple.extend(rest);
-        Some(tuple)
+        self.missing_under(rows, &nested, arity, budget, Pattern::Tuple)
     }
 
     fn missing_constructor(
@@ -513,7 +661,9 @@ impl<'a> Coverage<'a> {
         rows: &[Vec<Pattern>],
         columns: &[Column],
         owner: Symbol,
-    ) -> Option<Vec<Pattern>> {
+        budget: usize,
+    ) -> Vec<Vec<Pattern>> {
+        let mut found = Vec::new();
         for &(constructor, arity) in &self.constructors[&owner] {
             let specialized = rows
                 .iter()
@@ -529,14 +679,14 @@ impl<'a> Coverage<'a> {
                 .collect();
             let mut nested = self.field_types(&columns[0], constructor, arity);
             nested.extend(columns[1..].iter().cloned());
-            if let Some(mut missing) = self.missing(specialized, &nested) {
-                let rest = missing.split_off(arity);
-                let mut found = vec![Pattern::Constructor(constructor, missing)];
-                found.extend(rest);
-                return Some(found);
-            }
+            let left = budget - found.len();
+            found.extend(
+                self.missing_under(specialized, &nested, arity, left, |fields| {
+                    Pattern::Constructor(constructor, fields)
+                }),
+            );
         }
-        None
+        found
     }
 
     /// A column head of `owner`'s type as a wildcard or one constructor, or
@@ -723,6 +873,249 @@ impl<'a> Coverage<'a> {
             ),
         }
     }
+}
+
+/// What a refusal of patterns left uncovered says.
+impl Coverage<'_> {
+    /// The refusal of `function`, whose `clauses` leave `missing`
+    /// unmatched; `text` is its module's source.
+    fn uncovered_function(
+        &self,
+        function: &t::Function,
+        clauses: &[t::Clause],
+        missing: &[Vec<Pattern>],
+        ends: &[bool],
+        text: &str,
+    ) -> Refusal {
+        let first = &clauses[0];
+        let spelled = self.symbols.spelling(function.name);
+        let parameters = first.patterns.len();
+        let columns = &first.signature.parameters;
+        let headline = match columns.as_slice() {
+            [only] => self.every(only),
+            _ => "every case".to_owned(),
+        };
+        let message = format!("`{spelled}` does not handle {headline}");
+        let cases = self.cases(missing, ends, parameters);
+        let catch = format!("`{spelled}({}) -> …`", vec!["_"; parameters].join(", "));
+        let spans = (first.pattern_spans.len() == parameters).then_some(&first.pattern_spans);
+        let (span, label, named) = if let ([only], Some(spans)) = (clauses, spans) {
+            let (span, label) = Self::narrowest(only, spans);
+            (span.unwrap_or(first.span), label, false)
+        } else {
+            let name = spans
+                .and_then(|spans| name_span(first.span, spans, text))
+                .unwrap_or(first.span);
+            (name, cases.label("clause"), true)
+        };
+        let mut refusal = failure(function.module, span, message).label(label);
+        if (!named || matches!(cases, Missing::Several(..)))
+            && let Some(note) = cases.note()
+        {
+            refusal = refusal.note(note);
+        }
+        if clauses.len() > 1
+            && let Some(guarded) = clauses.iter().find(|clause| clause.guard.is_some())
+        {
+            refusal = refusal.note(if compares_in_head(guarded) {
+                "a clause whose head compares values covers nothing here, since they may differ"
+            } else {
+                "a clause with a guard covers nothing here, since the guard may fail"
+            });
+        }
+        refusal.help(cases.help("clause", &catch))
+    }
+
+    /// The refusal of an `is` testing `value`, whose `arms` leave `missing`
+    /// unmatched.
+    fn uncovered_match(
+        &self,
+        module: crate::ModuleId,
+        value: &t::Expr,
+        arms: &[t::Arm],
+        missing: &[Vec<Pattern>],
+        ends: &[bool],
+    ) -> Refusal {
+        let message = format!("this `is` does not handle {}", self.every(&value.ty));
+        let cases = self.cases(missing, ends, 1);
+        let mut refusal = failure(module, value.span, message).label(cases.label("arm"));
+        if matches!(cases, Missing::Several(..))
+            && let Some(note) = cases.note()
+        {
+            refusal = refusal.note(note);
+        }
+        if arms.iter().any(|arm| arm.guard.is_some()) {
+            refusal =
+                refusal.note("an arm with a guard covers nothing here, since the guard may fail");
+        }
+        refusal.help(cases.help("arm", "`_ then …`"))
+    }
+
+    /// What a headline says the patterns do not handle every one of, by the
+    /// type they take apart.
+    fn every(&self, ty: &InferredType) -> String {
+        match ty {
+            InferredType::Named(name, _) if *name == self.prelude.list => "every list".to_owned(),
+            InferredType::Named(name, _)
+                if *name == self.prelude.nat || *name == self.prelude.int =>
+            {
+                "every number".to_owned()
+            }
+            InferredType::Named(name, _) if *name == self.prelude.str_ => "every string".to_owned(),
+            InferredType::Named(name, _)
+                if self.declarations.contains_key(name)
+                    && self
+                        .constructors
+                        .get(name)
+                        .is_some_and(|held| held.len() > 1) =>
+            {
+                format!("every tag of `{}`", self.symbols.spelling(*name))
+            }
+            InferredType::Variants(..) => "every tag".to_owned(),
+            _ => "every case".to_owned(),
+        }
+    }
+
+    /// The cases `missing` as a diagnostic names them, each row of
+    /// `parameters` columns written as a tuple where there are several.
+    fn cases(&self, missing: &[Vec<Pattern>], ends: &[bool], parameters: usize) -> Missing {
+        if let [only] = missing
+            && only.iter().all(|pattern| matches!(pattern, Pattern::Wild))
+        {
+            return Missing::Rest;
+        }
+        let case = |row: &Vec<Pattern>| {
+            let written = self.render_row(row, ends, self.symbols);
+            match row.as_slice() {
+                [pattern] => open_length(pattern, self.prelude.list_cons).map_or_else(
+                    || format!("`{written}`"),
+                    |count| format!("lists of {} or more, `{written}`", words(count)),
+                ),
+                _ if parameters > 1 => format!("`({written})`"),
+                _ => format!("`{written}`"),
+            }
+        };
+        if let [only] = missing {
+            return Missing::One(case(only));
+        }
+        // Four are named rather than three and `1 more`.
+        let shown = if missing.len() == NAMED + 1 {
+            missing.len()
+        } else {
+            NAMED.min(missing.len())
+        };
+        let more = (missing.len() < ENUMERATED).then(|| missing.len() - shown);
+        Missing::Several(missing[..shown].iter().map(case).collect(), more)
+    }
+
+    /// Where the one clause `clause` is too narrow, and what it matches:
+    /// the one parameter that can fail, those that can, or where it has a
+    /// guard, all of them. `spans` is where each of its patterns is.
+    fn narrowest(clause: &t::Clause, spans: &[Span]) -> (Option<Span>, String) {
+        if clause.guard.is_some() {
+            let label = if compares_in_head(clause) {
+                "only equal values match"
+            } else {
+                "matches only where its guard holds"
+            };
+            return (spanning(spans), label.to_owned());
+        }
+        let narrow: Vec<_> = clause
+            .patterns
+            .iter()
+            .zip(spans)
+            .filter(|(pattern, _)| !takes_anything(pattern))
+            .collect();
+        match narrow.as_slice() {
+            [(pattern, span)] => (Some(**span), Self::matched(pattern)),
+            [] => (
+                spanning(spans),
+                "only arguments like these match".to_owned(),
+            ),
+            [(_, first), .., (_, last)] => (
+                spanning(&[**first, **last]),
+                "only arguments like these match".to_owned(),
+            ),
+        }
+    }
+
+    /// What a parameter's pattern matches, as a label under it says it.
+    fn matched(pattern: &t::Pattern) -> String {
+        let pattern = unwrapped(pattern);
+        if let Some((first, front, last)) = ending(pattern) {
+            if first.iter().chain(last).all(takes_anything) && takes_anything(front) {
+                return format!(
+                    "only lists of {} or more match",
+                    words(first.len() + last.len())
+                );
+            }
+            return "only some lists match".to_owned();
+        }
+        match pattern {
+            t::Pattern::List(elements, rest) if elements.iter().all(takes_anything) => match rest {
+                None if elements.is_empty() => "only the empty list matches".to_owned(),
+                None => format!("only lists of exactly {} match", words(elements.len())),
+                Some(rest) if takes_anything(rest) => {
+                    format!("only lists of {} or more match", words(elements.len()))
+                }
+                Some(_) => "only some lists match".to_owned(),
+            },
+            t::Pattern::List(..) | t::Pattern::Ending(..) => "only some lists match".to_owned(),
+            t::Pattern::Number {
+                magnitude,
+                negative,
+                character,
+            } => {
+                let written = match u32::try_from(magnitude).ok().and_then(char::from_u32) {
+                    Some(written) if *character => format!("{written:?}"),
+                    _ if *negative => format!("-{magnitude}"),
+                    _ => magnitude.to_string(),
+                };
+                format!("only `{written}` matches")
+            }
+            t::Pattern::Range(..) => "only the numbers in this range match".to_owned(),
+            t::Pattern::String(bytes) => {
+                format!("only `{:?}` matches", String::from_utf8_lossy(bytes))
+            }
+            t::Pattern::Tuple(_) => "only some tuples match".to_owned(),
+            t::Pattern::Record(..) => "only some records match".to_owned(),
+            t::Pattern::Or(_) => "only these alternatives match".to_owned(),
+            _ => "only this pattern matches".to_owned(),
+        }
+    }
+}
+
+/// How many elements an example list holds before a rest that may be
+/// anything, as `[_, _, *_]` does: lists of that many or more. `None` for
+/// a list of a fixed length, one whose elements are narrower, or no list.
+fn open_length(mut pattern: &Pattern, cons: Symbol) -> Option<usize> {
+    let mut count = 0;
+    loop {
+        match pattern {
+            Pattern::Constructor(name, fields) if *name == cons => {
+                let [Pattern::Wild, tail] = fields.as_slice() else {
+                    return None;
+                };
+                count += 1;
+                pattern = tail;
+            }
+            Pattern::Wild if count > 0 => return Some(count),
+            _ => return None,
+        }
+    }
+}
+
+/// Where a clause starting at `clause` names its function: up to the `(`
+/// before its first parameter, at `spans[0]`.
+fn name_span(clause: Span, spans: &[Span], text: &str) -> Option<Span> {
+    let start = usize::try_from(clause.start).ok()?;
+    let first = usize::try_from(spans.first()?.start).ok()?;
+    let head = text.get(start..first)?;
+    let name = head
+        .strip_suffix('(')
+        .or_else(|| head.trim_end().strip_suffix('('))?;
+    let name = name.trim_end();
+    (!name.is_empty()).then(|| Span::new(start, start + name.len()))
 }
 
 /// A type written in a declaration, over its parameters' bindings.

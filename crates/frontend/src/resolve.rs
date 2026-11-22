@@ -1364,6 +1364,7 @@ fn resolve_clause(
         span: clause.span,
         name,
         patterns,
+        pattern_spans: clause.patterns.iter().map(s::Pattern::span).collect(),
         guard,
         body,
         locals: resolver.next_local,

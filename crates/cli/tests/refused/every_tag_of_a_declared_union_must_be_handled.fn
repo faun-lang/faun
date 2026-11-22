@@ -1,0 +1,5 @@
+Dir : [North, East, South, West]
+
+turn : Dir -> Dir
+turn(North) -> East
+turn(East) -> South

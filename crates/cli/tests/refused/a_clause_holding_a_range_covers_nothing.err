@@ -1,7 +1,7 @@
-error: `small` does not cover every case
- --> a_clause_holding_a_range_covers_nothing.fn:4:1
+error: `small` does not handle every number
+ --> a_clause_holding_a_range_covers_nothing.fn:4:7
   |
 4 | small(0..9) -> 1
-  | ^^^^^^^^^^^^^^^^ no clause matches `small(_)`
+  |       ^^^^ only the numbers in this range match
   |
-  = help: add a clause matching `small(_)`
+  = help: add a clause that catches the rest: `small(_) -> …`

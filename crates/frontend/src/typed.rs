@@ -43,6 +43,9 @@ pub struct Clause {
     pub signature: Signature,
     pub bounds: Vec<InferredBound>,
     pub patterns: Vec<Pattern>,
+    /// Where each parameter's pattern is written; empty for a clause the
+    /// compiler writes.
+    pub pattern_spans: Vec<Span>,
     pub guard: Option<Expr>,
     pub body: Body,
     pub locals: u32,

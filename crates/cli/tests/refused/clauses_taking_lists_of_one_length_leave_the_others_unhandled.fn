@@ -1,0 +1,4 @@
+# A list of exactly two elements leaves the empty list, one element, and
+# three or more each unhandled.
+parse_cmd : List(Str) -> Str
+parse_cmd([a, b]) -> a

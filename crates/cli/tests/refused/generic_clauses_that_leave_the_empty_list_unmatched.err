@@ -1,7 +1,8 @@
-error: `first` does not cover every case
- --> generic_clauses_that_leave_the_empty_list_unmatched.fn:2:1
+error: `first` does not handle every list
+ --> generic_clauses_that_leave_the_empty_list_unmatched.fn:2:7
   |
 2 | first([x, *rest]) -> x
-  | ^^^^^^^^^^^^^^^^^^^^^^ no clause matches `first([])`
+  |       ^^^^^^^^^^ only lists of one or more match
   |
-  = help: add a clause matching `first([])`
+  = note: not handled: `[]`
+  = help: add a clause for it, or one that catches the rest: `first(_) -> …`

@@ -1,0 +1,8 @@
+error: this `is` does not handle every tag of `Shape`
+ --> an_is_names_the_first_cases_its_arms_miss_and_counts_the_rest.fn:4:16
+  |
+4 | size(shape) -> shape is (
+  |                ^^^^^ no arm matches the 5 cases below
+  |
+  = note: not handled: `Square(_)`, `Dot`, `Line(_)`, and 2 more
+  = help: add arms for them, or one that catches the rest: `_ then …`

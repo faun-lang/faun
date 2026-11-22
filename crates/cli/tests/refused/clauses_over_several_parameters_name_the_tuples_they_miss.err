@@ -1,0 +1,8 @@
+error: `pick` does not handle every case
+ --> clauses_over_several_parameters_name_the_tuples_they_miss.fn:2:1
+  |
+2 | pick(True, True, _) -> 1
+  | ^^^^ no clause matches the 2 cases below
+  |
+  = note: not handled: `(False, _, False)` and `(True, False, _)`
+  = help: add clauses for them, or one that catches the rest: `pick(_, _, _) -> …`

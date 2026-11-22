@@ -89,6 +89,7 @@ impl Elaborator<'_> {
                 .into_iter()
                 .map(|p| self.pattern(p))
                 .collect(),
+            pattern_spans: clause.pattern_spans,
             guard: clause.guard.map(|expr| self.expr(expr)),
             body: self.body(clause.body),
             locals: clause.locals,

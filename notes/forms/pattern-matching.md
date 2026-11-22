@@ -139,16 +139,19 @@ a range, a string, a numeral of anything but `Nat` or `Int`, and a name
 written twice. A list's end that tests its elements, `[*rest, Leave(n)]`,
 covers where every list pattern beside it reads the same from the end, as
 `[]`, `[a, b]` and `[*_, x]` do: those are judged as the list turned round.
-Beside a front that tests, `[Enter(n), *rest]`, it covers nothing. A
-missing case is refused with a witness:
+Beside a front that tests, `[Enter(n), *rest]`, it covers nothing. Missing
+cases are refused with examples of them: the first three, and how many more
+there are. One clause is marked where it is too narrow; several, at the
+function's name; an `is`, at what it tests:
 
 ```text
-error: this `is` does not cover every case
+error: `parse_cmd` does not handle every list
   |
-6 | area(shape) -> shape is (
-  |                ^^^^^ no arm matches `Square(_)`
+4 | parse_cmd([a, b]) -> a
+  |           ^^^^^^ only lists of exactly two match
   |
-  = help: add an arm matching `Square(_)`, or `_ then …` for the rest
+  = note: not handled: `[]`, `[_]`, and lists of three or more, `[_, _, _, *_]`
+  = help: add clauses for them, or one that catches the rest: `parse_cmd(_) -> …`
 ```
 
 A numeral on `Nat` stands for its constructors, so `0` and `Succ(n)` cover a

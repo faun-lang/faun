@@ -702,7 +702,7 @@ fn refused_as_uncovering(function: &Function, values: &[Value]) -> Option<String
         &program(&[function], |_| String::new()),
     );
     let said = match lowered(&package.entry()) {
-        Err(Lowered::Refused(message)) if message.contains("does not cover every case") => {
+        Err(Lowered::Refused(message)) if message.contains("does not handle every") => {
             return None;
         }
         Err(error) => format!("refused as `{}`", error.message()),
