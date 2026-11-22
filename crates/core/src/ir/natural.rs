@@ -812,16 +812,10 @@ fn object(b: &mut Builder<'_>, handle: ValueId) -> ValueId {
 /// Do `then` with the object a natural names, where it names one.
 fn where_object(b: &mut Builder<'_>, value: ValueId, then: impl FnOnce(&mut Builder<'_>, ValueId)) {
     let named = is_object(b, value);
-    b.if_(
-        named,
-        &[],
-        |b| {
-            let at = object(b, value);
-            then(b, at);
-            b.yield_(&[]);
-        },
-        |b| b.yield_(&[]),
-    );
+    b.when(named, |b| {
+        let at = object(b, value);
+        then(b, at);
+    });
 }
 
 /// The handle naming the object at `address`: one more.
@@ -861,16 +855,10 @@ fn unless_small(program: &mut Program, name: &str, count: FunctionId) -> Functio
     program.define(f, |b, args| {
         let value = args[0];
         let named = is_object(b, value);
-        b.if_(
-            named,
-            &[],
-            |b| {
-                let at = object(b, value);
-                b.call(count, &[at]);
-                b.yield_(&[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.when(named, |b| {
+            let at = object(b, value);
+            b.call(count, &[at]);
+        });
         b.ret(&[]);
     });
     f
@@ -1016,15 +1004,10 @@ impl Storage {
                 let sum = add(b, x, y);
                 let top = number(b, half);
                 let fits = lt(b, sum, top);
-                b.if_(
-                    fits,
-                    &[],
-                    |b| {
-                        let held = small_word(b, sum);
-                        b.ret(&[held]);
-                    },
-                    |b| b.yield_(&[]),
-                );
+                b.leave_if(fits, |b| {
+                    let held = small_word(b, sum);
+                    b.ret(&[held]);
+                });
                 b.yield_(&[]);
             });
             let out = self.through_digits(b, objects, a, c, &[]);
@@ -1060,21 +1043,16 @@ impl Storage {
         p.define(f, |b, args| {
             let (a, c) = (args[0], args[1]);
             let small_a = is_small(b, a);
-            b.if_(
-                small_a,
-                &[],
-                |b| {
-                    both_small(b, a, c, |b, x, y| {
-                        let rest = b.binary(Binary::Monus, x, y);
-                        let held = small_word(b, rest);
-                        b.ret(&[held]);
-                    });
-                    // An object is more than any immediate.
-                    let z = small(b, 0);
-                    b.ret(&[z]);
-                },
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(small_a, |b| {
+                both_small(b, a, c, |b, x, y| {
+                    let rest = b.binary(Binary::Monus, x, y);
+                    let held = small_word(b, rest);
+                    b.ret(&[held]);
+                });
+                // An object is more than any immediate.
+                let z = small(b, 0);
+                b.ret(&[z]);
+            });
             let out = self.through_digits(b, objects, a, c, &[]);
             b.ret(&[out]);
         });
@@ -1093,16 +1071,11 @@ impl Storage {
                 let low_x = lt(b, x, bound);
                 let low_y = lt(b, y, bound);
                 let both = b.binary(Binary::Mul, low_x, low_y);
-                b.if_(
-                    both,
-                    &[],
-                    |b| {
-                        let product = b.binary(Binary::Mul, x, y);
-                        let held = small_word(b, product);
-                        b.ret(&[held]);
-                    },
-                    |b| b.yield_(&[]),
-                );
+                b.leave_if(both, |b| {
+                    let product = b.binary(Binary::Mul, x, y);
+                    let held = small_word(b, product);
+                    b.ret(&[held]);
+                });
                 b.yield_(&[]);
             });
             let out = self.through_digits(b, objects, a, c, &[]);
@@ -1130,26 +1103,21 @@ impl Storage {
                 b.ret(&[out]);
             };
             let small_a = is_small(b, a);
-            b.if_(
-                small_a,
-                &[],
-                |b| {
-                    both_small(b, a, c, |b, x, y| {
-                        let nil = number(b, 0);
-                        let by_nought = eq(b, y, nil);
-                        b.if_(by_nought, &[], |b| whole(b), |b| b.yield_(&[]));
-                        let op = match result {
-                            DivisionResult::Quotient => Binary::Div,
-                            DivisionResult::Remainder => Binary::Mod,
-                        };
-                        let out = b.binary(op, x, y);
-                        let held = small_word(b, out);
-                        b.ret(&[held]);
-                    });
-                    whole(b);
-                },
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(small_a, |b| {
+                both_small(b, a, c, |b, x, y| {
+                    let nil = number(b, 0);
+                    let by_nought = eq(b, y, nil);
+                    b.leave_if(by_nought, |b| whole(b));
+                    let op = match result {
+                        DivisionResult::Quotient => Binary::Div,
+                        DivisionResult::Remainder => Binary::Mod,
+                    };
+                    let out = b.binary(op, x, y);
+                    let held = small_word(b, out);
+                    b.ret(&[held]);
+                });
+                whole(b);
+            });
             let mode = number(b, mode);
             let out = self.through_digits(b, divmod, a, c, &[mode]);
             b.ret(&[out]);
@@ -1177,26 +1145,16 @@ impl Storage {
             let zero = number(b, 0);
             let by_nought = eq(b, d, zero);
             let small_a = is_small(b, a);
-            b.if_(
-                by_nought,
-                &[],
-                |b| {
-                    let out = by_nought_answer(b, (a, small_a), result, retain);
-                    b.ret(&[out]);
-                },
-                |b| b.yield_(&[]),
-            );
-            b.if_(
-                small_a,
-                &[],
-                |b| {
-                    let x = unwrapped(b, a);
-                    let out = b.binary(op, x, d);
-                    let held = small_word(b, out);
-                    b.ret(&[held]);
-                },
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(by_nought, |b| {
+                let out = by_nought_answer(b, (a, small_a), result, retain);
+                b.ret(&[out]);
+            });
+            b.leave_if(small_a, |b| {
+                let x = unwrapped(b, a);
+                let out = b.binary(op, x, d);
+                let held = small_word(b, out);
+                b.ret(&[held]);
+            });
             let mode = number(b, mode);
             let at = object(b, a);
             let out = b.call_one(short, &[at, d, mode]);
@@ -1238,15 +1196,9 @@ impl Storage {
         args.extend_from_slice(rest);
         let out = b.call_one(objects, &args);
         for (named, object) in held {
-            b.if_(
-                named,
-                &[],
-                |b| b.yield_(&[]),
-                |b| {
-                    b.call(release, &[object]);
-                    b.yield_(&[]);
-                },
-            );
+            b.unless(named, |b| {
+                b.call(release, &[object]);
+            });
         }
         out
     }
@@ -1263,16 +1215,10 @@ fn by_nought_answer(
     match result {
         DivisionResult::Quotient => small(b, 0),
         DivisionResult::Remainder => {
-            b.if_(
-                small_a,
-                &[],
-                |b| b.yield_(&[]),
-                |b| {
-                    let at = object(b, a);
-                    b.call(retain, &[at]);
-                    b.yield_(&[]);
-                },
-            );
+            b.unless(small_a, |b| {
+                let at = object(b, a);
+                b.call(retain, &[at]);
+            });
             a
         }
     }
@@ -1287,70 +1233,51 @@ fn both_small(
     then: impl FnOnce(&mut Builder<'_>, ValueId, ValueId),
 ) {
     let objects = either_object(b, a, c);
-    b.if_(
-        objects,
-        &[],
-        |b| b.yield_(&[]),
-        |b| {
-            let x = unwrapped(b, a);
-            let y = unwrapped(b, c);
-            then(b, x, y);
-        },
-    );
+    b.leave_unless(objects, |b| {
+        let x = unwrapped(b, a);
+        let y = unwrapped(b, c);
+        then(b, x, y);
+    });
 }
 
 /// The order of two naturals, as the routine reading digits answers it:
 /// nought for less, one for equal, two for greater. Immediates are ordered
 /// as the words holding them are, and an object is more than any of them.
-#[expect(
-    clippy::too_many_lines,
-    reason = "four cases of immediate and object, each answering an order"
-)]
 fn comparing(p: &mut Program, objects: FunctionId) -> FunctionId {
     let f = declare(p, "nat.compare", &[A, A], &[W]);
     p.define(f, |b, args| {
         let (a, c) = (args[0], args[1]);
         let small_a = is_small(b, a);
         let small_c = is_small(b, c);
-        b.if_(
-            small_a,
-            &[],
-            |b| {
-                b.if_(
-                    small_c,
-                    &[],
-                    |b| {
-                        let x = b.convert(W, a);
-                        let y = b.convert(W, c);
-                        let less = lt(b, x, y);
-                        let same = eq(b, x, y);
-                        // Less is nought, equal one and greater two:
-                        // one, less one where less, plus one where not
-                        // equal either.
-                        let one = number(b, 1);
-                        let apart = b.binary(Binary::Sub, one, same);
-                        let up = add(b, one, apart);
-                        let order = b.binary(Binary::Sub, up, less);
-                        let order = b.binary(Binary::Sub, order, less);
-                        b.ret(&[order]);
-                    },
-                    |b| {
-                        let less = number(b, 0);
-                        b.ret(&[less]);
-                    },
-                );
-            },
-            |b| b.yield_(&[]),
-        );
-        b.if_(
-            small_c,
-            &[],
-            |b| {
-                let greater = number(b, 2);
-                b.ret(&[greater]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(small_a, |b| {
+            b.if_(
+                small_c,
+                &[],
+                |b| {
+                    let x = b.convert(W, a);
+                    let y = b.convert(W, c);
+                    let less = lt(b, x, y);
+                    let same = eq(b, x, y);
+                    // Less is nought, equal one and greater two:
+                    // one, less one where less, plus one where not
+                    // equal either.
+                    let one = number(b, 1);
+                    let apart = b.binary(Binary::Sub, one, same);
+                    let up = add(b, one, apart);
+                    let order = b.binary(Binary::Sub, up, less);
+                    let order = b.binary(Binary::Sub, order, less);
+                    b.ret(&[order]);
+                },
+                |b| {
+                    let less = number(b, 0);
+                    b.ret(&[less]);
+                },
+            );
+        });
+        b.leave_if(small_c, |b| {
+            let greater = number(b, 2);
+            b.ret(&[greater]);
+        });
         let named = [a, c].map(|value| object(b, value));
         let order = b.call_one(objects, &named);
         b.ret(&[order]);
@@ -1364,15 +1291,10 @@ fn lowering(p: &mut Program, objects: FunctionId) -> FunctionId {
     p.define(f, |b, args| {
         let a = args[0];
         let small_a = is_small(b, a);
-        b.if_(
-            small_a,
-            &[],
-            |b| {
-                let n = unwrapped(b, a);
-                b.ret(&[n]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(small_a, |b| {
+            let n = unwrapped(b, a);
+            b.ret(&[n]);
+        });
         let a = object(b, a);
         let out = b.call_one(objects, &[a]);
         b.ret(&[out]);
@@ -1380,37 +1302,20 @@ fn lowering(p: &mut Program, objects: FunctionId) -> FunctionId {
     f
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "two symmetric generated reference-count routines"
-)]
 fn counting(p: &mut Program, retain: FunctionId, release: FunctionId, fail: FunctionId, max: u64) {
     p.define(retain, |b, args| {
         let a = args[0];
         let refs = live_count(b, a, fail);
         let immortal = number(b, max);
         let static_ = eq(b, refs, immortal);
-        b.if_(
-            static_,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                let limit = number(b, max - 1);
-                let full = eq(b, refs, limit);
-                b.if_(
-                    full,
-                    &[],
-                    |b| {
-                        b.call(fail, &[]);
-                    },
-                    |b| b.yield_(&[]),
-                );
-                let one = number(b, 1);
-                let next = add(b, refs, one);
-                b.store(Width::Word, a, Offset::Words(1), next);
-                b.yield_(&[]);
-            },
-        );
+        b.unless(static_, |b| {
+            let limit = number(b, max - 1);
+            let full = eq(b, refs, limit);
+            b.fail_if(full, fail);
+            let one = number(b, 1);
+            let next = add(b, refs, one);
+            b.store(Width::Word, a, Offset::Words(1), next);
+        });
         b.ret(&[a]);
     });
     p.define(release, |b, args| {
@@ -1418,17 +1323,11 @@ fn counting(p: &mut Program, retain: FunctionId, release: FunctionId, fail: Func
         let refs = live_count(b, a, fail);
         let immortal = number(b, max);
         let static_ = eq(b, refs, immortal);
-        b.if_(
-            static_,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                let one = number(b, 1);
-                let next = sub(b, refs, one);
-                b.store(Width::Word, a, Offset::Words(1), next);
-                b.yield_(&[]);
-            },
-        );
+        b.unless(static_, |b| {
+            let one = number(b, 1);
+            let next = sub(b, refs, one);
+            b.store(Width::Word, a, Offset::Words(1), next);
+        });
         b.ret(&[]);
     });
 }
@@ -1437,14 +1336,7 @@ fn live_count(b: &mut Builder<'_>, object: ValueId, fail: FunctionId) -> ValueId
     let refs = b.load(Width::Word, object, Offset::Words(1));
     let zero = number(b, 0);
     let freed = eq(b, refs, zero);
-    b.if_(
-        freed,
-        &[],
-        |b| {
-            b.call(fail, &[]);
-        },
-        |b| b.yield_(&[]),
-    );
+    b.fail_if(freed, fail);
     refs
 }
 
@@ -1480,25 +1372,13 @@ fn allocator(
         let cap = args[0];
         let nil = number(b, 0);
         let empty = eq(b, cap, nil);
-        b.if_(
-            empty,
-            &[],
-            |b| {
-                let z = b.address_of(zero);
-                b.ret(&[z]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(empty, |b| {
+            let z = b.address_of(zero);
+            b.ret(&[z]);
+        });
         let limit = number(b, size64(config.heap_bytes - 3 * word));
         let huge = lt(b, limit, cap);
-        b.if_(
-            huge,
-            &[],
-            |b| {
-                b.call(fail, &[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.fail_if(huge, fail);
         // The aligned pool fits a word, so even the rounding addition fits.
         let overhead = number(b, size64(4 * word - 1));
         let size = add(b, cap, overhead);
@@ -1510,14 +1390,7 @@ fn allocator(
         let result = b.loop_(&[nil], &[A], |b, state| {
             let offset = state[0];
             let end = eq(b, offset, pool);
-            b.if_(
-                end,
-                &[],
-                |b| {
-                    b.call(fail, &[]);
-                },
-                |b| b.yield_(&[]),
-            );
+            b.fail_if(end, fail);
             let at = address(b, base, offset);
             let size = b.load(Width::Word, at, Offset::Words(0));
             let refs = b.load(Width::Word, at, Offset::Words(1));
@@ -1630,26 +1503,14 @@ fn growing(
         let cap = args[0];
         let nil = number(b, 0);
         let empty = eq(b, cap, nil);
-        b.if_(
-            empty,
-            &[],
-            |b| {
-                let z = b.address_of(zero);
-                b.ret(&[z]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(empty, |b| {
+            let z = b.address_of(zero);
+            b.ret(&[z]);
+        });
         // Far below what could wrap: no request that large is met.
         let limit = number(b, max / 4);
         let huge = lt(b, limit, cap);
-        b.if_(
-            huge,
-            &[],
-            |b| {
-                b.call(fail, &[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.fail_if(huge, fail);
         let overhead = number(b, size64(4 * word - 1));
         let size = add(b, cap, overhead);
         let unit = number(b, size64(word));
@@ -1683,35 +1544,25 @@ fn growing(
             let (arena, offset) = (state[0], state[1]);
             let end = b.load(Width::Word, arena, Offset::Words(1));
             let at_end = eq(b, offset, end);
-            b.if_(
-                at_end,
-                &[],
-                |b| {
-                    // On to the next arena, having begun as many as there
-                    // are after the one the search began part way through.
-                    let kept = b.address_of(kept_at);
-                    let starts = b.load(Width::Word, kept, Offset::Words(4));
-                    let one = number(b, 1);
-                    let more = add(b, starts, one);
-                    b.store(Width::Word, kept, Offset::Words(4), more);
-                    let done = lt(b, arenas, more);
-                    b.if_(
-                        done,
-                        &[],
-                        |b| {
-                            let nil = number(b, 0);
-                            let first = b.address_of(heap);
-                            b.break_(&[first, nil]);
-                        },
-                        |b| b.yield_(&[]),
-                    );
-                    let next = b.load(Width::Word, arena, Offset::Words(0));
-                    let next = arena_at(b, next);
-                    let start = number(b, size64(start));
-                    b.continue_(&[next, start]);
-                },
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(at_end, |b| {
+                // On to the next arena, having begun as many as there
+                // are after the one the search began part way through.
+                let kept = b.address_of(kept_at);
+                let starts = b.load(Width::Word, kept, Offset::Words(4));
+                let one = number(b, 1);
+                let more = add(b, starts, one);
+                b.store(Width::Word, kept, Offset::Words(4), more);
+                let done = lt(b, arenas, more);
+                b.leave_if(done, |b| {
+                    let nil = number(b, 0);
+                    let first = b.address_of(heap);
+                    b.break_(&[first, nil]);
+                });
+                let next = b.load(Width::Word, arena, Offset::Words(0));
+                let next = arena_at(b, next);
+                let start = number(b, size64(start));
+                b.continue_(&[next, start]);
+            });
             let at = address(b, arena, offset);
             let size = b.load(Width::Word, at, Offset::Words(0));
             let refs = b.load(Width::Word, at, Offset::Words(1));
@@ -1753,7 +1604,7 @@ fn growing(
         let (block, met) = (found[0], found[1]);
         let one = number(b, 1);
         let met = eq(b, met, one);
-        b.if_(met, &[], |b| b.ret(&[block]), |b| b.yield_(&[]));
+        b.leave_if(met, |b| b.ret(&[block]));
         // Nothing had room: a new arena, at least as large as the heap.
         let total = b.load(Width::Word, kept, Offset::Words(3));
         let header_bytes = number(b, size64(start));
@@ -1795,14 +1646,7 @@ fn growing(
         );
         let (page, chunk) = (got[0], got[1]);
         let refused = refused(b, page, chunk);
-        b.if_(
-            refused,
-            &[],
-            |b| {
-                b.call(fail, &[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.fail_if(refused, fail);
         let from = b.convert(W, page);
         let after_first = b.load(Width::Word, first, Offset::Words(0));
         let grown = add(b, total, chunk);
@@ -1824,26 +1668,21 @@ fn growing(
             },
             |b| b.yield_(&[nil]),
         )[0];
-        b.if_(
-            extends,
-            &[],
-            |b| {
-                let end = b.load(Width::Word, latest, Offset::Words(1));
-                let longer = add(b, end, chunk);
-                b.store(Width::Word, latest, Offset::Words(1), longer);
-                let nil = number(b, 0);
-                b.store(Width::Word, page, Offset::Words(0), chunk);
-                b.store(Width::Word, page, Offset::Words(1), nil);
-                b.call(claim, &[page, wanted, cap]);
-                let taken = b.load(Width::Word, page, Offset::Words(0));
-                let after = add(b, end, taken);
-                let kept = b.address_of(kept_at);
-                b.store(Width::Word, kept, Offset::Words(0), after_first);
-                b.store(Width::Word, kept, Offset::Words(1), after);
-                b.ret(&[page]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(extends, |b| {
+            let end = b.load(Width::Word, latest, Offset::Words(1));
+            let longer = add(b, end, chunk);
+            b.store(Width::Word, latest, Offset::Words(1), longer);
+            let nil = number(b, 0);
+            b.store(Width::Word, page, Offset::Words(0), chunk);
+            b.store(Width::Word, page, Offset::Words(1), nil);
+            b.call(claim, &[page, wanted, cap]);
+            let taken = b.load(Width::Word, page, Offset::Words(0));
+            let after = add(b, end, taken);
+            let kept = b.address_of(kept_at);
+            b.store(Width::Word, kept, Offset::Words(0), after_first);
+            b.store(Width::Word, kept, Offset::Words(1), after);
+            b.ret(&[page]);
+        });
         b.store(Width::Word, page, Offset::Words(0), after_first);
         b.store(Width::Word, first, Offset::Words(0), from);
         b.store(Width::Word, page, Offset::Words(1), chunk);
@@ -1878,7 +1717,7 @@ fn coalescing(p: &mut Program) -> FunctionId {
             let size = state[0];
             let next = add(b, offset, size);
             let end = eq(b, next, pool);
-            b.if_(end, &[], |b| b.break_(&[size]), |b| b.yield_(&[]));
+            b.leave_if(end, |b| b.break_(&[size]));
             let after = address(b, base, next);
             let refs = b.load(Width::Word, after, Offset::Words(1));
             let free = eq(b, refs, nil);
@@ -1910,19 +1749,13 @@ fn claiming(p: &mut Program, word: usize) -> FunctionId {
         let tiny = lt(b, rest, minimum);
         let nil = number(b, 0);
         let one = number(b, 1);
-        b.if_(
-            tiny,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                let tail = address(b, at, wanted);
-                b.store(Width::Word, tail, Offset::Words(0), rest);
-                b.store(Width::Word, tail, Offset::Words(1), nil);
-                b.store(Width::Word, tail, Offset::Words(2), nil);
-                b.store(Width::Word, at, Offset::Words(0), wanted);
-                b.yield_(&[]);
-            },
-        );
+        b.unless(tiny, |b| {
+            let tail = address(b, at, wanted);
+            b.store(Width::Word, tail, Offset::Words(0), rest);
+            b.store(Width::Word, tail, Offset::Words(1), nil);
+            b.store(Width::Word, tail, Offset::Words(2), nil);
+            b.store(Width::Word, at, Offset::Words(0), wanted);
+        });
         b.store(Width::Word, at, Offset::Words(1), one);
         set_length(b, at, cap);
         b.ret(&[]);
@@ -1938,7 +1771,7 @@ fn clear(b: &mut Builder<'_>, out: ValueId, len: ValueId, word: usize) {
     b.loop_(&[nil], &[], |b, state| {
         let i = state[0];
         let done = eq(b, i, len);
-        b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+        b.leave_if(done, |b| b.break_(&[]));
         write_digit(b, out, i, nil, word);
         let next = add(b, i, one);
         b.continue_(&[next]);
@@ -1977,7 +1810,7 @@ fn trimming(p: &mut Program, word: usize) -> FunctionId {
         let n = b.loop_(&[len], &[W], |b, state| {
             let n = state[0];
             let empty = eq(b, n, zero);
-            b.if_(empty, &[], |b| b.break_(&[n]), |b| b.yield_(&[]));
+            b.leave_if(empty, |b| b.break_(&[n]));
             let last = sub(b, n, one);
             let digit = read_digit(b, a, last, word);
             let empty = eq(b, digit, zero);
@@ -2005,28 +1838,18 @@ fn finishing(
         // Two digits is more than half a word holds.
         let one = number(b, 1);
         let wide = lt(b, one, len);
-        b.if_(
-            wide,
-            &[],
-            |b| {
-                let named = handle(b, a);
-                b.ret(&[named]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(wide, |b| {
+            let named = handle(b, a);
+            b.ret(&[named]);
+        });
         let value = b.call_one(narrow, &[a]);
         let top = number(b, half);
         let fits = lt(b, value, top);
-        b.if_(
-            fits,
-            &[],
-            |b| {
-                b.call(release, &[a]);
-                let held = small_word(b, value);
-                b.ret(&[held]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(fits, |b| {
+            b.call(release, &[a]);
+            let held = small_word(b, value);
+            b.ret(&[held]);
+        });
         let named = handle(b, a);
         b.ret(&[named]);
     });
@@ -2045,14 +1868,7 @@ fn digits_allocation(
         let count = args[0];
         let limit = number(b, most);
         let huge = lt(b, limit, count);
-        b.if_(
-            huge,
-            &[],
-            |b| {
-                b.call(fail, &[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.fail_if(huge, fail);
         let bytes = number(b, size64(word));
         let bytes = b.binary(Binary::Mul, count, bytes);
         let out = b.call_one(alloc, &[bytes]);
@@ -2089,18 +1905,18 @@ fn comparison(p: &mut Program, word: usize) -> FunctionId {
         let one = number(b, 1);
         let two = number(b, 2);
         let less = lt(b, la, lc);
-        b.if_(less, &[], |b| b.ret(&[zero]), |b| b.yield_(&[]));
+        b.leave_if(less, |b| b.ret(&[zero]));
         let greater = lt(b, lc, la);
-        b.if_(greater, &[], |b| b.ret(&[two]), |b| b.yield_(&[]));
+        b.leave_if(greater, |b| b.ret(&[two]));
         let order = b.loop_(&[la], &[W], |b, state| {
             let n = state[0];
             let empty = eq(b, n, zero);
-            b.if_(empty, &[], |b| b.break_(&[one]), |b| b.yield_(&[]));
+            b.leave_if(empty, |b| b.break_(&[one]));
             let i = sub(b, n, one);
             let x = read_digit(b, a, i, word);
             let y = read_digit(b, c, i, word);
             let less = lt(b, x, y);
-            b.if_(less, &[], |b| b.break_(&[zero]), |b| b.yield_(&[]));
+            b.leave_if(less, |b| b.break_(&[zero]));
             let greater = lt(b, y, x);
             b.if_(greater, &[], |b| b.break_(&[two]), |b| b.continue_(&[i]));
         })[0];
@@ -2109,10 +1925,6 @@ fn comparison(p: &mut Program, word: usize) -> FunctionId {
     f
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one generated carry-propagation routine"
-)]
 fn addition(p: &mut Program, storage: Storage, digit: FunctionId) -> FunctionId {
     let Storage {
         alloc,
@@ -2132,14 +1944,7 @@ fn addition(p: &mut Program, storage: Storage, digit: FunctionId) -> FunctionId 
         let len = b.if_(less, &[W], |b| b.yield_(&[lc]), |b| b.yield_(&[la]))[0];
         let limit = number(b, most);
         let fits = lt(b, len, limit);
-        b.if_(
-            fits,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                b.call(fail, &[]);
-            },
-        );
+        b.fail_unless(fits, fail);
         let one = number(b, 1);
         let zero = number(b, 0);
         let cap = add(b, len, one);
@@ -2148,7 +1953,7 @@ fn addition(p: &mut Program, storage: Storage, digit: FunctionId) -> FunctionId 
             let i = state[0];
             let carry = state[1];
             let done = eq(b, i, len);
-            b.if_(done, &[], |b| b.break_(&[carry]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[carry]));
             let x = b.call_one(digit, &[a, i]);
             let y = b.call_one(digit, &[c, i]);
             let (sum, carry) = add_carry(b, x, y, carry);
@@ -2197,7 +2002,7 @@ fn bitwise_digits(
         b.loop_(&[zero], &[], |b, state| {
             let i = state[0];
             let done = eq(b, i, len);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             let x = b.call_one(digit, &[a, i]);
             let y = b.call_one(digit, &[c, i]);
             let answer = b.binary(op, x, y);
@@ -2225,7 +2030,7 @@ fn subtracting(p: &mut Program, digit: FunctionId, trim: FunctionId, word: usize
             let i = state[0];
             let borrow = state[1];
             let done = eq(b, i, len);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             let x = read_digit(b, a, i, word);
             let y = b.call_one(digit, &[c, i]);
             let (low, borrow) = sub_borrow(b, x, y, borrow);
@@ -2258,15 +2063,10 @@ fn monus(
         let order = b.call_one(compare, &[a, c]);
         let two = number(b, 2);
         let greater = eq(b, order, two);
-        b.if_(
-            greater,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                let z = small(b, 0);
-                b.ret(&[z]);
-            },
-        );
+        b.leave_unless(greater, |b| {
+            let z = small(b, 0);
+            b.ret(&[z]);
+        });
         let len = length(b, a);
         let out = b.call_one(alloc, &[len]);
         let zero = number(b, 0);
@@ -2274,7 +2074,7 @@ fn monus(
         b.loop_(&[zero], &[], |b, state| {
             let i = state[0];
             let done = eq(b, i, len);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             let x = read_digit(b, a, i, word);
             write_digit(b, out, i, x, word);
             let next = add(b, i, one);
@@ -2302,7 +2102,7 @@ fn multiply_row(p: &mut Program, word: usize) -> FunctionId {
             let j = state[0];
             let carry = state[1];
             let done = eq(b, j, len);
-            b.if_(done, &[], |b| b.break_(&[carry]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[carry]));
             let y = read_digit(b, c, j, word);
             let at = add(b, i, j);
             let acc = read_digit(b, out, at, word);
@@ -2346,37 +2146,18 @@ fn multiplication(p: &mut Program, storage: Storage) -> FunctionId {
         let one = number(b, 1);
         for len in [la, lc] {
             let empty = eq(b, len, nil);
-            b.if_(
-                empty,
-                &[],
-                |b| {
-                    let z = small(b, 0);
-                    b.ret(&[z]);
-                },
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(empty, |b| {
+                let z = small(b, 0);
+                b.ret(&[z]);
+            });
         }
         // Check each component before addition, including large static inputs.
         let limit = number(b, most);
         let huge = lt(b, limit, la);
-        b.if_(
-            huge,
-            &[],
-            |b| {
-                b.call(fail, &[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.fail_if(huge, fail);
         let room = sub(b, limit, la);
         let huge = lt(b, room, lc);
-        b.if_(
-            huge,
-            &[],
-            |b| {
-                b.call(fail, &[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.fail_if(huge, fail);
         let cap = add(b, la, lc);
         let out = b.call_one(alloc, &[cap]);
         // Each row adds into what the rows before it wrote.
@@ -2384,7 +2165,7 @@ fn multiplication(p: &mut Program, storage: Storage) -> FunctionId {
         b.loop_(&[nil], &[], |b, state| {
             let i = state[0];
             let done = eq(b, i, la);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             b.call(row, &[a, c, out, i]);
             let next = add(b, i, one);
             b.continue_(&[next]);
@@ -2462,7 +2243,7 @@ fn half_quotient(
         )[0];
         let one = number(b, 1);
         let fine = lt(b, over, one);
-        b.if_(fine, &[], |b| b.break_(&[q]), |b| b.yield_(&[]));
+        b.leave_if(fine, |b| b.break_(&[q]));
         let q = sub(b, q, one);
         let r = add(b, r, upper);
         let small = lt(b, r, base);
@@ -2481,7 +2262,7 @@ fn normalizing(p: &mut Program, half: u64) -> FunctionId {
             let (pow, x) = (state[0], state[1]);
             let below = number(b, half - 1);
             let set = lt(b, below, x);
-            b.if_(set, &[], |b| b.break_(&[pow]), |b| b.yield_(&[]));
+            b.leave_if(set, |b| b.break_(&[pow]));
             let pow = b.binary(Binary::Mul, pow, two);
             let x = b.binary(Binary::Mul, x, two);
             b.continue_(&[pow, x]);
@@ -2504,7 +2285,7 @@ fn scaling(p: &mut Program, word: usize) -> FunctionId {
         let carry = b.loop_(&[zero, zero], &[W], |b, state| {
             let (i, carry) = (state[0], state[1]);
             let done = eq(b, i, len);
-            b.if_(done, &[], |b| b.break_(&[carry]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[carry]));
             let x = read_digit(b, from, i, word);
             let (low, high) = mul_wide(b, x, pow, word_bits(word));
             let digit = add(b, low, carry);
@@ -2530,7 +2311,7 @@ fn unscaling(p: &mut Program, half: u64, word: usize) -> FunctionId {
         b.loop_(&[zero], &[], |b, state| {
             let i = state[0];
             let done = eq(b, i, len);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             let x = read_digit(b, r, i, word);
             let next = add(b, i, one);
             let y = read_digit(b, r, next, word);
@@ -2568,7 +2349,7 @@ fn estimating(p: &mut Program, divide: FunctionId, word: usize) -> FunctionId {
         let settled = add(b, over, short);
         let zero = number(b, 0);
         let open = eq(b, settled, zero);
-        b.if_(open, &[], |b| b.yield_(&[]), |b| b.ret(&[q]));
+        b.leave_unless(open, |b| b.ret(&[q]));
         let next = sub(b, top, one);
         let v2 = read_digit(b, v, next, word);
         let at = sub(b, at, one);
@@ -2636,7 +2417,7 @@ fn corrected(
         let over = add(b, past, level_past);
         let one = number(b, 1);
         let fine = lt(b, over, one);
-        b.if_(fine, &[], |b| b.break_(&[q]), |b| b.yield_(&[]));
+        b.leave_if(fine, |b| b.break_(&[q]));
         let q = sub(b, q, one);
         let grown = add(b, r, v1);
         let wrapped = lt(b, grown, r);
@@ -2661,7 +2442,7 @@ fn multiplying_out(p: &mut Program, word: usize) -> FunctionId {
         let owed = b.loop_(&[zero, zero], &[W], |b, state| {
             let (i, owed) = (state[0], state[1]);
             let done = eq(b, i, n);
-            b.if_(done, &[], |b| b.break_(&[owed]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[owed]));
             let y = read_digit(b, v, i, word);
             let (low, high) = mul_wide(b, q, y, word_bits(word));
             let at = add(b, i, j);
@@ -2689,7 +2470,7 @@ fn adding_back(p: &mut Program, word: usize) -> FunctionId {
         let carry = b.loop_(&[zero, zero], &[W], |b, state| {
             let (i, carry) = (state[0], state[1]);
             let done = eq(b, i, n);
-            b.if_(done, &[], |b| b.break_(&[carry]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[carry]));
             let at = add(b, i, j);
             let x = read_digit(b, u, at, word);
             let y = read_digit(b, v, i, word);
@@ -2823,15 +2604,10 @@ fn nought_if_empty(b: &mut Builder<'_>, a: ValueId) {
     let len = length(b, a);
     let zero = number(b, 0);
     let empty = eq(b, len, zero);
-    b.if_(
-        empty,
-        &[],
-        |b| {
-            let none = small(b, 0);
-            b.ret(&[none]);
-        },
-        |b| b.yield_(&[]),
-    );
+    b.leave_if(empty, |b| {
+        let none = small(b, 0);
+        b.ret(&[none]);
+    });
 }
 
 /// Room for the quotient of dividing `a`, as many digits as it has, where
@@ -2891,21 +2667,15 @@ fn short_digits(b: &mut Builder<'_>, short: Shortened, divide: FunctionId, word:
     b.loop_(&[len, first], &[W], |b, state| {
         let (n, r) = (state[0], state[1]);
         let done = eq(b, n, zero);
-        b.if_(done, &[], |b| b.break_(&[r]), |b| b.yield_(&[]));
+        b.leave_if(done, |b| b.break_(&[r]));
         let i = sub(b, n, one);
         let digit = scaled_digit(b, (a, i), (pow, worth), word);
         let quotient = b.call_one(divide, &[r, digit, divisor]);
         let taken = b.binary(Binary::Mul, quotient, divisor);
         let r = sub(b, digit, taken);
-        b.if_(
-            remainder,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                write_digit(b, q, i, quotient, word);
-                b.yield_(&[]);
-            },
-        );
+        b.unless(remainder, |b| {
+            write_digit(b, q, i, quotient, word);
+        });
         b.continue_(&[i, r]);
     })[0]
 }
@@ -2995,40 +2765,30 @@ fn division(
         let less = eq(b, order, nil);
         // Both trivial paths borrow `a` and must create an owned result.
         for trivial in [empty, less] {
-            b.if_(
-                trivial,
-                &[],
-                |b| {
-                    let answer = b.if_(
-                        remainder,
-                        &[A],
-                        |b| {
-                            let kept = b.call_one(retain, &[a]);
-                            let kept = handle(b, kept);
-                            b.yield_(&[kept]);
-                        },
-                        |b| {
-                            let z = small(b, 0);
-                            b.yield_(&[z]);
-                        },
-                    )[0];
-                    b.ret(&[answer]);
-                },
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(trivial, |b| {
+                let answer = b.if_(
+                    remainder,
+                    &[A],
+                    |b| {
+                        let kept = b.call_one(retain, &[a]);
+                        let kept = handle(b, kept);
+                        b.yield_(&[kept]);
+                    },
+                    |b| {
+                        let z = small(b, 0);
+                        b.yield_(&[z]);
+                    },
+                )[0];
+                b.ret(&[answer]);
+            });
         }
         let last = sub(b, lc, one);
         let top = read_digit(b, c, last, word);
         let single = eq(b, lc, one);
-        b.if_(
-            single,
-            &[],
-            |b| {
-                let out = b.call_one(short, &[a, top, remainder]);
-                b.ret(&[out]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(single, |b| {
+            let out = b.call_one(short, &[a, top, remainder]);
+            b.ret(&[out]);
+        });
         let pow = b.call_one(normal, &[top]);
         let v = b.call_one(alloc, &[lc]);
         b.call(scale, &[c, v, pow]);
@@ -3043,7 +2803,7 @@ fn division(
         b.loop_(&[count], &[], |b, state| {
             let n = state[0];
             let done = eq(b, n, nil);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             let j = sub(b, n, one);
             let digit = quotient_digit(b, steps, (u, v, j), word);
             write_digit(b, q, j, digit, word);
@@ -3086,15 +2846,10 @@ fn promotion(p: &mut Program, storage: Storage) -> FunctionId {
         let value = args[0];
         let top = number(b, half);
         let fits = lt(b, value, top);
-        b.if_(
-            fits,
-            &[],
-            |b| {
-                let held = small_word(b, value);
-                b.ret(&[held]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(fits, |b| {
+            let held = small_word(b, value);
+            b.ret(&[held]);
+        });
         let out = b.call_one(boxed, &[value]);
         let out = handle(b, out);
         b.ret(&[out]);

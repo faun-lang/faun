@@ -138,12 +138,7 @@ fn table_views(
                 unreachable!()
             };
             let done = b.compare(Relation::Equal, *left, zero);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[*table, *start]),
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(done, |b| b.break_(&[*table, *start]));
             let one = b.constant(Class::Word, 1);
             let index = b.binary(Binary::Sub, *left, one);
             let stride = b.constant(Class::Word, u64::try_from(rows.stride()).unwrap());

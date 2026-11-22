@@ -974,32 +974,21 @@ fn scalar_workspace(p: &mut Program, heap: FunctionId) -> FunctionId {
     p.define(acquire, |b, args| {
         let (bytes, capacity, maximum) = (args[0], args[1], args[2]);
         let large = b.compare(Relation::Less, maximum, capacity);
-        b.if_(
-            large,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                let base = b.address_of(data);
-                let zero = number(b, 0);
-                for slot in 0..SCALAR_BUFFERS {
-                    let offset = number(b, slot * slot_bytes);
-                    let at = byte_offset(b, base, offset);
-                    let refs = b.load(Width::Word, at, Offset::Words(1));
-                    let free = b.compare(Relation::Equal, refs, zero);
-                    b.if_(
-                        free,
-                        &[],
-                        |b| {
-                            let one = number(b, 1);
-                            b.store(Width::Word, at, Offset::Words(1), one);
-                            b.ret(&[at, maximum]);
-                        },
-                        |b| b.yield_(&[]),
-                    );
-                }
-                b.yield_(&[]);
-            },
-        );
+        b.unless(large, |b| {
+            let base = b.address_of(data);
+            let zero = number(b, 0);
+            for slot in 0..SCALAR_BUFFERS {
+                let offset = number(b, slot * slot_bytes);
+                let at = byte_offset(b, base, offset);
+                let refs = b.load(Width::Word, at, Offset::Words(1));
+                let free = b.compare(Relation::Equal, refs, zero);
+                b.leave_if(free, |b| {
+                    let one = number(b, 1);
+                    b.store(Width::Word, at, Offset::Words(1), one);
+                    b.ret(&[at, maximum]);
+                });
+            }
+        });
         let other = b.call_one(heap, &[bytes]);
         b.ret(&[other, capacity]);
     });
@@ -1113,7 +1102,7 @@ fn define_move(program: &mut Program, word_bits: u16) -> FunctionId {
             b.loop_(&[from], &[], |b, state| {
                 let at = state[0];
                 let done = b.compare(Relation::Equal, at, to);
-                b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+                b.leave_if(done, |b| b.break_(&[]));
                 let read = byte_offset(b, source, at);
                 let value = b.load(width, read, Offset::Words(0));
                 let write = byte_offset(b, dest, at);
@@ -1138,26 +1127,14 @@ fn define_release(program: &mut Program, runtime: Runtime) {
         let refs = b.load(Width::Word, object, Offset::Words(1));
         let one = number(b, 1);
         let last = b.compare(Relation::Equal, refs, one);
-        b.if_(
-            last,
-            &[],
-            |b| {
-                let descriptor = b.load(Width::Word, object, Offset::Words(DESCRIPTOR));
-                b.if_(
-                    descriptor,
-                    &[],
-                    |b| {
-                        let low = b.load(Width::Word, object, Offset::Words(LOW));
-                        let high = b.load(Width::Word, object, Offset::Words(HIGH));
-                        runtime.release_elements(b, (object, descriptor), (low, high));
-                        b.yield_(&[]);
-                    },
-                    |b| b.yield_(&[]),
-                );
-                b.yield_(&[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.when(last, |b| {
+            let descriptor = b.load(Width::Word, object, Offset::Words(DESCRIPTOR));
+            b.when(descriptor, |b| {
+                let low = b.load(Width::Word, object, Offset::Words(LOW));
+                let high = b.load(Width::Word, object, Offset::Words(HIGH));
+                runtime.release_elements(b, (object, descriptor), (low, high));
+            });
+        });
         b.call(runtime.block, &[object]);
         b.ret(&[]);
     });
@@ -1263,18 +1240,13 @@ fn define_room(
         let short = b.compare(Relation::Less, start, count);
         let room = b.binary(Binary::Sub, one, short);
         let both = b.binary(Binary::Mul, alone, room);
-        b.if_(
-            both,
-            &[],
-            |b| {
-                let first = b.binary(Binary::Sub, start, count);
-                if descriptor.is_some() {
-                    runtime.claim_slots(b, target, (first, start));
-                }
-                b.ret(&[target]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(both, |b| {
+            let first = b.binary(Binary::Sub, start, count);
+            if descriptor.is_some() {
+                runtime.claim_slots(b, target, (first, start));
+            }
+            b.ret(&[target]);
+        });
         let layout = (element, descriptor);
         let total = b.binary(Binary::Add, len, count);
         let fresh = runtime.grown(b, (target, start, len), total, layout, Placed::AtEnd);
@@ -1309,17 +1281,12 @@ fn define_after(
         let short = b.compare(Relation::Less, capacity, past);
         let room = b.binary(Binary::Sub, one, short);
         let both = b.binary(Binary::Mul, alone, room);
-        b.if_(
-            both,
-            &[],
-            |b| {
-                if descriptor.is_some() {
-                    runtime.claim_slots(b, object, (end, past));
-                }
-                b.ret(&[object]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.leave_if(both, |b| {
+            if descriptor.is_some() {
+                runtime.claim_slots(b, object, (end, past));
+            }
+            b.ret(&[object]);
+        });
         let layout = (element, descriptor);
         let total = b.binary(Binary::Add, len, count);
         let fresh = runtime.grown(b, (object, start, len), total, layout, Placed::AtStart);
@@ -1398,7 +1365,7 @@ fn define_copy_reversed(program: &mut Program, id: FunctionId, runtime: Runtime)
         b.loop_(&[zero], &[], |b, state| {
             let at = state[0];
             let done = b.compare(Relation::Equal, at, count);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             let distance = b.binary(Binary::Mul, at, stride);
             let read = b.convert(W, last);
             let read = b.binary(Binary::Sub, read, distance);
@@ -1425,7 +1392,7 @@ fn define_reverse(program: &mut Program, id: FunctionId, word_bits: u16) {
         let stride = b.load(Width::Word, like, Offset::Words(STRIDE));
         let zero = number(b, 0);
         let empty = b.compare(Relation::Equal, count, zero);
-        b.if_(empty, &[], |b| b.ret(&[]), |b| b.yield_(&[]));
+        b.leave_if(empty, |b| b.ret(&[]));
         let one = number(b, 1);
         let before = b.binary(Binary::Sub, count, one);
         let distance = b.binary(Binary::Mul, before, stride);
@@ -1437,7 +1404,7 @@ fn define_reverse(program: &mut Program, id: FunctionId, word_bits: u16) {
             let (low, high) = (state[0], state[1]);
             let (low_at, high_at) = (b.convert(W, low), b.convert(W, high));
             let met = b.compare(Relation::Less, low_at, high_at);
-            b.if_(met, &[], |b| b.yield_(&[]), |b| b.break_(&[]));
+            b.leave_unless(met, |b| b.break_(&[]));
             exchange(b, (low, high), (zero, words), (Width::Word, word));
             exchange(b, (low, high), (words, stride), (Width::Byte, 1));
             let low_next = b.binary(Binary::Add, low_at, stride);
@@ -1461,7 +1428,7 @@ fn exchange(
     b.loop_(&[from], &[], |b, state| {
         let at = state[0];
         let done = b.compare(Relation::Equal, at, to);
-        b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+        b.leave_if(done, |b| b.break_(&[]));
         let left = byte_offset(b, low, at);
         let right = byte_offset(b, high, at);
         let held = b.load(width, left, Offset::Words(0));
@@ -1484,15 +1451,9 @@ fn claim_run(
 ) {
     let zero = number(b, 0);
     let none = b.compare(Relation::Equal, described, zero);
-    b.if_(
-        none,
-        &[],
-        |b| b.yield_(&[]),
-        |b| {
-            b.call(runtime.claiming, &[dest, count, stride, described]);
-            b.yield_(&[]);
-        },
-    );
+    b.unless(none, |b| {
+        b.call(runtime.claiming, &[dest, count, stride, described]);
+    });
 }
 
 /// Take or give up, as `giving` says, the claims each element from `from`
@@ -1566,7 +1527,7 @@ fn each_element(
     b.loop_(&[from], &[], |b, state| {
         let at = state[0];
         let more = b.compare(Relation::Less, at, to);
-        b.if_(more, &[], |b| b.yield_(&[]), |b| b.break_(&[]));
+        b.leave_unless(more, |b| b.break_(&[]));
         let place = element(b, at);
         each(b, place);
         let one = number(b, 1);

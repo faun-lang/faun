@@ -2327,12 +2327,7 @@ impl Lowering<'_> {
         let built = b.loop_(&[empty, none, none], &SEQUENCE_LEAVES, |b, state| {
             let (held, first, len) = (state[0], state[1], state[2]);
             let done = b.compare(Relation::Equal, len, count);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[held, first, len]),
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(done, |b| b.break_(&[held, first, len]));
             let one = b.constant(Class::Word, 1);
             let rest = b.binary(Binary::Sub, count, len);
             let index = b.binary(Binary::Sub, rest, one);
@@ -2363,7 +2358,7 @@ impl Lowering<'_> {
             let byte = b.load(super::Width::Byte, place, super::Offset::Bytes(0));
             let nought = b.constant(Class::Word, 0);
             let ended = b.compare(Relation::Equal, byte, nought);
-            b.if_(ended, &[], |b| b.break_(&[len]), |b| b.yield_(&[]));
+            b.leave_if(ended, |b| b.break_(&[len]));
             let one = b.constant(Class::Word, 1);
             let more = b.binary(Binary::Add, len, one);
             b.continue_(&[more]);
@@ -3723,12 +3718,7 @@ impl Lowering<'_> {
         let built = b.loop_(&[empty, none, none], &SEQUENCE_LEAVES, |b, state| {
             let (held, first, len) = (state[0], state[1], state[2]);
             let done = b.compare(Relation::Equal, len, total);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[held, first, len]),
-                |b| b.yield_(&[]),
-            );
+            b.leave_if(done, |b| b.break_(&[held, first, len]));
             let one = b.constant(Class::Word, 1);
             let rest = b.binary(Binary::Sub, total, len);
             let at = b.binary(Binary::Sub, rest, one);

@@ -297,7 +297,7 @@ impl Chunks {
         define_allocate(p, allocate, head, library, payload_offset);
         p.define(release, |b, args| {
             b.loop_(args, &[], |b, state| {
-                b.if_(state[0], &[], |b| b.yield_(&[]), |b| b.ret(&[]));
+                b.leave_unless(state[0], |b| b.ret(&[]));
                 let block = b.convert(A, state[0]);
                 let next = b.load(Width::Word, block, Offset::Words(3));
                 // A chunk is exclusively owned from allocation to here.

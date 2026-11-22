@@ -49,20 +49,14 @@ impl Claims {
         let function = match kind {
             NATURAL => {
                 let small = Self::small(b, value);
-                b.if_(
-                    small,
-                    &[],
-                    |b| b.yield_(&[]),
-                    |b| {
-                        // A handle names its object one past it.
-                        let held = b.convert(W, value);
-                        let one = number(b, 1);
-                        let at = b.binary(Binary::Sub, held, one);
-                        let at = b.convert(A, at);
-                        self.give(b, at, self.naturals);
-                        b.yield_(&[]);
-                    },
-                );
+                b.unless(small, |b| {
+                    // A handle names its object one past it.
+                    let held = b.convert(W, value);
+                    let one = number(b, 1);
+                    let at = b.binary(Binary::Sub, held, one);
+                    let at = b.convert(A, at);
+                    self.give(b, at, self.naturals);
+                });
                 return;
             }
             CELL => self.cells,
@@ -128,25 +122,19 @@ impl Claims {
         let is_natural = b.compare(Relation::Equal, kind, natural);
         let small = Self::small(b, value);
         let immediate = b.binary(Binary::Mul, is_natural, small);
-        b.if_(
-            immediate,
-            &[],
-            |b| b.yield_(&[]),
-            |b| {
-                // A natural's handle names its object one past it; any
-                // other claim is the object's address itself.
-                let held = b.convert(W, value);
-                let at = b.binary(Binary::Sub, held, is_natural);
-                let at = b.convert(A, at);
-                match self.counting {
-                    Some(counting) => counting.take(b, at, self.retain),
-                    None => {
-                        b.call(self.retain, &[at]);
-                    }
+        b.unless(immediate, |b| {
+            // A natural's handle names its object one past it; any
+            // other claim is the object's address itself.
+            let held = b.convert(W, value);
+            let at = b.binary(Binary::Sub, held, is_natural);
+            let at = b.convert(A, at);
+            match self.counting {
+                Some(counting) => counting.take(b, at, self.retain),
+                None => {
+                    b.call(self.retain, &[at]);
                 }
-                b.yield_(&[]);
-            },
-        );
+            }
+        });
     }
 
     /// One where a word holds an immediate natural rather than a handle:
@@ -173,7 +161,7 @@ impl Claims {
         b.loop_(&[zero], &[], |b, state| {
             let claim = state[0];
             let done = b.compare(Relation::Equal, claim, count);
-            b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
+            b.leave_if(done, |b| b.break_(&[]));
             let two = number(b, 2);
             let pair = b.binary(Binary::Mul, claim, two);
             let entry = offset(b, descriptor, pair, bytes);
@@ -253,24 +241,18 @@ fn define_fixed_release(
         let refs = b.load(Width::Word, object, Offset::Words(1));
         let one = number(b, 1);
         let last = b.compare(Relation::Equal, refs, one);
-        b.if_(
-            last,
-            &[],
-            |b| {
-                for &(offset, kind) in fields {
-                    let at =
-                        u64::from(FIELDS.unsigned_abs()) * u64::from(claims.word_bits / 8) + offset;
-                    let value = b.load(
-                        Width::Word,
-                        object,
-                        Offset::Bytes(i32::try_from(at).expect("checked object layout")),
-                    );
-                    claims.release(b, kind, value);
-                }
-                b.yield_(&[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.when(last, |b| {
+            for &(offset, kind) in fields {
+                let at =
+                    u64::from(FIELDS.unsigned_abs()) * u64::from(claims.word_bits / 8) + offset;
+                let value = b.load(
+                    Width::Word,
+                    object,
+                    Offset::Bytes(i32::try_from(at).expect("checked object layout")),
+                );
+                claims.release(b, kind, value);
+            }
+        });
         b.call(block, &[object]);
         b.ret(&[]);
     });
@@ -285,31 +267,19 @@ fn define_release(program: &mut Program, library: Library, block: FunctionId, cl
         let refs = b.load(Width::Word, object, Offset::Words(1));
         let one = number(b, 1);
         let last = b.compare(Relation::Equal, refs, one);
-        b.if_(
-            last,
-            &[],
-            |b| {
-                let descriptor = b.load(Width::Word, object, Offset::Words(DESCRIPTOR));
-                let zero = number(b, 0);
-                let none = b.compare(Relation::Equal, descriptor, zero);
-                b.if_(
-                    none,
-                    &[],
-                    |b| b.yield_(&[]),
-                    |b| {
-                        let descriptor = b.convert(A, descriptor);
-                        let fields = number(b, bytes * u64::from(FIELDS.unsigned_abs()));
-                        let fields = byte_offset(b, object, fields);
-                        claims.each(b, (descriptor, fields), &mut |b, kind, value| {
-                            claims.release_by_kind(b, kind, value);
-                        });
-                        b.yield_(&[]);
-                    },
-                );
-                b.yield_(&[]);
-            },
-            |b| b.yield_(&[]),
-        );
+        b.when(last, |b| {
+            let descriptor = b.load(Width::Word, object, Offset::Words(DESCRIPTOR));
+            let zero = number(b, 0);
+            let none = b.compare(Relation::Equal, descriptor, zero);
+            b.unless(none, |b| {
+                let descriptor = b.convert(A, descriptor);
+                let fields = number(b, bytes * u64::from(FIELDS.unsigned_abs()));
+                let fields = byte_offset(b, object, fields);
+                claims.each(b, (descriptor, fields), &mut |b, kind, value| {
+                    claims.release_by_kind(b, kind, value);
+                });
+            });
+        });
         b.call(block, &[object]);
         b.ret(&[]);
     });
