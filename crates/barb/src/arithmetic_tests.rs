@@ -481,11 +481,35 @@ fn a_sum_modulo_a_power_of_two_is_a_sum_of_remainders() {
 
     // Under it is what buys that, not being known: one as big as the modulus
     // loses something to it, so it takes a remainder like anything else.
+    // Here that remainder is nought, which adds nothing, and the count's
+    // remainder taken again is the same remainder: what is left is that.
     let held = reduced(|b, t| {
         let sum = b.call(t.add, &[t.n, t.sixteen]);
         b.call(t.modulo, &[sum, t.sixteen])
     });
-    assert_eq!(held.matches("mod(").count(), 3, "{held}");
+    assert_eq!(held.matches("mod(").count(), 1, "{held}");
+    assert!(!held.contains("add("), "{held}");
+}
+
+/// A sum of sums and products modulo a power of two is worked out modulo
+/// it all the way down in one walk, so a second walk finds nothing left to
+/// push inside, where it once went one sum further down each time.
+#[test]
+fn a_remainder_goes_all_the_way_down_a_sum_at_once() {
+    let mut program = reduced_program(|b, t| {
+        let twice = b.call(t.add, &[t.n, t.n]);
+        let product = b.call(t.mul, &[twice, t.n]);
+        let more = b.call(t.add, &[product, t.n]);
+        b.call(t.modulo, &[more, t.two_fifty_six])
+    });
+    let once = program.render();
+    normalize::simplify(&mut program);
+    cleanup::cleanup(&mut program);
+    assert_eq!(program.render(), once);
+    // The count's remainder, once for all three reads of it, then one for
+    // each sum and product.
+    let (_, main) = once.split_once("main!(v0: Host)").expect("an entry");
+    assert_eq!(main.matches("mod(").count(), 4, "{main}");
 }
 
 /// A product too, for the same reason.
@@ -553,11 +577,18 @@ type Pick = fn(&Terms) -> FnId;
 
 /// `main!` as the optimizer leaves it, for a program exiting with what
 /// `held` works out of the count it was handed.
+fn reduced(held: impl FnOnce(&mut Builder<'_>, &Terms) -> Atom) -> String {
+    let rendered = reduced_program(held).render();
+    let (_, main) = rendered.split_once("main!(v0: Host)").expect("an entry");
+    main.to_owned()
+}
+
+/// The program [`reduced`] renders, as the optimizer leaves it.
 #[expect(
     clippy::too_many_lines,
     reason = "the host, the constants and the operations `held` may use"
 )]
-fn reduced(held: impl FnOnce(&mut Builder<'_>, &Terms) -> Atom) -> String {
+fn reduced_program(held: impl FnOnce(&mut Builder<'_>, &Terms) -> Atom) -> Program {
     let mut library = fixture::Library::new();
     let two = library.number(2);
     let nat = library.nat;
@@ -598,9 +629,7 @@ fn reduced(held: impl FnOnce(&mut Builder<'_>, &Terms) -> Atom) -> String {
     let mut program = library.program;
     validate(&program).unwrap();
     optimize(&mut program);
-    let rendered = program.render();
-    let (_, main) = rendered.split_once("main!(v0: Host)").expect("an entry");
-    main.to_owned()
+    program
 }
 
 /// A field holds what was built into it: reading one back answers no more
