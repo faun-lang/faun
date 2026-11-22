@@ -17,11 +17,12 @@ use faun_core::ir::{
     Terminator as SourceTerminator, ValueId, Width,
 };
 
+use faun_core::codegen::registers;
 pub(crate) use faun_core::codegen::registers::{BlockId, InstId, Role, Timing, VReg};
 
 /// Where an operand of one of these instructions must be.
-pub(crate) type Constraint = faun_core::codegen::registers::Constraint<Reg>;
-pub(crate) type OperandSpec = faun_core::codegen::registers::OperandSpec<Reg>;
+pub(crate) type Constraint = registers::Constraint<Reg>;
+pub(crate) type OperandSpec = registers::OperandSpec<Reg>;
 
 /// The width a comparison or a monus of `left` and `right` works at: the
 /// wider of the two. The IR compares two numbers held at different widths
@@ -521,45 +522,24 @@ const fn abi_register(at: usize) -> Option<Reg> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Terminator {
-    Jump {
-        target: BlockId,
-        args: Range,
-    },
-    Branch {
-        condition: VReg,
-        then_target: BlockId,
-        then_args: Range,
-        else_target: BlockId,
-        else_args: Range,
-    },
-    Return {
-        values: Range,
-    },
-    Halt,
-}
+/// How a block ends, as the allocator is handed it: a branch's condition
+/// in any general register, and a return answering in `rdi` where it
+/// leaves the program and in `rax` otherwise.
+type Terminator = registers::Terminator<Reg>;
+type Block = registers::Block<Reg>;
 
-impl Terminator {
-    fn return_operand_spec(self, at: usize) -> Option<OperandSpec> {
-        match self {
-            Self::Return { values } if at < values.len() => Some(OperandSpec {
-                role: Role::Use,
-                timing: Timing::Early,
-                constraint: Constraint::Fixed(Reg::Rax),
-                allowed: GPRS,
-            }),
-            _ => None,
-        }
+/// The constraint on a return's value `at`, as every function but the
+/// program's entry answers.
+fn return_operand_spec(terminator: Terminator, at: usize) -> Option<OperandSpec> {
+    match terminator {
+        Terminator::Return { values, .. } if at < values.len() => Some(OperandSpec {
+            role: Role::Use,
+            timing: Timing::Early,
+            constraint: Constraint::Fixed(Reg::Rax),
+            allowed: GPRS,
+        }),
+        _ => None,
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Block {
-    owner: FunctionId,
-    params: Range,
-    instructions: Range,
-    terminator: Terminator,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1002,14 +982,13 @@ impl Selected {
                 self.verify_edge(owner, then_target, then_args)?;
                 self.verify_edge(owner, else_target, else_args)
             }
-            Terminator::Return { values } => {
+            Terminator::Return { values, .. } => {
                 Self::verify_range(values, self.operands.len(), "return")?;
                 if values.len() > 1 {
                     return Err("x86 return has more than one value".to_owned());
                 }
                 for at in 0..values.len() {
-                    let spec = terminator
-                        .return_operand_spec(at)
+                    let spec = return_operand_spec(terminator, at)
                         .ok_or_else(|| format!("x86 return value {at} has no ABI constraint"))?;
                     if spec.constraint != Constraint::Fixed(Reg::Rax) {
                         return Err(format!("x86 return value {at} is not in rax"));
@@ -1220,7 +1199,7 @@ impl Selected {
                     check(value, after_instructions)?;
                 }
             }
-            Terminator::Return { values } => {
+            Terminator::Return { values, .. } => {
                 for &value in &self.operands[values.range()] {
                     check(value, after_instructions)?;
                 }
@@ -1920,6 +1899,7 @@ impl Selector<'_> {
                         block,
                         Terminator::Branch {
                             condition: vreg(condition),
+                            allowed: GPRS,
                             then_target,
                             then_args: Range::EMPTY,
                             else_target,
@@ -2024,7 +2004,12 @@ impl Selector<'_> {
                     );
                 }
                 let values = self.edge_args(&values[..values.len().min(1)]);
-                self.terminate(block, Terminator::Return { values });
+                let register = if owner == self.source.entry() {
+                    Reg::Rdi
+                } else {
+                    Reg::Rax
+                };
+                self.terminate(block, Terminator::Return { values, register });
             }
         }
         Ok(())
@@ -2130,7 +2115,7 @@ mod tests {
         let returned = selected.blocks.iter().find_map(|block| {
             (block.owner == function.source)
                 .then_some(block.terminator)
-                .and_then(|terminator| terminator.return_operand_spec(0))
+                .and_then(|terminator| return_operand_spec(terminator, 0))
         });
         assert_eq!(returned.unwrap().constraint, Constraint::Fixed(Reg::Rax));
     }

@@ -69,6 +69,7 @@ impl Selector<'_> {
                     .map(|(target, args)| Terminator::Jump { target, args }),
                 Terminator::Branch {
                     condition,
+                    allowed,
                     then_target,
                     then_args,
                     else_target,
@@ -83,6 +84,7 @@ impl Selector<'_> {
                             else_side.unwrap_or((else_target, else_args));
                         Terminator::Branch {
                             condition,
+                            allowed,
                             then_target,
                             then_args,
                             else_target,
@@ -162,7 +164,7 @@ impl Selector<'_> {
                         read(arg, id);
                     }
                 }
-                Some(Terminator::Return { values }) => {
+                Some(Terminator::Return { values, .. }) => {
                     for &value in &self.operands[values.range()] {
                         read(value, id);
                     }
@@ -257,6 +259,7 @@ impl Selector<'_> {
                     then_args,
                     else_target,
                     else_args,
+                    ..
                 }) => match read(condition) {
                     Some(Carried::Number(0, ..)) => (else_target, else_args, true),
                     Some(Carried::Number(..)) => (then_target, then_args, true),
@@ -404,12 +407,14 @@ impl Selector<'_> {
                 },
                 Terminator::Branch {
                     condition,
+                    allowed,
                     then_target,
                     then_args,
                     else_target,
                     else_args,
                 } => Terminator::Branch {
                     condition,
+                    allowed,
                     then_target: renumber(then_target),
                     then_args,
                     else_target: renumber(else_target),
@@ -463,7 +468,7 @@ impl Selector<'_> {
                         reads[arg.index()] += 1;
                     }
                 }
-                Some(Terminator::Return { values }) => {
+                Some(Terminator::Return { values, .. }) => {
                     for &value in &self.operands[values.range()] {
                         reads[value.index()] += 1;
                     }
