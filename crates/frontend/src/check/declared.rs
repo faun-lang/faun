@@ -169,67 +169,33 @@ fn hands_on(
     data: &HashMap<Symbol, n::Data>,
     handed: &mut Handed,
 ) {
-    match ty {
-        h::Type::Named(name, arguments) => {
-            if data.contains_key(name) {
-                for (at, argument) in arguments.iter().enumerate() {
-                    for (index, parameter) in declared.parameters.iter().enumerate() {
-                        if mentions(argument, *parameter) {
-                            let wrapped = *argument != h::Type::Variable(*parameter);
-                            handed
-                                .entry((declared.name, index))
-                                .or_default()
-                                .push(((*name, at), wrapped));
-                        }
-                    }
+    if let h::Type::Named(name, arguments) = ty
+        && data.contains_key(name)
+    {
+        for (at, argument) in arguments.iter().enumerate() {
+            for (index, parameter) in declared.parameters.iter().enumerate() {
+                if mentions(argument, *parameter) {
+                    let wrapped = *argument != h::Type::Variable(*parameter);
+                    handed
+                        .entry((declared.name, index))
+                        .or_default()
+                        .push(((*name, at), wrapped));
                 }
             }
-            for argument in arguments {
-                hands_on(argument, declared, data, handed);
-            }
         }
-        h::Type::Variable(_) | h::Type::Hole => {}
-        h::Type::Function(parameters, result) => {
-            for part in parameters.iter().chain([result.as_ref()]) {
-                hands_on(part, declared, data, handed);
-            }
-        }
-        h::Type::Variants(tags) => {
-            for field in tags.iter().flat_map(|tag| &tag.fields) {
-                hands_on(field, declared, data, handed);
-            }
-        }
-        h::Type::Record(fields, _) => {
-            for (_, field) in fields {
-                hands_on(field, declared, data, handed);
-            }
-        }
-        h::Type::Tuple(members) => {
-            for member in members {
-                hands_on(member, declared, data, handed);
-            }
-        }
+    }
+    for part in ty.children() {
+        hands_on(part, declared, data, handed);
     }
 }
 
 /// Whether `ty` names the type variable `variable` anywhere in it.
 fn mentions(ty: &h::Type, variable: Symbol) -> bool {
-    match ty {
-        h::Type::Variable(name) => *name == variable,
-        h::Type::Hole => false,
-        h::Type::Named(_, parts) | h::Type::Tuple(parts) => {
-            parts.iter().any(|part| mentions(part, variable))
-        }
-        h::Type::Function(parameters, result) => parameters
-            .iter()
-            .chain([result.as_ref()])
-            .any(|part| mentions(part, variable)),
-        h::Type::Variants(tags) => tags
-            .iter()
-            .flat_map(|tag| &tag.fields)
-            .any(|field| mentions(field, variable)),
-        h::Type::Record(fields, _) => fields.iter().any(|(_, field)| mentions(field, variable)),
-    }
+    *ty == h::Type::Variable(variable)
+        || ty
+            .children()
+            .into_iter()
+            .any(|part| mentions(part, variable))
 }
 
 /// Whether a parameter handed on from `from` arrives, by any number of

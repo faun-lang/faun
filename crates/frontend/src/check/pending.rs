@@ -1864,19 +1864,5 @@ impl Checker<'_> {
 
 /// Whether an inferred type holds a function anywhere, itself included.
 fn holds_function(ty: &Ty) -> bool {
-    match ty {
-        Ty::Function(..) => true,
-        Ty::Var(_) | Ty::Rigid(_) => false,
-        Ty::Named(_, parts) | Ty::Tuple(parts) => parts.iter().any(holds_function),
-        Ty::Variants(tags, tail) => tags
-            .iter()
-            .flat_map(|(_, fields)| fields.iter())
-            .chain(tail.as_deref())
-            .any(holds_function),
-        Ty::Record(fields, tail) => fields
-            .iter()
-            .map(|(_, field)| field)
-            .chain(tail.as_deref())
-            .any(holds_function),
-    }
+    matches!(ty, Ty::Function(..)) || ty.parts().into_iter().any(holds_function)
 }

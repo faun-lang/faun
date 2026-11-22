@@ -355,62 +355,24 @@ fn alias_parameters(
 
 /// Every type variable `ty` names, into `found`.
 fn variables(ty: &h::Type, found: &mut Vec<Symbol>) {
-    let inner: Vec<&h::Type> = match ty {
-        h::Type::Variable(variable) => {
-            if !found.contains(variable) {
-                found.push(*variable);
-            }
-            return;
-        }
-        h::Type::Hole => return,
-        h::Type::Named(_, types) | h::Type::Tuple(types) => types.iter().collect(),
-        h::Type::Function(parameters, result) => parameters
-            .iter()
-            .chain(std::iter::once(&**result))
-            .collect(),
-        h::Type::Variants(tags) => tags.iter().flat_map(|tag| &tag.fields).collect(),
-        h::Type::Record(fields, _) => fields.iter().map(|(_, field)| field).collect(),
-    };
-    for each in inner {
+    if let h::Type::Variable(variable) = ty
+        && !found.contains(variable)
+    {
+        found.push(*variable);
+    }
+    for each in ty.children() {
         variables(each, found);
     }
 }
 
 /// `ty` with each variable `replacements` names replaced.
 fn substituted(ty: &h::Type, replacements: &HashMap<Symbol, h::Type>) -> h::Type {
-    let each = |types: &[h::Type]| {
-        types
-            .iter()
-            .map(|ty| substituted(ty, replacements))
-            .collect()
-    };
     match ty {
         h::Type::Variable(variable) => replacements
             .get(variable)
             .cloned()
             .unwrap_or_else(|| ty.clone()),
-        h::Type::Named(name, arguments) => h::Type::Named(*name, each(arguments)),
-        h::Type::Function(parameters, result) => h::Type::Function(
-            each(parameters),
-            Box::new(substituted(result, replacements)),
-        ),
-        h::Type::Variants(tags) => h::Type::Variants(
-            tags.iter()
-                .map(|tag| h::ConstructorDecl {
-                    name: tag.name,
-                    fields: each(&tag.fields),
-                })
-                .collect(),
-        ),
-        h::Type::Record(fields, open) => h::Type::Record(
-            fields
-                .iter()
-                .map(|(name, field)| (*name, substituted(field, replacements)))
-                .collect(),
-            *open,
-        ),
-        h::Type::Tuple(members) => h::Type::Tuple(each(members)),
-        h::Type::Hole => h::Type::Hole,
+        _ => ty.map(|ty| substituted(ty, replacements)),
     }
 }
 
@@ -561,18 +523,12 @@ fn typed(
     symbols: &Symbols,
 ) -> Result<h::Type, String> {
     fn named(ty: &h::Type, constraint_aliases: &ConstraintAliases) -> Option<Symbol> {
-        let each = |types: &[h::Type]| types.iter().find_map(|ty| named(ty, constraint_aliases));
         match ty {
             h::Type::Named(name, _) if constraint_aliases.contains_key(name) => Some(*name),
-            h::Type::Named(_, arguments) | h::Type::Tuple(arguments) => each(arguments),
-            h::Type::Variable(_) | h::Type::Hole => None,
-            h::Type::Function(parameters, result) => {
-                each(parameters).or_else(|| named(result, constraint_aliases))
-            }
-            h::Type::Variants(tags) => tags.iter().find_map(|tag| each(&tag.fields)),
-            h::Type::Record(fields, _) => fields
-                .iter()
-                .find_map(|(_, field)| named(field, constraint_aliases)),
+            _ => ty
+                .children()
+                .into_iter()
+                .find_map(|ty| named(ty, constraint_aliases)),
         }
     }
     named(&ty, constraint_aliases).map_or(Ok(ty), |alias| {
@@ -760,7 +716,7 @@ impl Expansion<'_> {
                     h::Constraint::Member {
                         variable,
                         member: *member,
-                        ty: substitute(ty, &substitution),
+                        ty: substituted(ty, &substitution),
                         through: None,
                     }
                 }
@@ -768,7 +724,7 @@ impl Expansion<'_> {
                     name: *name,
                     arguments: arguments
                         .iter()
-                        .map(|argument| substitute(argument, &substitution))
+                        .map(|argument| substituted(argument, &substitution))
                         .collect(),
                 },
             };
@@ -785,67 +741,11 @@ impl Expansion<'_> {
 
 /// Every type variable `ty` names, in the order written.
 fn type_variables(ty: &h::Type, out: &mut Vec<Symbol>) {
-    match ty {
-        h::Type::Variable(variable) => out.push(*variable),
-        h::Type::Named(_, arguments) | h::Type::Tuple(arguments) => {
-            for argument in arguments {
-                type_variables(argument, out);
-            }
-        }
-        h::Type::Function(parameters, result) => {
-            for parameter in parameters {
-                type_variables(parameter, out);
-            }
-            type_variables(result, out);
-        }
-        h::Type::Variants(tags) => {
-            for field in tags.iter().flat_map(|tag| &tag.fields) {
-                type_variables(field, out);
-            }
-        }
-        h::Type::Record(fields, _) => {
-            for (_, field) in fields {
-                type_variables(field, out);
-            }
-        }
-        h::Type::Hole => {}
+    if let h::Type::Variable(variable) = ty {
+        out.push(*variable);
     }
-}
-
-/// `ty` with each variable `substitution` names replaced.
-fn substitute(ty: &h::Type, substitution: &HashMap<Symbol, h::Type>) -> h::Type {
-    let each = |types: &[h::Type]| -> Vec<h::Type> {
-        types
-            .iter()
-            .map(|ty| substitute(ty, substitution))
-            .collect()
-    };
-    match ty {
-        h::Type::Variable(variable) => substitution
-            .get(variable)
-            .cloned()
-            .unwrap_or_else(|| ty.clone()),
-        h::Type::Hole => h::Type::Hole,
-        h::Type::Named(name, arguments) => h::Type::Named(*name, each(arguments)),
-        h::Type::Tuple(members) => h::Type::Tuple(each(members)),
-        h::Type::Function(parameters, result) => {
-            h::Type::Function(each(parameters), Box::new(substitute(result, substitution)))
-        }
-        h::Type::Variants(tags) => h::Type::Variants(
-            tags.iter()
-                .map(|tag| h::ConstructorDecl {
-                    name: tag.name,
-                    fields: each(&tag.fields),
-                })
-                .collect(),
-        ),
-        h::Type::Record(fields, open) => h::Type::Record(
-            fields
-                .iter()
-                .map(|(name, field)| (*name, substitute(field, substitution)))
-                .collect(),
-            *open,
-        ),
+    for child in ty.children() {
+        type_variables(child, out);
     }
 }
 
@@ -856,40 +756,17 @@ const ALIAS_PARTS: usize = 10_000;
 
 /// How many types `ty` is made of, itself among them.
 fn parts(ty: &h::Type) -> usize {
-    1 + match ty {
-        h::Type::Variable(_) | h::Type::Hole => 0,
-        h::Type::Named(_, members) | h::Type::Tuple(members) => members.iter().map(parts).sum(),
-        h::Type::Function(parameters, result) => {
-            parameters.iter().map(parts).sum::<usize>() + parts(result)
-        }
-        h::Type::Variants(tags) => tags.iter().flat_map(|tag| &tag.fields).map(parts).sum(),
-        h::Type::Record(fields, _) => fields.iter().map(|(_, field)| parts(field)).sum(),
-    }
+    1 + ty.children().into_iter().map(parts).sum::<usize>()
 }
 
 /// How many times `ty` names the type variable `variable`.
 fn occurrences(ty: &h::Type, variable: Symbol) -> usize {
     match ty {
         h::Type::Variable(name) => usize::from(*name == variable),
-        h::Type::Hole => 0,
-        h::Type::Named(_, parts) | h::Type::Tuple(parts) => {
-            parts.iter().map(|part| occurrences(part, variable)).sum()
-        }
-        h::Type::Function(parameters, result) => {
-            parameters
-                .iter()
-                .map(|part| occurrences(part, variable))
-                .sum::<usize>()
-                + occurrences(result, variable)
-        }
-        h::Type::Variants(tags) => tags
-            .iter()
-            .flat_map(|tag| &tag.fields)
-            .map(|field| occurrences(field, variable))
-            .sum(),
-        h::Type::Record(fields, _) => fields
-            .iter()
-            .map(|(_, field)| occurrences(field, variable))
+        _ => ty
+            .children()
+            .into_iter()
+            .map(|part| occurrences(part, variable))
             .sum(),
     }
 }
@@ -948,48 +825,7 @@ fn expand(
             let replacements = alias.parameters.iter().copied().zip(arguments).collect();
             substituted(&definition, &replacements)
         }
-        h::Type::Named(name, arguments) => h::Type::Named(
-            *name,
-            arguments
-                .iter()
-                .map(|argument| expand(argument, aliases, symbols, expanding))
-                .collect::<Result<_, _>>()?,
-        ),
-        h::Type::Variable(_) | h::Type::Hole => ty.clone(),
-        h::Type::Function(parameters, result) => h::Type::Function(
-            parameters
-                .iter()
-                .map(|parameter| expand(parameter, aliases, symbols, expanding))
-                .collect::<Result<_, _>>()?,
-            Box::new(expand(result, aliases, symbols, expanding)?),
-        ),
-        h::Type::Variants(tags) => h::Type::Variants(
-            tags.iter()
-                .map(|tag| {
-                    Ok(h::ConstructorDecl {
-                        name: tag.name,
-                        fields: tag
-                            .fields
-                            .iter()
-                            .map(|field| expand(field, aliases, symbols, expanding))
-                            .collect::<Result<_, Refusal>>()?,
-                    })
-                })
-                .collect::<Result<_, Refusal>>()?,
-        ),
-        h::Type::Record(fields, open) => h::Type::Record(
-            fields
-                .iter()
-                .map(|(name, field)| Ok((*name, expand(field, aliases, symbols, expanding)?)))
-                .collect::<Result<_, Refusal>>()?,
-            *open,
-        ),
-        h::Type::Tuple(members) => h::Type::Tuple(
-            members
-                .iter()
-                .map(|member| expand(member, aliases, symbols, expanding))
-                .collect::<Result<_, Refusal>>()?,
-        ),
+        _ => ty.try_map(&mut |ty| expand(ty, aliases, symbols, expanding))?,
     })
 }
 
