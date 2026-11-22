@@ -554,6 +554,53 @@ fn refolding_several_definitions_still_orders_callees_first() {
     }
 }
 
+/// A match of one arm floated in the arm of another floats what follows
+/// that one too, so what the inner arm worked out is in scope for the rest
+/// of the outer body: taking the same value apart again takes the same
+/// arm, and the same sum over what it holds is the sum already worked out.
+#[test]
+fn what_a_nested_arm_works_out_is_shared_with_the_rest_of_the_body() {
+    let library = super::fixture::Library::new();
+    let (nat, add, mul) = (library.nat, library.add, library.mul);
+    let mut p = library.program;
+    let wrapped = p.declare_type("Wrapped");
+    p.define_type(wrapped, &[("Wrap", &[nat])]);
+    let pair = p.declare_type("Pair");
+    p.define_type(pair, &[("Pair", &[wrapped, nat])]);
+    let (wrap, both) = (p.ctor_at(wrapped, 0), p.ctor_at(pair, 0));
+    // sum(r) = match r { Pair(w, k) => match w { Wrap(n) => n + k } }
+    let sum = |b: &mut super::builder::Builder<'_>, r| {
+        b.match_(r, pair, |b, _, fields| {
+            let k = fields[1];
+            b.match_(fields[0], wrapped, |b, _, inner| {
+                b.call(add, &[inner[0], k])
+            })
+        })
+    };
+    let twice = p.declare("twice", &[pair], nat);
+    p.define(twice, |b, args| {
+        let first = sum(b, args[0]);
+        let second = sum(b, args[0]);
+        b.call(mul, &[first, second])
+    });
+    super::fixture::enter(&mut p, &[twice]);
+    validate(&p).unwrap();
+    let original = p.clone();
+    super::normalize::simplify(&mut p);
+    validate(&p).unwrap();
+    let adds = callees(&p, twice).iter().filter(|&&f| f == add).count();
+    assert_eq!(adds, 1, "{}", p.render());
+    for (n, k) in [(0, 0), (2, 3), (7, 1)] {
+        let value = |program: &Program| {
+            let n = super::tests::nat(program, nat, n);
+            let k = super::tests::nat(program, nat, k);
+            vec![Value(both, vec![Value(wrap, vec![n]), k])]
+        };
+        let expected = run(&original, twice, value(&original), &mut vec![]);
+        assert_eq!(run(&p, twice, value(&p), &mut vec![]), expected);
+    }
+}
+
 #[test]
 fn fold_fuel_is_shared_across_the_whole_program() {
     let mut program = library();

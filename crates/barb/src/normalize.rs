@@ -427,6 +427,10 @@ struct Rewrite<'a> {
     shadowed: Vec<(usize, ExprId)>,
 }
 
+/// The rest of a body still to write: the body, the binding it goes on
+/// from, and what each binding before that came to.
+struct Rest(Body, usize, Vec<Atom>);
+
 /// A call as [`Rewrite::shared`] compares it: the definition, and each
 /// operand as the local it is or, where it is known, the value.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -522,17 +526,20 @@ impl Rewrite<'_> {
     }
     fn into(&mut self, body: Body, locals: Vec<Atom>, scope: &mut Scope) -> Atom {
         let from = body.bindings.range().start;
-        self.rest_of(body, from, locals, scope)
+        self.rest_of(body, from, locals, scope, Vec::new())
     }
 
     /// The rest of `body`, from its binding at `from`, where `locals` has
-    /// what each binding before it came to.
+    /// what each binding before it came to, then the rest of each body
+    /// `then` holds, the last first, each taking what the one before came
+    /// to as its next binding.
     fn rest_of(
         &mut self,
         body: Body,
         from: usize,
         mut locals: Vec<Atom>,
         scope: &mut Scope,
+        mut then: Vec<Rest>,
     ) -> Atom {
         let first = locals.len() - (from - body.bindings.range().start);
         let cased = self.cased(body, first);
@@ -542,16 +549,35 @@ impl Rewrite<'_> {
                 && at + 1 == last
                 && !self.decided(locals[scrutinee.0.index()])
             {
-                return self.merged(scrutinee, first, second, &locals, scope);
+                let value = self.merged(scrutinee, first, second, &locals, scope);
+                return self.then(value, scope, then);
             }
             let binding = self.program.terms.binding(at);
             if let Some(arm) = self.floats(binding, &locals) {
-                return self.floated(body, at, arm, locals, scope);
+                then.push(Rest(body, at + 1, locals.clone()));
+                return self.floated(binding, arm, &locals, then, scope);
             }
             let value = self.expr(binding, &locals, scope);
             locals.push(value);
         }
-        self.expr(body.tail, &locals, scope)
+        // A body ending in a match of one arm, itself floated, floats it
+        // for the rest it is followed by.
+        if !then.is_empty()
+            && let Some(arm) = self.floats(body.tail, &locals)
+        {
+            return self.floated(body.tail, arm, &locals, then, scope);
+        }
+        let value = self.expr(body.tail, &locals, scope);
+        self.then(value, scope, then)
+    }
+
+    /// What a body came to, `value`, taken by the rest `then` holds last.
+    fn then(&mut self, value: Atom, scope: &mut Scope, mut then: Vec<Rest>) -> Atom {
+        let Some(Rest(body, from, mut locals)) = then.pop() else {
+            return value;
+        };
+        locals.push(value);
+        self.rest_of(body, from, locals, scope, then)
     }
 
     /// The one arm of a match a binding is, where it takes apart what no
@@ -581,7 +607,10 @@ impl Rewrite<'_> {
     /// A match of one arm, which cannot but take it, taking apart a value
     /// the rest of the body may take apart again: the rest goes on in that
     /// arm, where what it took apart is known, and every match on it again
-    /// takes the same arm rather than asking.
+    /// takes the same arm rather than asking. The rest is the rest of every
+    /// body this one's arm is floated in too, `then`, so what an arm worked
+    /// out stays in scope for all that follows it, and a later call the
+    /// same as one in it answers what that one did.
     ///
     /// ```text
     /// x = match s                  match s
@@ -591,13 +620,13 @@ impl Rewrite<'_> {
     /// ```
     fn floated(
         &mut self,
-        body: Body,
-        at: usize,
+        binding: ExprId,
         arm: Arm,
-        mut locals: Vec<Atom>,
+        locals: &[Atom],
+        then: Vec<Rest>,
         scope: &mut Scope,
     ) -> Atom {
-        let Expr::Match(value, _) = self.program.expr(self.program.terms.binding(at)) else {
+        let Expr::Match(value, _) = self.program.expr(binding) else {
             unreachable!("a floated binding is a match");
         };
         let scrutinee = locals[value.0.index()];
@@ -608,11 +637,10 @@ impl Rewrite<'_> {
         self.written.truncate(scope.level);
         let rest = self.known_as(scrutinee, arm.ctor, &taken, |rewrite| {
             rewrite.body_with(scope.level + fields, |rewrite, arm_scope| {
-                let mut inner = locals.clone();
+                let mut inner = locals.to_vec();
                 inner.extend(&taken);
-                let value = rewrite.into(arm.body, inner, arm_scope);
-                locals.push(value);
-                rewrite.rest_of(body, at + 1, locals, arm_scope)
+                let from = arm.body.bindings.range().start;
+                rewrite.rest_of(arm.body, from, inner, arm_scope, then)
             })
         });
         self.written.truncate(scope.level);
