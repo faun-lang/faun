@@ -206,3 +206,30 @@ fn taking_a_lists_first_elements_is_a_view_of_it() {
     let machine = faun_core::lower_to_machine_ir(&barb, &X86_64Linux.routines()).unwrap();
     assert!(!machine.render().contains("take_into"));
 }
+
+/// Pieces worked out only to be joined are joined as each is worked out:
+/// `join` is one walk over its list, which fusion reads, so no list of the
+/// pieces is built, and what it answers is what joining that list would.
+#[test]
+fn pieces_made_only_to_be_joined_are_never_held_as_a_list() {
+    let package = Package::new(
+        "joined",
+        "main!(host) -> host.run_stdin!(app)
+
+         app : {stdin: List(U8), *} -> Str
+         app(input) -> List.range(input.stdin.len()).map(|i| \"${i * 7}\").join(\", \")",
+    );
+    for (input, said) in [("", ""), ("a", "0"), ("abcd", "0, 7, 14, 21")] {
+        assert_eq!(
+            support::run_file(&package.entry(), input.as_bytes()),
+            (0, format!("{said}\n")),
+            "{input:?}"
+        );
+    }
+    let mut barb =
+        faun_frontend::lower_to_barb(&package.entry(), &faun_driver::platform(&X86_64Linux))
+            .unwrap();
+    barb::optimize(&mut barb);
+    let rendered = barb.render();
+    assert!(!rendered.contains("-> List<Str>"), "{rendered}");
+}

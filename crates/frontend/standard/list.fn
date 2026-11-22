@@ -56,12 +56,12 @@ List(a) : [Nil, Cons(a, List(a))].(
   # or lists alike, as each joins two by `concat`. Built from the left, each
   # piece written after those before it, where nothing else holds them in
   # the room a buffer keeps after its end, so each piece is copied once and
-  # joining is linear.
+  # joining is linear. One walk over the pieces, so a list of them built
+  # only to be joined, as `map` builds one, is never built.
   join : (List(a), a) -> a where
     a.empty : a,
     a.concat : (a, a) -> a
-  join([], _) -> a.empty
-  join([first, *rest], separator) -> rest.fold(first, |joined, piece| joined.concat(separator).concat(piece))
+  join(pieces, separator) -> join_into(pieces, a.empty, separator, False)
 
   filter : (List(a), a -> Bool) -> List(a)
   filter([], _) -> []
@@ -305,6 +305,14 @@ List(a) : [Nil, Cons(a, List(a))].(
   sort_on(values, key) -> merge_sort(values, key)
 )
 
+# The pieces written after `joined`, each after `separator` once one has
+# been written, `started`.
+join_into : (List(a), a, a, Bool) -> a where
+  a.concat : (a, a) -> a
+join_into([], joined, _, _) -> joined
+join_into([piece, *rest], joined, separator, True) -> join_into(rest, joined.concat(separator).concat(piece), separator, True)
+join_into([piece, *rest], _, separator, False) -> join_into(rest, piece, separator, True)
+
 reverse_into : (List(a), List(a)) -> List(a)
 reverse_into([], output) -> output
 reverse_into([head, *tail], output) -> reverse_into(tail, [head, *output])
@@ -428,6 +436,7 @@ repeat_onto : (a, Nat, List(a)) -> List(a)
 repeat_onto(_, 0, built) -> built
 repeat_onto(value, Succ(count), built) -> repeat_onto(value, count, [value, *built])
 
+expect ["a"].join(", ") == "a" & ["", ""].join("-") == "-" & ["x"].drop(1).join("-") == "" & [[1], [], [2]].join([0]) == [1, 0, 0, 2]
 expect [3, 1, 2].sort() == [1, 2, 3] & [0].drop(1).sort().is_empty()
 expect [5, 3, 9, 1, 5, 6, 2, 8, 7, 4, 0].sort() == [0, 1, 2, 3, 4, 5, 5, 6, 7, 8, 9]
 expect [(2, 1), (1, 1), (2, 0), (1, 0)].sort_on(|(key, _)| key) == [(1, 1), (1, 0), (2, 1), (2, 0)]
