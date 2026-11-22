@@ -241,7 +241,7 @@ fn a_tag_row_may_end_in_a_star() {
     for (source, said) in [
         ("f : [*, A] -> Nat\n", "expected `]`, found `A`"),
         ("f : [A, *r] -> Nat\n", "expected `]`, found `r`"),
-        ("f : [A, *, *] -> Nat\n", "one rest"),
+        ("f : [A, *, *] -> Nat\n", "a tag row holds one `*`"),
     ] {
         let error = parse(source).unwrap_err();
         assert!(error.message.contains(said), "{source}: {}", error.message);
@@ -342,6 +342,39 @@ fn every_line_that_cannot_be_read_is_told_at_once() {
     assert!(told[1].1.contains("`,`"), "{told:?}");
     assert_eq!(told[2].0, 4);
     assert!(told[2].1.contains("found `)`"), "{told:?}");
+}
+
+/// A tag row's `*` is one rest, after a comma: a second `*`, or one with
+/// no comma before it, is told so with the row written as it should be,
+/// not with a list's advice.
+#[test]
+fn a_tag_row_s_star_is_one_rest_after_a_comma() {
+    for (source, message, help) in [
+        (
+            "f : [A, B(Nat), *, *] -> Nat\n",
+            "a tag row holds one `*`, written last",
+            "for these tags or any others, write `[A, B(Nat), *]`",
+        ),
+        (
+            "f : [*, *] -> Nat\n",
+            "a tag row holds one `*`, written last",
+            "for any tags, write `[*]`",
+        ),
+        (
+            "f : [A *] -> Nat\n",
+            "a tag row's `*` follows its tags after a comma",
+            "for these tags or any others, write `[A, *]`",
+        ),
+        (
+            "f : [A*] -> Nat\n",
+            "a tag row's `*` follows its tags after a comma",
+            "for these tags or any others, write `[A, *]`",
+        ),
+    ] {
+        let error = parse(source).unwrap_err();
+        assert_eq!(error.message, message, "{source}");
+        assert_eq!(error.advice.help, [help], "{source}");
+    }
 }
 
 /// A file that is not Faun is read for its first twenty errors and no
