@@ -1,0 +1,229 @@
+# Exact fractions of any size, after Python's `fractions`: a numerator and
+# a denominator in lowest terms, the denominator above nought, so every
+# fraction has one spelling and equal fractions are equal values. `Nat`
+# and `Int` grow as they must, so nothing overflows and nothing rounds.
+#
+# Division by nought answers nought, as `Nat`'s and `Int`'s do, so every
+# operation is total; `recip` of nought is nought.
+
+package {}
+
+export {Rational}
+
+Rational : {num: Int, den: Nat}.(
+  zero : Rational
+  zero = Rational({num: 0, den: 1})
+
+  one : Rational
+  one = Rational({num: 1, den: 1})
+
+  # `num / den` in lowest terms; nought where `den` is.
+  of_parts : (Int, Int) -> Rational
+  of_parts(num, den) -> (
+    if den == 0 return zero
+    common = gcd(num.abs(), den.abs())
+    signed = if den.is_negative() then -num else num
+    Rational({num: signed / Int.of_nat(common), den: den.abs() / common})
+  )
+
+  of_int : Int -> Rational
+  of_int(n) -> Rational({num: n, den: 1})
+
+  of_nat : Nat -> Rational
+  of_nat(n) -> Rational({num: Int.of_nat(n), den: 1})
+
+  num : Rational -> Int
+  num(Rational({num, *})) -> num
+
+  den : Rational -> Nat
+  den(Rational({den, *})) -> den
+
+  is_integer : Rational -> Bool
+  is_integer(Rational({den, *})) -> den == 1
+
+  add : (Rational, Rational) -> Rational
+  add(Rational(a), Rational(b)) -> of_parts(a.num * Int.of_nat(b.den) + b.num * Int.of_nat(a.den), Int.of_nat(a.den * b.den))
+
+  sub : (Rational, Rational) -> Rational
+  sub(a, b) -> a + -b
+
+  neg : Rational -> Rational
+  neg(Rational({num, den})) -> Rational({num: -num, den})
+
+  mul : (Rational, Rational) -> Rational
+  mul(Rational(a), Rational(b)) -> of_parts(a.num * b.num, Int.of_nat(a.den * b.den))
+
+  div : (Rational, Rational) -> Rational
+  div(a, b) -> a * b.recip()
+
+  # One over the fraction, and nought for nought.
+  recip : Rational -> Rational
+  recip(Rational({num, den})) -> of_parts(Int.of_nat(den), num)
+
+  abs : Rational -> Rational
+  abs(Rational({num, den})) -> Rational({num: Int.of_nat(num.abs()), den})
+
+  # The fraction to the power `exponent`, which may be negative.
+  pow : (Rational, Int) -> Rational
+  pow(Rational({num, den}), exponent) -> (
+    magnitude = exponent.abs()
+    raised = Rational({num: num.pow(magnitude), den: den.pow(magnitude)})
+    if exponent.is_negative() then raised.recip() else raised
+  )
+
+  # Compared by cross-multiplying, the denominators being positive.
+  cmp : (Rational, Rational) -> Order
+  cmp(Rational(a), Rational(b)) -> (a.num * Int.of_nat(b.den)).cmp(b.num * Int.of_nat(a.den))
+
+  hash_into : (Rational, h) -> h where Hasher(h)
+  hash_into(Rational({num, den}), hasher) -> den.hash_into(num.hash_into(hasher))
+
+  # The greatest integer no greater than the fraction.
+  floor : Rational -> Int
+  floor(Rational({num, den})) -> num / Int.of_nat(den)
+
+  # The least integer no less than the fraction.
+  ceil : Rational -> Int
+  ceil(r) -> -((-r).floor())
+
+  # The nearest integer, a half rounded to the even one, as Python's
+  # `round` does.
+  round : Rational -> Int
+  round(r) -> (
+    low = r.floor()
+    left = r - of_int(low)
+    half = of_parts(1, 2)
+    if left < half return low
+    if left > half return low + 1
+    if low % 2 == 0 then low else low + 1
+  )
+
+  # `3/4`, `-2`, or `0`: the denominator left out where it is one.
+  to_str : Rational -> Str
+  to_str(Rational({num, den: 1})) -> num.to_str()
+  to_str(Rational({num, den})) -> "${num}/${den}"
+
+  # The fraction `text` writes: an integer, `a/b`, or a decimal `a.b`, each
+  # with a leading `-` where negative.
+  from_str : Str -> Result(Rational, [Malformed])
+  from_str(text) -> text.split("/") is (
+    [whole] then decimal(whole)
+    [top, bottom] then (
+      num = Int.from_str(top)?
+      den = Nat.from_str(bottom)?
+      if den == 0 return Err(Malformed)
+      Ok(of_parts(num, Int.of_nat(den)))
+    )
+    _ then Err(Malformed)
+  )
+
+  # The fraction to `places` decimal places, rounded half to even:
+  # `of_parts(2, 3).to_fixed(3)` is `"0.667"`.
+  to_fixed : (Rational, Nat) -> Str
+  to_fixed(r, places) -> (
+    scale = 10.pow(places)
+    scaled = (r * of_nat(scale)).round()
+    sign = if scaled.is_negative() then "-" else ""
+    digits = scaled.abs()
+    whole = digits / scale
+    if places == 0 return "${sign}${whole}"
+    fraction = (digits % scale).to_str().pad_start(places).to_utf8().map(|byte| if byte == ' ' then '0' else byte)
+    "${sign}${whole}.${Str.from_ascii(fraction).ok_or("")}"
+  )
+
+  # The continued fraction, `[a0; a1, a2, ...]`: the integer part, then
+  # the integer part of one over what is left, until nothing is.
+  to_continued : Rational -> List(Int)
+  to_continued(r) -> continued(r, [])
+
+  # The fraction a continued fraction writes.
+  of_continued : List(Int) -> Rational
+  of_continued([]) -> zero
+  of_continued([term]) -> of_int(term)
+  of_continued([term, *rest]) -> of_int(term) + of_continued(rest).recip()
+
+  # The closest fraction whose denominator is at most `limit`, as Python's
+  # `limit_denominator` finds: the better of the last two bounds the
+  # continued fraction's convergents give.
+  limit_den : (Rational, Nat) -> Rational
+  limit_den(r is Rational({den, *}), limit) if den <= limit | limit == 0 -> r
+  limit_den(r, limit) -> bounded(r, limit, (0, 1), (1, 0), r)
+)
+
+# The greatest common divisor, Euclid's.
+gcd : (Nat, Nat) -> Nat
+gcd(a, 0) -> a
+gcd(a, b) -> gcd(b, a % b)
+
+# The decimal `text` writes, `-1.25` or `3`.
+decimal : Str -> Result(Rational, [Malformed])
+decimal(text) -> (
+  negative = text.starts_with("-")
+  unsigned = text.drop_prefix("-")
+  (whole, fraction) = unsigned.split(".") is (
+    [whole] then (whole, "")
+    [whole, fraction] if !fraction.is_empty() then (whole, fraction)
+    _ return Err(Malformed)
+  )
+  digits = Nat.from_str(whole.concat(fraction))?
+  magnitude = Rational.of_parts(Int.of_nat(digits), Int.of_nat(10.pow(fraction.len())))
+  Ok(if negative then -magnitude else magnitude)
+)
+
+continued : (Rational, List(Int)) -> List(Int)
+continued(r, terms) -> (
+  whole = r.floor()
+  left = r - Rational.of_int(whole)
+  terms = [whole, *terms]
+  if left == Rational.zero then terms.reverse() else continued(left.recip(), terms)
+)
+
+# Python's walk: `(p0, q0)` and `(p1, q1)` the last two convergents' parts,
+# `rest` what is left of the fraction, until the next denominator would
+# pass `limit`; then the nearer of the last convergent and the
+# semiconvergent between it and the one before.
+bounded : (Rational, Nat, (Nat, Nat), (Nat, Nat), Rational) -> Rational
+bounded(r, limit, (p0, q0), (p1, q1), rest is Rational({num, den})) -> (
+  a = Nat.from_int(num / Int.of_nat(den)).ok_or(0)
+  q2 = q0 + a * q1
+  if q2 > limit return nearer(r, limit, (p0, q0), (p1, q1))
+  next = Rational.of_parts(Int.of_nat(den), num - Int.of_nat(a * den))
+  if next == Rational.zero return Rational.of_parts(Int.of_nat(p0 + a * p1), Int.of_nat(q2))
+  bounded(r, limit, (p1, q1), (p0 + a * p1, q2), next)
+)
+
+nearer : (Rational, Nat, (Nat, Nat), (Nat, Nat)) -> Rational
+nearer(r, limit, (p0, q0), (p1, q1)) -> (
+  k = (limit - q0) / q1
+  low = Rational.of_parts(Int.of_nat(p0 + k * p1), Int.of_nat(q0 + k * q1))
+  high = Rational.of_parts(Int.of_nat(p1), Int.of_nat(q1))
+  if (high - r).abs() <= (low - r).abs() then high else low
+)
+
+half : Rational
+half = Rational.of_parts(1, 2)
+
+third : Rational
+third = Rational.of_parts(-2, -6)
+
+expect half + third == Rational.of_parts(5, 6) & half - third == Rational.of_parts(1, 6)
+expect half * third == Rational.of_parts(1, 6) & half / third == Rational.of_parts(3, 2)
+expect Rational.of_parts(6, -4).to_str() == "-3/2" & Rational.of_parts(4, 2).to_str() == "2" & Rational.zero.to_str() == "0"
+expect Rational.of_parts(3, 0) == Rational.zero & Rational.zero.recip() == Rational.zero & half / Rational.zero == Rational.zero
+expect third < half & -half < third & [half, third, Rational.one, -half].sort() == [-half, third, half, Rational.one]
+expect Rational.of_parts(2, 3).pow(-2) == Rational.of_parts(9, 4) & half.pow(0) == Rational.one
+expect Rational.of_parts(-7, 2).floor() == -4 & Rational.of_parts(-7, 2).ceil() == -3 & Rational.of_parts(7, 2).floor() == 3
+expect Rational.of_parts(5, 2).round() == 2 & Rational.of_parts(7, 2).round() == 4 & Rational.of_parts(-5, 2).round() == -2
+expect Rational.of_parts(8, 3).round() == 3 & Rational.of_parts(-8, 3).round() == -3
+expect Rational.from_str("3/-4") == Err(Malformed) & Rational.from_str("-6/8") == Ok(Rational.of_parts(-3, 4))
+expect Rational.from_str("1.25") == Ok(Rational.of_parts(5, 4)) & Rational.from_str("-0.5") == Ok(-half)
+expect Rational.from_str("7") == Ok(Rational.of_nat(7)) & Rational.from_str("1/0") == Err(Malformed) & Rational.from_str("1.") == Err(Malformed)
+expect Rational.of_parts(2, 3).to_fixed(3) == "0.667" & Rational.of_parts(-1, 8).to_fixed(2) == "-0.12" & Rational.of_parts(1, 40).to_fixed(3) == "0.025"
+expect Rational.of_parts(22, 7).to_fixed(0) == "3"
+expect Rational.of_parts(415, 93).to_continued() == [4, 2, 6, 7] & Rational.of_continued([4, 2, 6, 7]) == Rational.of_parts(415, 93)
+expect Rational.of_parts(-7, 3).to_continued() == [-3, 1, 2] & Rational.of_continued([]) == Rational.zero
+# Python: Fraction('3.141592653589793').limit_denominator(1000) is 355/113.
+expect Rational.from_str("3.141592653589793").map_ok(|pi| pi.limit_den(1000)) == Ok(Rational.of_parts(355, 113))
+expect Rational.from_str("3.141592653589793").map_ok(|pi| pi.limit_den(100)) == Ok(Rational.of_parts(311, 99))
+expect Rational.of_parts(1, 3).limit_den(10) == Rational.of_parts(1, 3) & Rational.of_parts(5, 4).limit_den(1) == Rational.one
+expect Map.of_list([(half, "half"), (third, "third")]).get(Rational.of_parts(2, 4)) == Ok("half")
