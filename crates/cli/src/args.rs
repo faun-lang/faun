@@ -52,6 +52,15 @@ pub(crate) enum Command {
     },
 }
 
+/// Whether diagnostics are coloured, as `--color` says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Color {
+    /// Where standard error is a terminal, unless the environment says.
+    Auto,
+    Always,
+    Never,
+}
+
 /// An intermediate stage `emit` prints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stage {
@@ -63,7 +72,7 @@ pub(crate) enum Stage {
 
 /// Parse this process's arguments, printing help, the version or an error
 /// and exiting where they ask for no command.
-pub(crate) fn parse() -> Command {
+pub(crate) fn parse() -> (Command, Color) {
     let given: Vec<OsString> = std::env::args_os().skip(1).collect();
     match answer(&given) {
         Answer::Command(command) => command,
@@ -85,7 +94,7 @@ const MISUSED: i32 = 2;
 
 /// What arguments ask for.
 enum Answer {
-    Command(Command),
+    Command((Command, Color)),
     /// Help or the version, asked for: written to standard output.
     Out(String),
     /// No command, or one missing what it needs: written to standard error.
@@ -121,8 +130,8 @@ fn answer(given: &[OsString]) -> Answer {
     }
 }
 
-/// Every command, parsed into a [`Command`].
-fn parser() -> OptionParser<Command> {
+/// Every command, parsed into a [`Command`] and its `--color`.
+fn parser() -> OptionParser<(Command, Color)> {
     choice([
         check().boxed(),
         build().boxed(),
@@ -178,7 +187,7 @@ fn examples() -> Doc {
 }
 
 /// The help `args` ask `parser` for, as it would print it.
-fn help(parser: &OptionParser<Command>, args: &[&str]) -> String {
+fn help(parser: &OptionParser<(Command, Color)>, args: &[&str]) -> String {
     match parser.run_inner(Args::from(args).set_name("faun")) {
         Err(ParseFailure::Stdout(doc, full)) => doc.monochrome(full).trim_end().to_owned(),
         _ => unreachable!("--help is always answered with help"),
@@ -187,7 +196,11 @@ fn help(parser: &OptionParser<Command>, args: &[&str]) -> String {
 
 /// Where `message` says `command`, the first argument, was given without an argument it needs,
 /// that said in words, with the command's usage.
-fn missing(parser: &OptionParser<Command>, command: &str, message: &str) -> Option<String> {
+fn missing(
+    parser: &OptionParser<(Command, Color)>,
+    command: &str,
+    message: &str,
+) -> Option<String> {
     let metavar = message
         .strip_prefix("expected `")?
         .strip_suffix("`, pass `--help` for usage information")?;
@@ -223,16 +236,16 @@ fn file_hint(first: &OsStr) -> String {
     }
 }
 
-fn check() -> impl Parser<Command> {
+fn check() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file to check");
-    construct!(Command::Check { target, source })
+    colored(construct!(Command::Check { target, source }))
         .to_options()
         .descr("Check a program for errors without building it")
         .command("check")
 }
 
-fn build() -> impl Parser<Command> {
+fn build() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file to compile");
     let output = short('o')
@@ -255,44 +268,44 @@ fn build() -> impl Parser<Command> {
                 SymbolTable::Omitted
             }
         });
-    construct!(Command::Build {
+    colored(construct!(Command::Build {
         output,
         symbols,
         target,
         favour,
         source,
-    })
+    }))
     .to_options()
     .descr("Compile a program into an executable")
     .command("build")
 }
 
-fn run() -> impl Parser<Command> {
+fn run() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file to compile and run");
     let args = positional::<String>("ARGS")
         .help("What the program is run with; after `--`, even what looks like an option")
         .many();
-    construct!(Command::Run {
+    colored(construct!(Command::Run {
         target,
         source,
         args
-    })
+    }))
     .to_options()
     .descr("Compile a program and run it")
     .command("run")
 }
 
-fn test() -> impl Parser<Command> {
+fn test() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file whose package to test");
-    construct!(Command::Test { target, source })
+    colored(construct!(Command::Test { target, source }))
         .to_options()
         .descr("Run the expectations in a program's package")
         .command("test")
 }
 
-fn emit() -> impl Parser<Command> {
+fn emit() -> impl Parser<(Command, Color)> {
     let target = target();
     let stage = positional::<String>("STAGE")
         .help("The stage to print: barb, machine or target")
@@ -303,17 +316,17 @@ fn emit() -> impl Parser<Command> {
             _ => Err("expected barb, machine or target"),
         });
     let source = positional::<PathBuf>("PATH").help("The source file to compile");
-    construct!(Command::Emit {
+    colored(construct!(Command::Emit {
         target,
         stage,
         source,
-    })
+    }))
     .to_options()
     .descr("Print an intermediate stage of a program")
     .command("emit")
 }
 
-fn bundle() -> impl Parser<Command> {
+fn bundle() -> impl Parser<(Command, Color)> {
     let target = target();
     let output = short('o')
         .long("output")
@@ -322,30 +335,46 @@ fn bundle() -> impl Parser<Command> {
         .fallback(PathBuf::from("."))
         .debug_fallback();
     let source = positional::<PathBuf>("PATH").help("The root module of the package to bundle");
-    construct!(Command::Bundle {
+    colored(construct!(Command::Bundle {
         target,
         output,
         source,
-    })
+    }))
     .to_options()
     .descr("Write a package as a hash-named bundle for URL dependencies")
     .command("bundle")
 }
 
-fn fetch() -> impl Parser<Command> {
+fn fetch() -> impl Parser<(Command, Color)> {
     let source = positional::<PathBuf>("PATH").help("The root module of the package");
-    construct!(Command::Fetch { source })
+    colored(construct!(Command::Fetch { source }))
         .to_options()
         .descr("Download a package's URL dependencies for offline builds")
         .command("fetch")
 }
 
-fn uses() -> impl Parser<Command> {
+fn uses() -> impl Parser<(Command, Color)> {
     let source = positional::<PathBuf>("PATH").help("The root module of the package");
-    construct!(Command::Uses { source })
+    colored(construct!(Command::Uses { source }))
         .to_options()
         .descr("Print the tree of packages a package uses")
         .command("uses")
+}
+
+/// A subcommand's own arguments, with `--color`.
+fn colored(command: impl Parser<Command>) -> impl Parser<(Command, Color)> {
+    let color = long("color")
+        .help("When to colour diagnostics: auto, always or never")
+        .argument::<String>("WHEN")
+        .parse(|when| match when.as_str() {
+            "auto" => Ok(Color::Auto),
+            "always" => Ok(Color::Always),
+            "never" => Ok(Color::Never),
+            _ => Err("expected auto, always or never"),
+        })
+        .fallback(Color::Auto);
+    // Options go before what a subcommand takes positionally.
+    construct!(color, command).map(|(color, command)| (command, color))
 }
 
 /// `--target`, defaulting to [`NATIVE`] and required where there is none.

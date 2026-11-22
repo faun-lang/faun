@@ -32,6 +32,7 @@ fn main() {
     trials.push(Trial::test("every_err_file_has_its_case", move || {
         orphans(&directory)
     }));
+    trials.push(Trial::test("color_always_paints_what_it_says", painted));
     libtest_mimic::run(&arguments, trials).exit();
 }
 
@@ -81,6 +82,10 @@ fn check(case: &Case) -> Result<(), Failed> {
         .args(["check", "--target", "x86_64-linux"])
         .arg(&case.entry)
         .current_dir(refused())
+        // Not on a terminal, it is uncoloured unless the environment
+        // forces colour, which these must not inherit.
+        .env_remove("CLICOLOR_FORCE")
+        .env_remove("FORCE_COLOR")
         .output()
         .map_err(|error| format!("cannot run faun: {error}"))?;
     if output.status.success() {
@@ -110,6 +115,55 @@ fn check(case: &Case) -> Result<(), Failed> {
         return Err(message.into());
     }
     Ok(())
+}
+
+/// `--color=always` paints a diagnostic in rustc's colours, even where
+/// standard error is not a terminal, and says what its `.err` says beneath
+/// them.
+fn painted() -> Result<(), Failed> {
+    let case = "a_method_given_fewer_arguments_than_it_takes";
+    let output = Command::new(env!("CARGO_BIN_EXE_faun"))
+        .args(["check", "--color=always", "--target", "x86_64-linux"])
+        .arg(format!("{case}.fn"))
+        .current_dir(refused())
+        .output()
+        .map_err(|error| format!("cannot run faun: {error}"))?;
+    let told = String::from_utf8(output.stderr).map_err(|_| "faun wrote non-UTF-8")?;
+    let painted = [
+        // `error` bold red, the message bold.
+        "\x1b[1;31merror\x1b[0m\x1b[1m: `blocks` takes 1 argument, but 0 were given\x1b[0m\n",
+        // The gutter bold blue.
+        " \x1b[1;34m-->\x1b[0m a_method",
+        "\x1b[1;34m4 |\x1b[0m halves",
+        // Where it happened bold red, the other place and what it says
+        // bold blue.
+        "\x1b[1;31m^^^^^^\x1b[0m\x1b[1;34m--\x1b[0m \x1b[1;34man argument of type `Nat` is missing\x1b[0m",
+        // `help` bright cyan.
+        "\x1b[1;34m =\x1b[0m \x1b[1;96mhelp\x1b[0m: provide the argument",
+    ];
+    if let Some(missing) = painted.iter().find(|part| !told.contains(*part)) {
+        return Err(format!("no {missing:?} in {told:?}").into());
+    }
+    let plain = strip(&told);
+    let golden = fs::read_to_string(refused().join(format!("{case}.err")))
+        .map_err(|error| format!("cannot read the golden: {error}"))?;
+    if plain != golden {
+        return Err(format!("beneath its colours it said {plain:?}, not {golden:?}").into());
+    }
+    Ok(())
+}
+
+/// `text` without its colours.
+fn strip(text: &str) -> String {
+    let mut plain = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find('\x1b') {
+        plain.push_str(&rest[..at]);
+        let after = &rest[at..];
+        rest = after.find('m').map_or("", |end| &after[end + 1..]);
+    }
+    plain.push_str(rest);
+    plain
 }
 
 /// Every `.err` belongs to a case: one left behind when its case moved or
