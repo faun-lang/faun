@@ -1,0 +1,33 @@
+# Selection and sorting as a benchmark: `count` scattered naturals, their
+# median by quickselect, the ten smallest, the list sorted by radix and by
+# the standard's merge sort, and its inversions counted, answering the
+# median, the tenth smallest, whether both sorts agree and the inversions.
+
+package {
+  uses: {
+    select: "../src/select"
+  }
+}
+
+import select {median, smallest, radix_sort, inversions}
+
+# `count` naturals below 2^32, each its place times a 64-bit odd constant,
+# the top half kept.
+scattered : Nat -> List(Nat)
+scattered(count) -> List.range(count).map(|index| ((U64.of_nat(index) * 0x9e3779b97f4a7c15) >> 32).to_nat())
+
+Tally = {median: Nat, tenth: Nat, agree: Bool, inversions: Nat}
+
+app : {args: List(Str)} -> Result(Tally, [Malformed])
+app({args}) -> (
+  count = Nat.from_str(args.get(1).ok_or("100000"))?
+  values = scattered(count)
+  middle = median(values).ok_or(0)
+  tenth = smallest(values, 10).last().ok_or(0)
+  agree = radix_sort(values) == values.sort()
+  Ok({median: middle, tenth, agree, inversions: inversions(values)})
+)
+
+main!(host) -> host.run!(app)
+
+expect app({args: ["rank", "100"]}).map_ok(|{agree, *}| agree) == Ok(True)

@@ -1,0 +1,114 @@
+# Selection and sorting beside the standard's merge sort: the `k`th
+# smallest of a list by Hoare's quickselect, without sorting it; the
+# median; the `k` smallest in order; a least-significant-digit radix sort
+# of naturals, a byte a pass; merging and deduplicating sorted lists;
+# counting inversions; and whether a list is sorted.
+
+package {}
+
+export {select, median, smallest, radix_sort, merge, dedup, inversions, is_sorted}
+
+# The element that would be at `k`, counting from nought, were the list
+# sorted: the middle element taken as the pivot, the rest parted into those
+# below it, those equal and those above, and only the part holding `k`
+# walked again. Linear on average, and a sorted list's pivots halve it.
+select : (List(a), Nat) -> Result(a, [OutOfBounds]) where Ordered(a), Equatable(a)
+select(values, k) -> (
+  pivot = values.get(values.len() / 2)?
+  (below, rest) = values.partition(|value| value < pivot)
+  (equal, above) = rest.partition(|value| value == pivot)
+  if k < below.len() return select(below, k)
+  if k < below.len() + equal.len() return Ok(pivot)
+  select(above, k - below.len() - equal.len())
+)
+
+# The middle element, the lower of the two middle ones where the length is
+# even.
+median : List(a) -> Result(a, [Empty]) where Ordered(a), Equatable(a)
+median(values) -> select(values, (values.len() - 1) / 2).err_as(Empty)
+
+# The `k` smallest elements in order, all of them where there are fewer:
+# selection parts off the front, and only the front is sorted.
+smallest : (List(a), Nat) -> List(a) where Ordered(a), Equatable(a)
+smallest(values, k) -> (
+  if k >= values.len() return values.sort()
+  select(values, k) is Ok(bound) else return []
+  below = values.filter(|value| value < bound)
+  below.sort().concat(List.repeat(bound, k - below.len()))
+)
+
+# Naturals in order, a byte a pass from the least significant, each pass
+# a stable split into 256 buckets, for as many passes as the largest has
+# bytes.
+radix_sort : List(Nat) -> List(Nat)
+radix_sort(values) -> passes(values, 0, values.max().ok_or(0))
+
+passes : (List(Nat), Nat, Nat) -> List(Nat)
+passes(values, shift, largest) if largest >> shift == 0 -> values
+passes(values, shift, largest) -> (
+  buckets = values.fold(List.repeat([], 256), |buckets, value| (
+    digit = (value >> shift) & 255
+    buckets.put(digit, buckets.get(digit).ok_or([]).append(value))
+  ))
+  passes(buckets.flatten(), shift + 8, largest)
+)
+
+# Two sorted lists as one sorted list, the left's first on a tie.
+merge : (List(a), List(a)) -> List(a) where Ordered(a)
+merge([x, *xs], right is [y, *_]) if x <= y -> [x, *merge(xs, right)]
+merge(left, [y, *ys]) -> [y, *merge(left, ys)]
+merge(left, []) -> left
+
+# A sorted list without its repeats.
+dedup : List(a) -> List(a) where Equatable(a)
+dedup([x, *rest is [y, *]]) if x == y -> dedup(rest)
+dedup([x, *rest]) -> [x, *dedup(rest)]
+dedup([]) -> []
+
+# How many pairs are out of order, an earlier element greater than a later
+# one: merge sort counting, at each merge, the left elements each right one
+# passes.
+inversions : List(a) -> Nat where Ordered(a)
+inversions(values) -> (
+  (_, count) = counted(values)
+  count
+)
+
+counted : List(a) -> (List(a), Nat) where Ordered(a)
+counted([]) -> ([], 0)
+counted(one is [_]) -> (one, 0)
+counted(values) -> (
+  (front, back) = values.split_at(values.len() / 2)
+  (left, a) = counted(front)
+  (right, b) = counted(back)
+  (merged, c) = merged_counting(left, left.len(), right, [], 0)
+  (merged, a + b + c)
+)
+
+# The merge, `waiting` the length of `left`, so a right element taken
+# first passes every element still waiting.
+merged_counting : (List(a), Nat, List(a), List(a), Nat) -> (List(a), Nat) where Ordered(a)
+merged_counting([x, *xs], waiting, right is [y, *_], built, count) if x <= y ->
+  merged_counting(xs, waiting - 1, right, [x, *built], count)
+merged_counting(left, waiting, [y, *ys], built, count) -> merged_counting(left, waiting, ys, [y, *built], count + waiting)
+merged_counting(left, _, [], built, count) -> (built.reverse().concat(left), count)
+
+# Whether every element is no greater than the one after it.
+is_sorted : List(a) -> Bool where Ordered(a)
+is_sorted([x, *rest is [y, *]]) -> x <= y & is_sorted(rest)
+is_sorted(_) -> True
+
+scattered : List(Nat)
+scattered = [9, 4, 7, 1, 8, 2, 6, 3, 5, 0, 4, 7]
+
+expect List.range(12).all(|k| select(scattered, k) == scattered.sort().get(k)) & select(scattered, 12) == Err(OutOfBounds)
+expect median([5, 1, 4]) == Ok(4) & median([5, 1, 4, 2]) == Ok(2) & median([0].drop(1)) == Err(Empty)
+expect median(["pear", "fig", "apple"]) == Ok("fig")
+expect smallest(scattered, 4) == [0, 1, 2, 3] & smallest(scattered, 0) == [] & smallest([3, 1], 9) == [1, 3]
+expect smallest([2, 2, 2, 1, 2], 3) == [1, 2, 2]
+expect radix_sort(scattered) == scattered.sort() & radix_sort([]) == [] & radix_sort([0, 0]) == [0, 0]
+expect radix_sort([70000, 3, 256, 255, 65536, 1, 4294967296]) == [1, 3, 255, 256, 65536, 70000, 4294967296]
+expect merge([1, 3, 5], [2, 3, 6, 7]) == [1, 2, 3, 3, 5, 6, 7] & merge([0].drop(1), [1]) == [1]
+expect dedup([1, 1, 2, 3, 3, 3]) == [1, 2, 3] & dedup(["a", "a"]) == ["a"]
+expect inversions([2, 4, 1, 3, 5]) == 3 & inversions(List.range(10)) == 0 & inversions(List.range(10).reverse()) == 45
+expect is_sorted([1, 2, 2, 3]) & !is_sorted([2, 1]) & is_sorted([0].drop(1))
