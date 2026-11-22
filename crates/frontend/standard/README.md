@@ -64,7 +64,9 @@ held in a machine word rather than as a natural of any size.
 
 `Nat.from_str` and `Int.from_str` read decimal text, `Err(Malformed)` where it
 is not one: digits only, and for an `Int` a leading `-`. Every number type
-has `min` and `max`, and `U8` the ASCII tests `is_digit`, `is_ascii_lower`,
+has `min` and `max`. `Nat` has `gcd`, the greatest common divisor, nought
+only for `Nat.gcd(0, 0)`; two integers' is `Nat.gcd(a.abs(), b.abs())`.
+`U8` has the ASCII tests `is_digit`, `is_ascii_lower`,
 `is_ascii_upper` and `is_ascii_letter`, and `to_ascii_lower` and
 `to_ascii_upper`.
 
@@ -95,7 +97,7 @@ of equality, asked before the clause's guard.
 `List` follows Ori's standard list: `len`, `is_empty`, `append`, `concat`,
 `prepend`, `map`, `map2`, `flat_map`, `flatten`, `join`, `filter`, `count`,
 `any`, `all`, `fold`, `fold_until`, `try_fold`, `fold_right`, `trail`, `reverse`, `first`, `last`,
-`get`, `put`, `set`, `exchange`, `try_map`, `find`, `find_index`,
+`get`, `put`, `set`, `update`, `exchange`, `try_map`, `find`, `find_index`,
 `partition_point`, `equals`,
 `contains`, `sum`, `take`, `drop`, `take_while`, `drop_while`, `split_at`,
 `partition`, `zip`, `unzip`, `cross`, `enumerate`, `windows`, `min`, `max`,
@@ -106,6 +108,9 @@ of equality, asked before the clause's guard.
 `Result`, stopping at the first `Err`: with recursion, they are how a walk
 leaves early, there being no loops. `put` writes an element and leaves a list with none
 at that index unchanged; `set` answers `Err(OutOfBounds)` there instead.
+`update(index, change)` replaces the element at an index with `change`
+applied to it, in `Map.update`'s order, and like `put` leaves a list with
+none there unchanged: `counts.update(i, |n| n + 1)`.
 `join` puts a separator between the pieces of
 anything with `empty` and `concat`: `["a", "b"].join(", ")` is `"a, b"`,
 and `[[1], [2]].join([0])` is `[1, 0, 2]`. `to_str` writes a list as it is written, `[1, 2, 3]`. A list

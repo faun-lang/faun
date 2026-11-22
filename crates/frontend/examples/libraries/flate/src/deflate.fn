@@ -305,7 +305,7 @@ frequencies(symbols) -> (
 )
 
 bump : (List(Nat), Nat) -> List(Nat)
-bump(counts, i) -> counts.put(i, counts.get(i).ok_or(0) + 1)
+bump(counts, i) -> counts.update(i, |count| count + 1)
 
 # The block of `symbols`, which stand for the input from `start` below
 # `end`, written the smallest of the three ways.
@@ -496,7 +496,7 @@ fit : (List(Nat), Nat) -> List(Nat)
 fit(per_length, limit) -> (
   room = per_length.enumerate().drop(1).fold(0, |total, (length, count)| total + (count << (limit - length)))
   if room <= 1 << limit return per_length
-  at_limit = per_length.put(limit, per_length.get(limit).ok_or(0) - 1)
+  at_limit = per_length.update(limit, |count| count - 1)
   fit(split_one(at_limit, limit - 1), limit)
 )
 
@@ -505,7 +505,7 @@ split_one(per_length, 0) -> per_length
 split_one(per_length, length) -> (
   count = per_length.get(length).ok_or(0)
   if count == 0 then split_one(per_length, length - 1)
-  else per_length.put(length, count - 1).put(length + 1, per_length.get(length + 1).ok_or(0) + 2)
+  else per_length.put(length, count - 1).update(length + 1, |longer| longer + 2)
 )
 
 expect Level.of_nat(12) == Level.best & Level.from_nat(10) == Err(TooBig)

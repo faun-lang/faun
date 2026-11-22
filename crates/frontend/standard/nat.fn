@@ -112,6 +112,14 @@ Nat : [Zero, Succ(Nat)].(
   pow_mod : (Nat, Nat, Nat) -> Nat
   pow_mod(base, exponent, modulus) -> pow_mod_into(base % modulus, exponent, 1 % modulus, modulus)
 
+  # The greatest common divisor: the largest natural dividing both, so
+  # `gcd(n, 0)` is `n`, and nought only for `gcd(0, 0)`. Euclid's, each step
+  # one remainder, which is one instruction where both fit a word and a
+  # digit at a time past one.
+  gcd : (Nat, Nat) -> Nat
+  gcd(a, 0) -> a
+  gcd(a, b) -> gcd(b, a % b)
+
   hash_into : (Nat, h) -> h where Hasher(h)
   hash_into(n, hasher) -> hasher.write_u64(U64.of_nat(n))
 
@@ -213,3 +221,7 @@ expect (40007.shift_right(10) & 7) == 7 & 40007.shift_right(13) == 4 & 5.shift_r
 expect 2.pow(0) == 1 & 2.pow(10) == 1024 & 3.pow(5) == 243 & 0.pow(0) == 1 & 0.pow(3) == 0
 expect (-3).pow(3) == -27 & Nat.pow_mod(3, 200, 1000) == 1 & Nat.pow_mod(5, 0, 1) == 0
 expect Nat.from_int(-2) == Err(Negative) & Nat.from_int(4) == Ok(4)
+expect Nat.gcd(0, 0) == 0 & Nat.gcd(0, 7) == 7 & Nat.gcd(7, 0) == 7 & Nat.gcd(1, 9) == 1 & Nat.gcd(9, 1) == 1
+expect Nat.gcd(12, 18) == 6 & Nat.gcd(18, 12) == 6 & Nat.gcd(9, 9) == 9 & Nat.gcd(35, 64) == 1
+expect Nat.gcd(1267650600228229401496703205376, 3541774862152233910272) == 1180591620717411303424
+expect Nat.gcd(618970019642690137449562111, 18446744073709551616) == 1 & Nat.gcd(110680464442257309696, 166020696663385964544) == 55340232221128654848

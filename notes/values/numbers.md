@@ -67,6 +67,14 @@ Int : [Pos(Nat), NegSucc(Nat)]
 (Excerpts from `nat.fn` and `int.fn`.) `NegSucc(n)` is `-(n + 1)`, so zero
 is only `Pos(0)` and every integer has one spelling. `Int.abs` answers a
 `Nat`; `Nat.from_int` answers `Err(Negative)` for a negative one.
+`Nat.gcd` is the greatest common divisor, nought only for two noughts, and
+there is no `Int.gcd`: two integers' is their magnitudes',
+`Nat.gcd(a.abs(), b.abs())`, a natural whatever the signs.
+
+```ruby
+expect Nat.gcd(12, 18) == 6 & Nat.gcd(0, 7) == 7 & Nat.gcd(0, 0) == 0
+expect Nat.gcd((-12).abs(), 18) == 6
+```
 
 `Nat`, `Int` and the words define `+`, `-`, `*`, `/` and `%`, and a `cmp`
 that `<`, `==` and the rest are views of

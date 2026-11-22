@@ -42,11 +42,7 @@ joined(parents, (one, other, _)) -> (
 
 # `node` added to the group its root names.
 gathered : (List(Nat), List(List(Nat)), Nat) -> List(List(Nat))
-gathered(parents, groups, node) -> (
-  named = root(parents, node)
-  held = groups.get(named).ok_or([])
-  groups.put(named, held.append(node))
-)
+gathered(parents, groups, node) -> groups.update(root(parents, node), |held| held.append(node))
 
 # The nodes grouped by which reach which both ways, each group in the order
 # a walk of the graph turned round enters it, and the groups so that every

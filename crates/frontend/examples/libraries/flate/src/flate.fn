@@ -220,7 +220,7 @@ long = 0xfff0
 # answers.
 huffman : (List(Nat), Bool) -> Result(Huffman, InflateError)
 huffman(lengths, lone) -> (
-  counts = lengths.fold(List.repeat(0, 16), |counts, length| counts.put(length, counts.get(length).ok_or(0) + 1))
+  counts = lengths.fold(List.repeat(0, 16), |counts, length| counts.update(length, |count| count + 1))
   width = lengths.max().ok_or(0)
   left = unused(counts, 1, 1)?
   if left > 0 & (width > 1 | !lone) return Err(BadCode)

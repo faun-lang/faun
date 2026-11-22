@@ -47,6 +47,11 @@ the three are one, `to_`.
   `?`, `|` and `map_ok` too, without each collection repeating them.
 - `x_or(fallback)` answers the value, or the fallback where there is none:
   `ok_or`, `err_or`.
+- `update(key, change)` changes what a key or an index holds by a
+  function, and leaves a container without one unchanged, as `remove`
+  does a map and `put` a list: `Map.update`, `SortedMap.update`,
+  `List.update`. `update_or(key, missing, change)` changes `missing`
+  where there is nothing.
 - `try_x` is the version of `x` that stops at the first `Err`: `try_map`,
   `try_fold`.
 - A failure is a tag named by its cause, never text: `TooBig`,
