@@ -210,27 +210,87 @@ answers a `Light`, and a caller wanting the row `[Low, Other]` is refused.
 Declaring a type can therefore change what an unsigned definition below it
 means. A signature on `glow` is the recourse.
 
-### Why no written row tail?
+### Why may a row write `*`?
 
-Records have `{name: Str, *}`; variant rows have no `[Red, *]`, and the
-grammar refuses one. The asymmetry follows how each is taken apart. A record
-is read a field at a time, which never needs the whole row, so a type saying
-"at least these fields" is useful. A variant is matched, and matching
-covers the whole row, so "at least these tags" is a promise about a
-catch-all clause, not a fact about the type. Each place a tail might serve
-has an answer already:
+Proposed, not yet built: `[A, *]` is a type a signature may write, as
+`{name: Str, *}` is. It overturns the earlier answer, that a variant row
+needs no written tail, for two reasons. A clause list with a catch-all
+takes any tag, but no signature could say so: `f : [A] -> Nat` with
+`f(A) -> 1` and `f(_) -> 0` still refuses a caller's `f(C)`, so the
+definition had to stay unsigned. And inference makes open rows that
+messages print, `Result({}, [BrokenPipe, NoSpace, Other(Nat), *])`, which
+no signature could then write.
 
-- **Result position.** "These tags or more" is true at a caller joining
-  producers, where inference says it, and false at a definition, which
-  answers a known set.
-- **Parameter position.** "I handle these and ignore the rest" is a
-  catch-all clause's job.
-- **A row mixed with a caller's.** Wrap it in a tag with a variable
-  payload, `[TimedOut, Inner(e)]`, which records provenance instead of
-  merging silently.
+`*` means what it means in a record: a rest its caller chooses, never
+named, each `*` a rest of its own. `[A, *]` holds `A` and whatever other
+tags the caller's row holds. What it changes depends on which way the row
+flows, not on how deep it lies.
 
-Some inferred types cannot be written. `_` in a signature covers the common
-case, a failure row left to the `?`s.
+- **Where a definition receives the row**: a parameter, or the answer of
+  a callback it is handed. `f : [A, *] -> Nat` takes any row that holds
+  `A` or may: the literal `B`, a closed `[A, B]`, an unsigned producer's
+  open row. Like `{name: Str, *}` refusing a record with no `name`, it
+  refuses a closed row lacking `A`. The body sees the rest as a caller's,
+  as with a record's `*`, and the checker refuses three things. Clauses or
+  arms that take the row apart without a catch-all, `_` or a name:
+  `` `[A, *]` may hold tags a caller adds, which no pattern here matches:
+  write a catch-all ``. A pattern naming a tag the row does not write,
+  `f(B)`: `B` is not among its tags, with help to write `[A, B, *]`, as
+  `r.age` under `{name: Str, *}` is refused. And `equals`, `to_str` or
+  `hash_into` on the row, whose other tags it cannot compare or print.
+  The value may be bound, passed where a row with `*` is wanted, and
+  matched; it may not be answered where another `*` is wanted.
+- **Where a definition gives the row**: its result, or a callback's
+  parameter. A written row there is already closed for the body and open
+  to callers, so `[A, *]` and `[A]` are one type. `*` is allowed rather
+  than refused as redundant, so that any type a message prints may be
+  pasted where it was printed, and means nothing more. A message shows
+  such a row as `[A]`, as it is most often written.
+- **Inside other types**: `Result(a, [A, *])` and `List([A, *])` take the
+  position of the type around them. As a parameter, a match on the
+  `Err`'s row needs a catch-all; as a result, either spelling is the
+  same. `(Nat -> [A, *]) -> Nat` is handed a callback that may answer
+  tags of the caller's; `([A, *] -> Nat) -> Nat` gives its callback rows,
+  and is `([A] -> Nat) -> Nat`.
+- **Several `*`**: each is its own rest, as for records.
+  `([A, *], [A, *]) -> Bool` takes two rows whose rests the caller
+  chooses apart, so it compares neither, and `[A, *] -> [A, *]` written
+  `f(x) -> x` is refused: the answer's rest is not the parameter's. A
+  message numbers them `*1` and `*2` where they would read alike, with
+  help to write the answer as `_`.
+- **Payloads**: `[A(Nat), *]` fixes the written tags' payloads; a
+  caller's other tags carry what they carry, and a caller's `A` must
+  carry a `Nat`, since one row cannot hold two `A`s.
+- **Form**: `*` comes last, once, and is never named, as in a record:
+  `[*]` is any row, which the body can only bind, pass on or take with a
+  catch-all; `[A, *r]` and `[*, A]` are refused by the grammar.
+- **`_`**: a hole is whatever the clauses make it, so `_` and `*` do not
+  meet. In a signature that writes `_` somewhere, its written types are
+  where inference starts and a `*` is a rest inference may fill, as a
+  record's `*` is today.
+- **Aliases**: transparent, so `Failure = [NotFound, *]` gives each use
+  its own rest, read in the position of that use.
+- **Declared types**: a declared type's tags are its own, so
+  `Light : [Low, High, *]` is refused, and so is a `*` anywhere in what a
+  declared type holds, a record's included: the type would hold a rest
+  no one chose. Today `P : [A({x: Nat, *})]` is accepted and its program
+  fails to build.
+- **Coverage**: a row with a caller's rest is covered only by a
+  catch-all, which the coverage check already says of an open row.
+- **Derived members**: a row with a caller's rest has no `equals`,
+  `to_str` or `hash_into` in the body, as an open record has none. A
+  caller, who knows the rest, compares and prints its own rows.
+
+Messages print only writable types. A row still open to inference, or
+one whose `*` a signature wrote where the definition receives it, shows
+`*`; a result row's rest, which no one writes, does not. At a use, a row
+its signature closed shows `*`, since the use may add tags to it, which
+`[Green, Red, *]` now says in a form a signature takes.
+
+The cost is a second spelling of a result row, and one more thing a
+reader of a parameter must notice. Wrapping a producer's row in a tag
+with a variable payload, `[TimedOut, Inner(e)]`, is still the way to keep
+provenance rather than merge rows.
 
 ### Why can exports hide constructors?
 
