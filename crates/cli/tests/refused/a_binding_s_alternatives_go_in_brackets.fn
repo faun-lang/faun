@@ -1,0 +1,8 @@
+import std.host {Host}
+
+turned : List(U8) -> Bool
+turned([turn is 'L' | 'R', *_]) -> turn == 'L'
+turned(_) -> False
+
+main! : Host -> []
+main!(host) -> host.exit!(0)
