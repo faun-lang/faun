@@ -59,7 +59,7 @@ faun build --target aarch64-macos crates/frontend/examples/minimal-hello.fn -o h
 Programs, in [`crates/frontend/examples`](crates/frontend/examples)
 
 - Advent of Code 2015, days 1 to 19
-- n-body and spectral norm benchmarks
+- nine benchmark programs, from binary trees to spectral norm, each beside a C program
 - files read, written and closed, each checked to be closed once
 - libraries: JSON, MD5, a command-line parser, a heap, graphs, templates, property tests and more
 - `expect` tests, run by `faun test`

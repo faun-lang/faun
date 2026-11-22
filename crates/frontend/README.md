@@ -60,13 +60,13 @@ the rest of the frontend uses the symbols it resolves, never a spelling.
 
 ### Literals to standard types
 
-| Literal                    | May be                                  |
-| -------------------------- | --------------------------------------- |
-| `3`, `0xff`, `0b11`, `'a'` | `Nat`, `Int`, `U8`, `U16`, `U32`, `U64` |
-| `-3`                       | one of those, through its `neg`         |
-| `1.5`                      | `F64` or `F32`                          |
-| `"text"`                   | `Str`                                   |
-| `[a, b]`                   | `List`                                  |
+| Literal                    | May be                                   |
+| -------------------------- | ---------------------------------------- |
+| `3`, `0xff`, `0b11`, `'a'` | `Nat`, `Int`, `U8`, `U16`, `U32`, `U64`  |
+| `-3`                       | `Int`, through its `neg`; no `Nat`, word |
+| `1.5`                      | `F64` or `F32`                           |
+| `"text"`                   | `Str`                                    |
+| `[a, b]`                   | `List`                                   |
 
 A numeral's position decides its type. Where nothing does, it's a `Nat`, a
 negated one an `Int`, and a decimal an `F64`.
