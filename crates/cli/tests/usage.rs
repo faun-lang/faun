@@ -114,7 +114,7 @@ fn a_command_missing_its_argument_says_what_and_its_usage() {
     assert_eq!(
         said,
         "Error: faun run needs a source file\n\n\
-         Usage: faun run [--target=TARGET] PATH [ARGS]...\n\n\
+         Usage: faun run [--color=WHEN] [--target=TARGET] PATH [ARGS]...\n\n\
          For more, try `faun run --help`\n"
     );
     for (args, needs) in [
