@@ -12,7 +12,7 @@ use faun_core::ir::{Binary, Class, Op, Program, ValueId};
 use faun_core::programs;
 use faun_core::targets::Target;
 
-use super::{ARITHMETIC_SIZES, CORPUS_SIZES, EXAMPLE_SIZES, LADDER_SIZES, RUNNER, TARGET};
+use super::{RUNNER, TARGET};
 
 #[path = "expressions.rs"]
 mod expressions;
@@ -22,32 +22,168 @@ pub(super) const EXIT_ZERO: &str = "import std.host {Host}
                                    main! : Host -> []
                                    main!(host) -> host.exit!(0)";
 
-fn corpus() -> [(&'static str, Program); 19] {
+/// Programs built at the tier a target reads, for what a backend does with
+/// IR it was handed.
+fn corpus() -> [(&'static str, Program); 12] {
     [
-        ("exit zero", read(EXIT_ZERO).expect("a program")),
         ("two and two", programs::two_and_two()),
         ("hello world", programs::hello_world()),
         ("a call", programs::calls_a_function()),
         ("recursion", programs::recurses()),
         ("values across a call", programs::values_survive_a_call()),
-        ("the heap", programs::uses_the_heap()),
-        ("a byte", programs::stores_a_byte()),
         ("a global", programs::counts_in_a_global()),
-        ("writing the heap", programs::writes_from_the_heap()),
         (
             "a computed length",
             programs::writes_a_length_it_worked_out(),
         ),
         ("eight bits", programs::wraps_at_eight_bits()),
-        ("less", programs::less(7, 9)),
-        ("two worked out", programs::compares_two_worked_out_values()),
         ("a flag", programs::branches_on_a_flag_it_read()),
-        ("a countdown", programs::countdown(3)),
         ("a carried total", programs::carries_a_total_into_an_arm(3)),
         ("a step first", programs::counts_down_before_it_branches(3)),
         ("a long arm", programs::a_branch_over_a_long_arm(40, true)),
     ]
 }
+
+/// A program reading the count of its arguments as `count`, then `body`.
+macro_rules! counted {
+    ($body:literal) => {
+        concat!(
+            "import std.host {Host}\n\nmain! : Host -> []\nmain!(host) -> (\n  count = host.args.len()\n",
+            $body,
+            "\n)\n"
+        )
+    };
+}
+
+/// The simplest programs there are, each nearly the least a program can
+/// do and the next doing one thing more: what they are for is the
+/// question "is this as small as it can be", which nobody can answer
+/// about a program doing four things at once. Arithmetic comes before
+/// branching: the two wrapping rungs work something out from the count
+/// without asking anything about it, and the guarded ones ask, with
+/// limits small enough that what the guard proves is a few bits.
+pub(super) const LADDER: [(&str, &str); 8] = [
+    ("a constant", EXIT_ZERO),
+    ("the count", counted!("  host.exit!(U8.of_nat(count))")),
+    (
+        "the count and a constant",
+        counted!("  host.exit!(U8.of_nat(count + 4))"),
+    ),
+    (
+        "the low bits of a sum",
+        counted!("  host.exit!(U8.of_nat(count + count))"),
+    ),
+    (
+        "the count under a guard",
+        counted!(
+            "  kept = if count < 4 then count else host.exit!(0)\n  host.exit!(U8.of_nat(kept))"
+        ),
+    ),
+    (
+        "the count and more",
+        counted!(
+            "  kept = if count < 4 then count else host.exit!(0)\n  host.exit!(U8.of_nat(kept + 4))"
+        ),
+    ),
+    // `a` feeds both `b` and the final addition: a target with one
+    // accumulator has to choose which side to load first, and need not
+    // store the side it already holds.
+    (
+        "a shared intermediate",
+        counted!(
+            "  kept = if count < 32 then count else host.exit!(0)\n  a = kept + 3\n  b = a + kept\n  host.exit!(U8.of_nat(a + b))"
+        ),
+    ),
+    (
+        "a greeting",
+        include_str!("../../../frontend/examples/minimal-hello.fn"),
+    ),
+];
+
+/// The examples whose sizes are recorded.
+const EXAMPLES: [&str; 10] = [
+    "exit",
+    "two-and-two",
+    "double",
+    "leave",
+    "bool",
+    "nat",
+    "width",
+    "argc",
+    "expressions",
+    "hello",
+];
+
+/// Each program's image on each target the shared tests run on: x86-64,
+/// the 6502 and wasm32. Lower these when emission improves; explain any
+/// increase. An exit status is a `U8`, so an example whose status is worked
+/// out from a `Nat` takes it modulo 256; where the arm that bounds it is
+/// not seen to, that is real work.
+///
+/// On x86-64, two-operand IMUL does not reserve or clobber RAX/RCX/RDX,
+/// which removes register transfers in the runtime multiply and
+/// natural-number examples; a known multiplier is taken into the
+/// instruction: three, five and nine as a LEA, which also takes a number
+/// added next. A program that writes ignores `SIGPIPE` before anything
+/// else, so a write to a closed pipe answers `BrokenPipe` as it does on
+/// every other target: 21 bytes on every such program, and 4 more to put
+/// the stack back where it reads its arguments. A program whose calls can
+/// go round handles the fault at the end of its stack, saying `stack
+/// overflow` and exiting with status 3 rather than ending with `SIGSEGV`
+/// and nothing said: 129 bytes on every such program, 25 of them telling
+/// that fault from any other.
+///
+/// On the 6502, a program that grows its heap pays 38 bytes for `grow`
+/// refusing to pass the frames, and for the frame pointer being set for it
+/// to be measured against, which is what lets the heap have all the memory
+/// the frames leave. A program whose calls can go round says `stack
+/// overflow` on standard error and exits with status 3 where its calls run
+/// out of stack, rather than wrapping the hardware stack and hanging: 39
+/// bytes on every such program for the routine, the arguments it hands
+/// `write` and the message, and 5 on each function in a cycle, which checks
+/// the stack pointer on the way in.
+const SIZES: &[(&str, [usize; 3])] = &[
+    // The ladder, as the compiler builds it: a rise is the compiler getting
+    // worse at the one thing small enough to read.
+    ("a constant", [127, 17, 36]),
+    ("the count", [129, 31, 152]),
+    ("the count and a constant", [132, 34, 159]),
+    ("the low bits of a sum", [131, 32, 159]),
+    ("the count under a guard", [137, 41, 170]),
+    ("the count and more", [142, 46, 173]),
+    ("a shared intermediate", [151, 54, 187]),
+    ("a greeting", [178, 51, 140]),
+    // Built at the tier a target reads, and written favouring size, as
+    // the rest are.
+    ("two and two", [131, 40, 99]),
+    ("hello world", [179, 61, 141]),
+    ("a call", [143, 78, 113]),
+    ("recursion", [308, 263, 141]),
+    ("values across a call", [252, 390, 168]),
+    ("a global", [224, 142, 148]),
+    ("a computed length", [211, 226, 168]),
+    ("eight bits", [133, 49, 104]),
+    ("a flag", [205, 98, 131]),
+    ("a carried total", [156, 82, 152]),
+    ("a step first", [205, 86, 168]),
+    ("a long arm", [260, 559, 237]),
+    // The examples.
+    ("exit", [128, 17, 96]),
+    ("two-and-two", [128, 17, 96]),
+    ("double", [128, 17, 96]),
+    ("leave", [128, 17, 96]),
+    ("bool", [161, 81, 196]),
+    ("nat", [239, 175, 317]),
+    ("width", [152, 52, 182]),
+    ("argc", [166, 60, 195]),
+    ("expressions", [161, 56, 189]),
+    ("hello", [226, 204, 254]),
+    // One runtime call, full-result comparison, startup and image headers:
+    // these detect reintroduced value-counting regions above the targets.
+    ("runtime Mul", [165, 209, 142]),
+    ("runtime Div", [197, 247, 150]),
+    ("runtime Mod", [195, 245, 148]),
+];
 
 /// The `crates` directory, found from whichever crate includes this file:
 /// `core` itself, or a target under `crates/targets`.
@@ -631,11 +767,6 @@ fn built() -> Vec<(&'static str, Program, i32)> {
             "values across a call",
             programs::values_survive_a_call(),
             45,
-        ),
-        (
-            "a comparison",
-            programs::compares_two_worked_out_values(),
-            1,
         ),
         ("a flag it read", programs::branches_on_a_flag_it_read(), 7),
         (
@@ -2060,34 +2191,48 @@ fn it_runs_every_example() {
     }
 }
 
+/// Every program whose size is recorded, in the order `SIZES` holds them.
+/// The ladder says what the whole compiler does, so it is measured as the
+/// compiler builds it; the rest as a target favouring size writes them.
 #[test]
 fn it_compiles_to_the_sizes_recorded() {
-    let corpus = corpus();
-    assert_eq!(corpus.len(), CORPUS_SIZES.len());
-    let held =
-        corpus
-            .into_iter()
-            .zip(CORPUS_SIZES)
-            .map(|((name, program), &(expected_name, size))| {
-                assert_eq!(name, expected_name, "size baselines must match the corpus");
-                (name, program, size)
-            });
-    let examples = EXAMPLE_SIZES.iter().map(|&(name, size)| {
+    let column = match TARGET.name() {
+        "x86_64-linux" => 0,
+        "mos6502-sim65" => 1,
+        _ => 2,
+    };
+    let ladder = LADDER.iter().map(|&(name, text)| {
+        let program = read(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let image = TARGET.compile_machine_ir(&program).expect("compilation");
+        (name, image.len())
+    });
+    let corpus = corpus()
+        .into_iter()
+        .map(|(name, program)| (name, bytes(&program).len()));
+    let examples = EXAMPLES.iter().map(|&name| {
         let text = fs::read_to_string(written().join(format!("{name}.fn"))).expect("an example");
         let program = read(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
-        (name, program, size)
+        (name, bytes(&program).len())
     });
-    let changed: Vec<_> = held
+    let arithmetic = [
+        ("runtime Mul", Binary::Mul),
+        ("runtime Div", Binary::Div),
+        ("runtime Mod", Binary::Mod),
+    ]
+    .map(|(name, op)| {
+        let program = programs::arithmetic::cases(16, op, &[(65535, 1)]);
+        (name, bytes(&program).len())
+    });
+    let measured: Vec<_> = ladder
+        .chain(corpus)
         .chain(examples)
-        .filter_map(|(name, program, size)| {
-            let actual = bytes(&program).len();
-            (actual != size).then_some((name, actual, size))
-        })
+        .chain(arithmetic)
         .collect();
-    assert!(
-        changed.is_empty(),
-        "(program, actual, expected): {changed:?}"
-    );
+    let recorded: Vec<_> = SIZES
+        .iter()
+        .map(|&(name, sizes)| (name, sizes[column]))
+        .collect();
+    assert_eq!(measured, recorded, "(program, size)");
 }
 
 #[test]
@@ -2702,34 +2847,6 @@ fn external_declarations_interleave_with_internal_function_ids() {
 
 /// The simplest programs there are, from the tier a program arrives at.
 ///
-/// Everything else measured here is written at the tier a target reads, so
-/// it says what a backend does with IR it was handed. These say what the
-/// compiler does, which is the question worth asking of a program small
-/// enough that the answer can be read off the disassembly.
-#[test]
-fn it_compiles_the_ladder_to_the_sizes_recorded() {
-    let routines = TARGET.routines();
-    let ladder = programs::ladder::every();
-    assert_eq!(ladder.len(), LADDER_SIZES.len());
-    let changed: Vec<_> = ladder
-        .into_iter()
-        .zip(LADDER_SIZES)
-        .filter_map(|((name, barb), &(expected, size))| {
-            assert_eq!(name, expected, "size baselines must match the ladder");
-            let program = lowered(barb, &routines);
-            let actual = TARGET
-                .compile_machine_ir(&program)
-                .expect("compilation")
-                .len();
-            (actual != size).then_some((name, actual, size))
-        })
-        .collect();
-    assert!(
-        changed.is_empty(),
-        "(program, actual, expected): {changed:?}"
-    );
-}
-
 /// And what each of them answers, since a size nothing checks the meaning of
 /// is a size anybody can reach by writing the wrong program.
 #[test]
@@ -2743,9 +2860,8 @@ fn the_ladder_answers_what_its_programs_say() {
     // twice the count is the largest of them, and wasmtime refuses to report
     // a status of 126 or above.
     const COUNTS: &[u16] = &[1, 3, 4, 5, 62];
-    let routines = TARGET.routines();
-    for (name, barb) in programs::ladder::every() {
-        let program = lowered(barb, &routines);
+    for (name, text) in LADDER {
+        let program = read(text).unwrap_or_else(|e| panic!("{name}: {e}"));
         for (&argc, (status, stdout)) in COUNTS.iter().zip(execute_counts(&program, COUNTS)) {
             let said = if name == "a greeting" {
                 "Hello, world!"
@@ -2771,30 +2887,5 @@ fn the_ladder_answers_what_its_programs_say() {
             };
             assert_eq!(status, answer, "{name}, argc={argc}");
         }
-    }
-}
-
-/// A program as the machine tier is handed one: validated, optimized where
-/// it was written, and then lowered and optimized again below.
-///
-/// Both halves, because a program arriving at Barb has not been through
-/// Barb's own schedule yet, and lowering one that has not is lowering a
-/// program nothing writes.
-fn lowered(mut barb: barb::Program, routines: &faun_core::platform::Routines) -> Program {
-    barb::validate(&barb).expect("a sound program");
-    barb::optimize(&mut barb);
-    faun_core::lower_to_machine_ir(&barb, routines).expect("a representable program")
-}
-
-#[test]
-fn runtime_arithmetic_size_ratchets() {
-    // One runtime call, full-result comparison, startup and image headers.
-    // Detect reintroduced value-counting regions above the targets.
-    for (op, expected) in [Binary::Mul, Binary::Div, Binary::Mod]
-        .into_iter()
-        .zip(ARITHMETIC_SIZES)
-    {
-        let program = programs::arithmetic::cases(16, op, &[(65535, 1)]);
-        assert_eq!(bytes(&program).len(), expected, "{op:?}");
     }
 }

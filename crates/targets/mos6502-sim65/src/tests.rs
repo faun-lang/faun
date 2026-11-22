@@ -1,4 +1,4 @@
-//! Target-specific limits and size baselines; conformance cases are shared.
+//! Target-specific limits; conformance cases and size baselines are shared.
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -17,67 +17,6 @@ mod shared;
 
 const TARGET: Mos6502Sim65 = Mos6502Sim65;
 const RUNNER: Option<&str> = Some("sim65");
-
-// Lower baselines when emission improves; explain any increase.
-//
-// An exit status is a `U8`, so an example whose status is worked out from a
-// `Nat` takes it modulo 256; where the arm that bounds it is not seen to,
-// that is real work.
-/// The ladder of simplest programs, from Barb. Lower these when the
-/// compiler improves; a rise is the compiler getting worse at the one
-/// thing small enough to read.
-const LADDER_SIZES: &[(&str, usize)] = &[
-    ("a constant", 17),
-    ("the count", 31),
-    ("the count and a constant", 34),
-    ("the low bits of a sum", 32),
-    ("the count under a guard", 41),
-    ("the count and more", 46),
-    ("a shared intermediate", 51),
-    ("a greeting", 51),
-];
-// A program that grows its heap pays 38 bytes for `grow` refusing to pass
-// the frames, and for the frame pointer being set for it to be measured
-// against, which is what lets the heap have all the memory the frames leave.
-// A program whose calls can go round says `stack overflow` on standard error
-// and exits with status 3 where its calls run out of stack, rather than
-// wrapping the hardware stack and hanging: 39 bytes on every such program
-// for the routine, the arguments it hands `write` and the message, and 5
-// on each function in a cycle, which checks the stack pointer on the way in.
-const CORPUS_SIZES: &[(&str, usize)] = &[
-    ("exit zero", 17),
-    ("two and two", 40),
-    ("hello world", 61),
-    ("a call", 78),
-    ("recursion", 263),
-    ("values across a call", 390),
-    ("the heap", 194),
-    ("a byte", 251),
-    ("a global", 142),
-    ("writing the heap", 213),
-    ("a computed length", 226),
-    ("eight bits", 49),
-    ("less", 53),
-    ("two worked out", 83),
-    ("a flag", 98),
-    ("a countdown", 86),
-    ("a carried total", 82),
-    ("a step first", 86),
-    ("a long arm", 559),
-];
-const EXAMPLE_SIZES: &[(&str, usize)] = &[
-    ("exit", 17),
-    ("two-and-two", 17),
-    ("double", 17),
-    ("leave", 17),
-    ("bool", 81),
-    ("nat", 175),
-    ("width", 52),
-    ("argc", 60),
-    ("expressions", 56),
-    ("hello", 204),
-];
-const ARITHMETIC_SIZES: [usize; 3] = [209, 247, 245];
 
 fn code(program: &Program) -> Vec<u8> {
     TARGET

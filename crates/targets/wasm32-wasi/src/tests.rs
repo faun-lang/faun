@@ -1,4 +1,4 @@
-//! Target-specific limits and size baselines; conformance cases are shared.
+//! Target-specific limits; conformance cases and size baselines are shared.
 use faun_core::programs;
 use faun_core::targets::Target;
 
@@ -14,59 +14,6 @@ mod shared;
 
 const TARGET: Wasm32Wasi = Wasm32Wasi;
 const RUNNER: Option<&str> = Some("wasmtime");
-
-// Lower baselines when emission improves; explain any increase.
-//
-// An exit status is a `U8`, so an example whose status is worked out from a
-// `Nat` takes it modulo 256; where the arm that bounds it is not seen to,
-// that is real work.
-/// The ladder of simplest programs, from Barb. Lower these when the
-/// compiler improves; a rise is the compiler getting worse at the one
-/// thing small enough to read.
-const LADDER_SIZES: &[(&str, usize)] = &[
-    ("a constant", 36),
-    ("the count", 152),
-    ("the count and a constant", 159),
-    ("the low bits of a sum", 159),
-    ("the count under a guard", 170),
-    ("the count and more", 173),
-    ("a shared intermediate", 176),
-    ("a greeting", 140),
-];
-const CORPUS_SIZES: &[(&str, usize)] = &[
-    ("exit zero", 36),
-    ("two and two", 99),
-    ("hello world", 141),
-    ("a call", 113),
-    ("recursion", 141),
-    ("values across a call", 168),
-    ("the heap", 131),
-    ("a byte", 150),
-    ("a global", 148),
-    ("writing the heap", 161),
-    ("a computed length", 168),
-    ("eight bits", 104),
-    ("less", 99),
-    ("two worked out", 113),
-    ("a flag", 131),
-    ("a countdown", 165),
-    ("a carried total", 152),
-    ("a step first", 168),
-    ("a long arm", 237),
-];
-const EXAMPLE_SIZES: &[(&str, usize)] = &[
-    ("exit", 96),
-    ("two-and-two", 96),
-    ("double", 96),
-    ("leave", 96),
-    ("bool", 196),
-    ("nat", 317),
-    ("width", 182),
-    ("argc", 195),
-    ("expressions", 189),
-    ("hello", 254),
-];
-const ARITHMETIC_SIZES: [usize; 3] = [142, 150, 148];
 
 #[test]
 fn it_holds_what_a_program_holds() {
