@@ -1,0 +1,12 @@
+import std.host {Host}
+
+Dir : [North, South]
+
+parse_cmd : Str -> Result((Dir, Nat), [Bad, *])
+parse_cmd(text) -> if text == "N" then Ok((North, 1)) else Err(Bad)
+
+parse : List(U8) -> Result(List((Dir, Nat)), [Bad])
+parse(bytes) -> bytes.try_map(parse_cmd)
+
+main! : Host -> []
+main!(host) -> host.exit!(0)

@@ -5,6 +5,9 @@ error: mismatched types
    | ------------------------- function defined here
 ...
 14 | main!(host) -> host.exit!(U8.of_nat(x_of(Point.of(1, 2))))
-   |                                     ---- ^^^^^^^^^^^^^^ expected `{x: Nat, *}`, found `Point`
+   |                                     ---- ^^^^^^^^^^^^^^ expected one type, found another
    |                                     |
    |                                     arguments to this function are incorrect
+   |
+   = note: expected `{x: Nat, *}`
+              found `Point`

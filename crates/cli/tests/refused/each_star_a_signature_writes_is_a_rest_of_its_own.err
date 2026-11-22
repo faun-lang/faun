@@ -4,7 +4,9 @@ error: mismatched types
 3 | ranked : List({x: Nat, *}) -> List({x: Nat, *})
   |                               ----------------- expected `List({x: Nat, *1})` because of return type
 4 | ranked(items) -> items.sort_on(|r| r.x)
-  |                  ^^^^^^^^^^^^^^^^^^^^^^ expected `List({x: Nat, *1})`, found `List({x: Nat, *2})`
+  |                  ^^^^^^^^^^^^^^^^^^^^^^ expected one type, found another
   |
+  = note: expected `List({x: Nat, *1})`
+             found `List({x: Nat, *2})`
   = note: each `*` a signature writes is a rest of its own, which its caller chooses, so a row with one `*` is not a row with another
   = help: to answer a record with the rest it was given, write the answer's type as `_`

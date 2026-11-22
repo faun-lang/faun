@@ -1,0 +1,7 @@
+import std.host {Host}
+
+halves : List(Nat) -> List(List(Nat))
+halves(values) -> values.reverse().blocks().complete
+
+main! : Host -> []
+main!(host) -> host.exit!(0)

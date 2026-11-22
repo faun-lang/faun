@@ -11,11 +11,12 @@ use super::joins::never;
 use super::unify::{Scheme, Ty, free_variables, replaced, show, show_apart, ty_embeds};
 use super::{
     Asked, Bound, Checker, Finish, Marks, MethodImpl, Misfit, PendingMethod, PendingNumeral,
-    PendingTag, Places, Reach, Reading, apply_signature, failure,
+    PendingTag, Places, Reach, Reading, apply_signature, extra_arguments, failure,
+    missing_arguments,
 };
 use crate::blessed::{self, NumeralType};
 use crate::declarations as n;
-use crate::diagnostic::{Advised, Refusal, counted};
+use crate::diagnostic::{Advised, Refusal, counted, given};
 use crate::hir as h;
 use crate::{ModuleId, Symbol};
 
@@ -947,7 +948,7 @@ impl Checker<'_> {
                 let (wanted, built) =
                     show_apart(&wanted, &checker.infer.resolve(built), checker.symbols);
                 failure(pending.module, pending.span, "mismatched types")
-                    .label(format!("expected `{wanted}`, found `{built}`"))
+                    .expected_found(wanted, built.clone())
                     .note(format!(
                         "`{}` builds `{built}`",
                         checker.symbols.text(pending.dual.spelling)
@@ -1783,6 +1784,11 @@ impl Checker<'_> {
         let (at, wanted, given) = match misfit {
             Misfit::Said(message) => return failure(module, pending.span, message),
             Misfit::Argument { at, wanted, given } => (at, wanted, given),
+            Misfit::Count {
+                taken,
+                missing,
+                extra,
+            } => return self.miscounted_method(pending, taken, &missing, &extra),
         };
         let written = pending.places.as_ref().and_then(|places| {
             let argument = *places.arguments.get(at.checked_sub(1)?)?;
@@ -1801,8 +1807,8 @@ impl Checker<'_> {
                 format!("{which} of `{name}` should be `{wanted}`, but is `{given}`"),
             );
         };
-        let refused = failure(module, argument, "mismatched types")
-            .label(format!("expected `{wanted}`, found `{given}`"));
+        let refused =
+            failure(module, argument, "mismatched types").expected_found(wanted.clone(), given);
         let Some(member) = places.member else {
             let receiver = show(&self.infer.resolve(&pending.receiver), self.symbols);
             return if receiver == wanted {
@@ -1820,6 +1826,56 @@ impl Checker<'_> {
             Some(&(at, span)) => refused.also(at, span, "method defined here"),
             None => refused,
         }
+    }
+
+    /// A method call handed more or fewer arguments than its method takes,
+    /// `taken`: pointed at as rustc does, at the method's name, with the
+    /// argument list that misses some or each argument too many.
+    fn miscounted_method(
+        &self,
+        pending: &PendingMethod,
+        taken: usize,
+        missing: &[String],
+        extra: &[String],
+    ) -> Refusal {
+        let module = pending.module;
+        let name = self.symbols.text(pending.name);
+        let message = format!(
+            "`{name}` takes {}, but {} given",
+            counted(taken, "argument"),
+            given(pending.arguments.len())
+        );
+        let written = pending
+            .places
+            .as_ref()
+            .and_then(|places| Some((places, places.member?)));
+        let Some((places, member)) = written else {
+            let refused = failure(module, pending.span, message);
+            if missing.is_empty() {
+                return refused.help(if extra.len() == 1 {
+                    "remove the extra argument"
+                } else {
+                    "remove the extra arguments"
+                });
+            }
+            let handed = (name, pending.arguments.len());
+            return missing_arguments(refused, module, None, handed, missing);
+        };
+        let refused = failure(module, member, message);
+        if missing.is_empty() {
+            let extra: Vec<_> = places.arguments[taken..]
+                .iter()
+                .copied()
+                .zip(extra.iter().cloned())
+                .collect();
+            return extra_arguments(refused, module, &extra);
+        }
+        let parenthesized = crate::ast::Span {
+            start: member.end,
+            end: pending.span.end,
+        };
+        let handed = (name, pending.arguments.len());
+        missing_arguments(refused, module, Some(parenthesized), handed, missing)
     }
 
     fn apply_method(

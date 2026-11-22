@@ -4,6 +4,8 @@ error: mismatched types
 3 | main! : Host -> []
   |                 -- expected `[]` because of return type
 4 | main!(host) -> host.println!("hi")
-  |                ^^^^^^^^^^^^^^^^^^^ expected `[]`, found `Result({}, [BrokenPipe, NoSpace, Other(Nat), *])`
+  |                ^^^^^^^^^^^^^^^^^^^ expected one type, found another
   |
+  = note: expected `[]`
+             found `Result({}, [BrokenPipe, NoSpace, Other(Nat), *])`
   = help: end it with a call that never answers, as `host.exit!(0)`
