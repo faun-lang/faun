@@ -27,6 +27,15 @@ pub(super) struct Rule<C, E, S, T> {
     pub(super) apply: fn(&mut C, &mut E, &S) -> Option<Step<S, T>>,
 }
 
+impl<C, E, S, T> Rule<C, E, S, T> {
+    pub(super) const fn new(
+        on: fn(&C) -> bool,
+        apply: fn(&mut C, &mut E, &S) -> Option<Step<S, T>>,
+    ) -> Self {
+        Self { on, apply }
+    }
+}
+
 /// What a rule made of a site.
 pub(super) enum Step<S, T> {
     /// An answer no rule is asked about again.

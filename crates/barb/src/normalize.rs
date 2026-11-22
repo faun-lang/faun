@@ -41,6 +41,7 @@ mod semantic;
 
 use rustc_hash::FxHashMap as HashMap;
 
+use super::Operation::{Add, And, Div, Equals, LessThan, Mod, Monus, Mul, Or, Pow, Xor};
 use super::budget::{Budget, FoldLimits};
 use super::constant::Held;
 use super::evaluate::{CannotFold, Evaluation, Evaluator};
@@ -336,7 +337,6 @@ type CallRule<'a> = Rule<Rewrite<'a>, Scope, Called, Atom>;
 /// What a call may be instead, asked in this order: evaluated, decided by
 /// an identity, inlined, answered by an earlier call, then combined with
 /// the constants around it.
-#[expect(clippy::too_many_lines, reason = "one entry per rule, in order")]
 fn call_rules<'a>() -> [CallRule<'a>; 10] {
     const fn always(_: &Rewrite<'_>) -> bool {
         true
@@ -348,73 +348,16 @@ fn call_rules<'a>() -> [CallRule<'a>; 10] {
         rewrite.rules.algebra
     }
     [
-        Rule {
-            on: always,
-            apply: |rewrite, scope, Called(called, args)| {
-                rewrite
-                    .evaluated(args, scope, |evaluator, args, budget| {
-                        evaluator.call(*called, args, budget)
-                    })
-                    .map(Done)
-            },
-        },
-        Rule {
-            on: always,
-            apply: |rewrite, scope, Called(called, args)| {
-                rewrite.counted(*called, args, scope).map(Done)
-            },
-        },
-        Rule {
-            on: identities,
-            apply: |rewrite, _, Called(called, args)| {
-                rewrite.float_double(*called, args).map(Again)
-            },
-        },
-        Rule {
-            on: identities,
-            apply: |rewrite, _, Called(called, args)| rewrite.one_less(*called, args).map(Done),
-        },
-        Rule {
-            on: identities,
-            apply: |rewrite, scope, Called(called, args)| {
-                rewrite.identity(*called, args, scope).map(Done)
-            },
-        },
-        Rule {
-            on: always,
-            apply: |rewrite, scope, Called(called, args)| {
-                let body = rewrite.callee(*called)?;
-                rewrite.inline_depth += 1;
-                let answer = rewrite.into(body, args.clone(), scope);
-                rewrite.inline_depth -= 1;
-                Some(Done(answer))
-            },
-        },
-        Rule {
-            on: always,
-            apply: |rewrite, scope, Called(called, args)| {
-                let call = rewrite.sharing(*called, args)?;
-                rewrite.shared(&call, scope).map(Done)
-            },
-        },
-        Rule {
-            on: algebra,
-            apply: |rewrite, scope, Called(called, args)| {
-                rewrite.chained(*called, args, scope).map(Again)
-            },
-        },
-        Rule {
-            on: algebra,
-            apply: |rewrite, scope, Called(called, args)| {
-                rewrite.associated(*called, args, scope).map(Again)
-            },
-        },
-        Rule {
-            on: algebra,
-            apply: |rewrite, scope, Called(called, args)| {
-                rewrite.reduced(*called, args, scope).map(Again)
-            },
-        },
+        Rule::new(always, Rewrite::evaluated_call),
+        Rule::new(always, Rewrite::counted),
+        Rule::new(identities, Rewrite::float_double),
+        Rule::new(identities, Rewrite::one_less),
+        Rule::new(identities, Rewrite::identity),
+        Rule::new(always, Rewrite::inlined),
+        Rule::new(always, Rewrite::shared_call),
+        Rule::new(algebra, Rewrite::chained),
+        Rule::new(algebra, Rewrite::associated),
+        Rule::new(algebra, Rewrite::reduced),
     ]
 }
 
@@ -533,6 +476,15 @@ struct Rest(Body, usize, Vec<Atom>);
 
 /// A call site: what is called, and with what.
 pub(super) struct Called(FnId, Vec<Atom>);
+
+impl Called {
+    fn parts(&self) -> (FnId, &[Atom]) {
+        (self.0, &self.1)
+    }
+}
+
+/// What a rule makes of a call.
+type Step = rules::Step<Called, Atom>;
 
 /// A call as [`Rewrite::shared`] compares it: the definition, and each
 /// operand as the local it is or, where it is known, the value.
@@ -973,6 +925,31 @@ impl Rewrite<'_> {
         self.shaped(self.program.expr(body.tail), base, shape)
     }
 
+    /// A call answered by an earlier one the same, still in scope.
+    fn shared_call(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        self.shared(&self.sharing(called, args)?, scope).map(Done)
+    }
+
+    /// A call whose every input is known, as the value it comes to.
+    fn evaluated_call(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        self.evaluated(args, scope, |evaluator, args, budget| {
+            evaluator.call(called, args, budget)
+        })
+        .map(Done)
+    }
+
+    /// A call of a definition the walk inlines, as its body.
+    fn inlined(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        let body = self.callee(called)?;
+        self.inline_depth += 1;
+        let answer = self.into(body, args.to_vec(), scope);
+        self.inline_depth -= 1;
+        Some(Done(answer))
+    }
+
     /// A call, as the first of [`call_rules`] to fire rewrites it, the rules
     /// asked again of each call a rule rewrites it to, or else written as
     /// it stands.
@@ -1091,7 +1068,7 @@ impl Rewrite<'_> {
         let Some((less, a, b)) = self.asked(on) else {
             return tags;
         };
-        let Operation::LessThan {
+        let LessThan {
             yes: lt_yes,
             no: lt_no,
         } = less
@@ -1139,7 +1116,7 @@ impl Rewrite<'_> {
         let &Tags::Same(asked) = tree else {
             return None;
         };
-        let (Operation::Equals { yes, no }, x, y) = self.asked(asked)? else {
+        let (Equals { yes, no }, x, y) = self.asked(asked)? else {
             return None;
         };
         ((x, y) == (a, b) || (x, y) == (b, a)).then_some((asked, yes, no))
@@ -1242,15 +1219,14 @@ impl Rewrite<'_> {
 
     /// The length of a sequence written as a known value, which is a number
     /// known too.
-    fn counted(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Atom> {
-        if self.recognised.sequences[called.index()] != Some(SequenceOperation::Length) {
-            return None;
-        }
-        let &[sequence] = args else {
+    fn counted(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        let (Some(SequenceOperation::Length), &[sequence]) =
+            (self.recognised.sequences[called.index()], args)
+        else {
             return None;
         };
-        let wrote = (*self.written.get(sequence.0.index())?)?;
-        let Expr::Static(value) = self.program.expr(wrote) else {
+        let Expr::Static(value) = self.written_as(sequence)? else {
             return None;
         };
         let value = super::single_field_constant(self.program, self.program.constant(value));
@@ -1258,9 +1234,7 @@ impl Rewrite<'_> {
             return None;
         };
         let length = u64::try_from(spine.length()).ok()?;
-        let result = self.program.function(called).result;
-        let length = self.program.intern_number(result, length).ok()?;
-        Some(self.push(Expr::Static(length), scope))
+        self.number_of(called, length, scope).map(Done)
     }
 
     /// A known value's constructor, and each of its fields as a known value
@@ -1432,48 +1406,30 @@ impl Rewrite<'_> {
     /// operands are the same local or known to be nought or one: that
     /// operand, nought, or the comparison's answer. Its argument bindings
     /// stay where they are, so nothing they evaluate is dropped.
-    fn identity(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Atom> {
+    fn identity(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
         if let Some(op) = self.recognised.sequences[called.index()] {
-            return self.sequence_identity(op, called, args, scope);
+            return self.sequence_identity(op, called, args, scope).map(Done);
         }
-        let op = self.recognised.operations[called.index()]?;
-        let &[a, b] = args else {
+        let (op, &[a, b]) = (self.op(called)?, args) else {
             return None;
         };
         let (x, y) = (self.small(a), self.small(b));
-        let zero = |rewrite: &mut Self, scope: &mut Scope| {
-            let result = rewrite.program.function(called).result;
-            let zero = rewrite
-                .program
-                .intern_number(result, 0)
-                .expect("a recognized natural result");
-            rewrite.push(Expr::Static(zero), scope)
-        };
-        Some(match op {
-            Operation::Add | Operation::Or | Operation::Xor if x == Some(0) => b,
-            Operation::Add | Operation::Monus | Operation::Mod | Operation::Or | Operation::Xor
-                if y == Some(0) =>
-            {
-                a
-            }
-            Operation::Mul if x == Some(1) => b,
-            Operation::Mul | Operation::Div | Operation::Pow if y == Some(1) => a,
-            Operation::And | Operation::Or if a == b => a,
-            Operation::Monus if x == Some(0) => zero(self, scope),
-            Operation::Monus | Operation::Xor if a == b => zero(self, scope),
-            Operation::Mul | Operation::Div | Operation::And if x == Some(0) || y == Some(0) => {
-                zero(self, scope)
-            }
-            Operation::Mod if x == Some(0) || y == Some(1) || a == b => zero(self, scope),
-            Operation::Equals { yes, .. } if a == b => {
-                self.push(Expr::Con(yes, Range::default()), scope)
-            }
-            Operation::LessThan { no, .. } if a == b => {
-                self.push(Expr::Con(no, Range::default()), scope)
-            }
+        Some(Done(match op {
+            Add | Or | Xor if x == Some(0) => b,
+            Add | Monus | Mod | Or | Xor if y == Some(0) => a,
+            Mul if x == Some(1) => b,
+            Mul | Div | Pow if y == Some(1) => a,
+            And | Or if a == b => a,
+            Monus if x == Some(0) => self.number_of(called, 0, scope)?,
+            Monus | Xor if a == b => self.number_of(called, 0, scope)?,
+            Mul | Div | And if x == Some(0) || y == Some(0) => self.number_of(called, 0, scope)?,
+            Mod if x == Some(0) || y == Some(1) || a == b => self.number_of(called, 0, scope)?,
+            Equals { yes, .. } if a == b => self.nullary(yes, scope),
+            LessThan { no, .. } if a == b => self.nullary(no, scope),
             // In particular x/x is NOT one: x can be zero.
             _ => return None,
-        })
+        }))
     }
 
     /// A recognized sequence operation an empty operand decides, or a count
@@ -1486,26 +1442,16 @@ impl Rewrite<'_> {
         args: &[Atom],
         scope: &mut Scope,
     ) -> Option<Atom> {
+        use SequenceOperation::{Drop, Length, Prepend, Replace, ReverseOnto, Take};
         let params = self.program.params(called).to_vec();
         let empty = |at: usize| self.empty(args[at], params[at]);
         Some(match op {
-            SequenceOperation::ReverseOnto | SequenceOperation::Prepend if empty(0) => args[1],
-            SequenceOperation::Prepend if empty(1) => args[0],
-            SequenceOperation::ReverseOnto => return self.short_reverse(called, args, scope),
-            SequenceOperation::Drop if self.small(args[1]) == Some(0) => args[0],
-            SequenceOperation::Drop | SequenceOperation::Take | SequenceOperation::Replace
-                if empty(0) =>
-            {
-                args[0]
-            }
-            SequenceOperation::Length if empty(0) => {
-                let result = self.program.function(called).result;
-                let zero = self
-                    .program
-                    .intern_number(result, 0)
-                    .expect("a length is a natural");
-                self.push(Expr::Static(zero), scope)
-            }
+            ReverseOnto | Prepend if empty(0) => args[1],
+            Prepend if empty(1) => args[0],
+            ReverseOnto => return self.short_reverse(called, args, scope),
+            Drop if self.small(args[1]) == Some(0) => args[0],
+            Drop | Take | Replace if empty(0) => args[0],
+            Length if empty(0) => self.number_of(called, 0, scope)?,
             _ => return None,
         })
     }
@@ -1517,13 +1463,10 @@ impl Rewrite<'_> {
         let Some((nil, _, _)) = super::sequence::sequence(self.program, ty) else {
             return false;
         };
-        let Some(Some(wrote)) = self.written.get(atom.0.index()) else {
-            return false;
-        };
-        match self.program.expr(*wrote) {
-            Expr::Con(ctor, _) => ctor == nil,
-            Expr::Static(value) => self.program.constant(value).constructor() == nil,
-            Expr::Atom(_) | Expr::Call(..) | Expr::Match(..) => false,
+        match self.written_as(atom) {
+            Some(Expr::Con(ctor, _)) => ctor == nil,
+            Some(Expr::Static(value)) => self.program.constant(value).constructor() == nil,
+            _ => false,
         }
     }
 
@@ -1531,50 +1474,43 @@ impl Rewrite<'_> {
     /// the type `called` answers: what an arm taking the natural apart into
     /// its step took, nothing worked out, as where the arm's field is read
     /// instead.
-    fn one_less(&self, called: FnId, args: &[Atom]) -> Option<Atom> {
-        let &[atom, by] = args else {
+    fn one_less(&mut self, _: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        let (Monus, &[atom, by]) = (self.op(called)?, args) else {
             return None;
         };
-        if self.recognised.operations[called.index()] != Some(Operation::Monus)
-            || self.small(by) != Some(1)
-        {
-            return None;
-        }
-        let wrote = (*self.written.get(atom.0.index())?)?;
-        let Expr::Con(ctor, fields) = self.program.expr(wrote) else {
+        let Expr::Con(ctor, fields) = self
+            .written_as(atom)
+            .filter(|_| self.small(by) == Some(1))?
+        else {
             return None;
         };
         let owner = self.program.ctor(ctor).owner;
         let (_, step) = super::arithmetic::natural(self.program, owner)?;
         (ctor == step && self.program.function(called).result == owner)
-            .then(|| self.program.atoms(fields)[0])
+            .then(|| Done(self.program.atoms(fields)[0]))
     }
 
     /// Whether a local is a natural known to be nought or one: written as
     /// that number, or as nought or the step of nought.
     fn small(&self, atom: Atom) -> Option<u8> {
-        let wrote = (*self.written.get(atom.0.index())?)?;
-        match self.program.expr(wrote) {
+        match self.written_as(atom)? {
             Expr::Static(value) => {
                 let super::ConstantView::Natural(number) = self.program.constant(value).view()
                 else {
                     return None;
                 };
-                match number.try_u64() {
-                    Ok(0) => Some(0),
-                    Ok(1) => Some(1),
-                    _ => None,
-                }
+                u8::try_from(number.try_u64().ok()?)
+                    .ok()
+                    .filter(|&n| n <= 1)
             }
             Expr::Con(ctor, fields) => {
-                let (nil, _) =
-                    super::arithmetic::natural(self.program, self.program.ctor(ctor).owner)?;
+                let owner = self.program.ctor(ctor).owner;
+                let (nil, _) = super::arithmetic::natural(self.program, owner)?;
                 if ctor == nil {
                     Some(0)
-                } else if self.small(self.program.atoms(fields)[0]) == Some(0) {
-                    Some(1)
                 } else {
-                    None
+                    (self.small(self.program.atoms(fields)[0]) == Some(0)).then_some(1)
                 }
             }
             Expr::Atom(_) | Expr::Call(..) | Expr::Match(..) => None,
@@ -1591,32 +1527,18 @@ impl Rewrite<'_> {
     /// (x monus a) monus b = x monus (a + b)
     /// (x / a) / b         = x / (a * b)
     /// ```
-    fn chained(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Called> {
-        let op @ (Operation::Monus | Operation::Div) = self.recognised.operations[called.index()]?
-        else {
+    fn chained(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        let (op @ (Monus | Div), &[inner, outer]) = (self.op(called)?, args) else {
             return None;
         };
-        let [inner, outer_constant] = *args else {
-            return None;
-        };
-        self.constant(scope, outer_constant)?;
-        let Expr::Call(inner_called, inner_args) = self.program.expr(scope.wrote(inner)?) else {
-            return None;
-        };
-        if self.recognised.operations[inner_called.index()] != Some(op) {
-            return None;
-        }
-        let [dynamic, inner_constant] = *self.program.atoms(inner_args) else {
-            return None;
-        };
-        self.constant(scope, inner_constant)?;
-        let combine = match op {
-            Operation::Monus => Operation::Add,
-            Operation::Div => Operation::Mul,
-            _ => unreachable!("a directional arithmetic chain"),
-        };
-        let combined = self.calculate(combine, called, inner_constant, outer_constant, scope)?;
-        Some(Called(called, vec![dynamic, combined]))
+        self.constant(scope, outer)?;
+        let (_, inner_op, [dynamic, inner_constant]) = self.op_call(scope, inner)?;
+        self.constant(scope, inner_constant)
+            .filter(|_| inner_op == op)?;
+        let combine = if op == Monus { Add } else { Mul };
+        let combined = self.calculate(combine, called, inner_constant, outer, scope)?;
+        Some(Again(Called(called, vec![dynamic, combined])))
     }
 
     /// Combine constants across one nested associative operation.
@@ -1626,46 +1548,23 @@ impl Rewrite<'_> {
     /// same pure, total operation; rewriting them neither drops nor reorders
     /// observable work. Constants are combined under the same bounded
     /// evaluator as ordinary folding.
-    fn associated(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Called> {
-        let op @ (Operation::Add | Operation::Mul) = self.recognised.operations[called.index()]?
-        else {
+    fn associated(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        let (op @ (Add | Mul), &[left, right]) = (self.op(called)?, args) else {
             return None;
         };
-        let [left, right] = *args else {
-            return None;
-        };
-        let (outer_constant, inner, swap) = match (
-            self.constant(scope, left).is_some(),
-            self.constant(scope, right).is_some(),
-        ) {
-            (true, false) => (left, right, true),
-            (false, true) => (right, left, false),
-            _ => return None,
-        };
+        let (inner, constant, swapped) = self.one_constant(scope, left, right)?;
         // Where nothing combines, a lone constant goes on the right.
-        let commuted = swap.then(|| Called(called, vec![inner, outer_constant]));
-        let Some(inner_expr) = scope.wrote(inner) else {
+        let commuted = swapped.then(|| Again(Called(called, vec![inner, constant])));
+        let Some((_, inner_op, [l, r])) = self.op_call(scope, inner) else {
             return commuted;
         };
-        let Expr::Call(inner_called, inner_args) = self.program.expr(inner_expr) else {
-            return commuted;
-        };
-        if self.recognised.operations[inner_called.index()] != Some(op) {
+        if inner_op != op {
             return commuted;
         }
-        let [inner_left, inner_right] = *self.program.atoms(inner_args) else {
-            return None;
-        };
-        let (dynamic, inner_constant) = match (
-            self.constant(scope, inner_left).is_some(),
-            self.constant(scope, inner_right).is_some(),
-        ) {
-            (true, false) => (inner_right, inner_left),
-            (false, true) => (inner_left, inner_right),
-            _ => return None,
-        };
-        let combined = self.calculate(op, called, outer_constant, inner_constant, scope)?;
-        Some(Called(called, vec![dynamic, combined]))
+        let (dynamic, inner_constant, _) = self.one_constant(scope, l, r)?;
+        let combined = self.calculate(op, called, constant, inner_constant, scope)?;
+        Some(Again(Called(called, vec![dynamic, combined])))
     }
 
     /// Evaluate two known operands under this pass's shared folding budget.
@@ -1798,14 +1697,7 @@ impl Rewrite<'_> {
             .collect();
         if matches!(
             self.recognised.operations[called.index()],
-            Some(
-                Operation::Add
-                    | Operation::Mul
-                    | Operation::And
-                    | Operation::Or
-                    | Operation::Xor
-                    | Operation::Equals { .. }
-            )
+            Some(Add | Mul | And | Or | Xor | Equals { .. })
         ) {
             operands.sort();
         }
@@ -1855,8 +1747,7 @@ impl Rewrite<'_> {
     /// The known value a local was written as, in this scope or one
     /// around it.
     fn known(&self, atom: Atom) -> Option<super::ConstId> {
-        let wrote = (*self.written.get(atom.0.index())?)?;
-        let Expr::Static(value) = self.program.expr(wrote) else {
+        let Expr::Static(value) = self.written_as(atom)? else {
             return None;
         };
         Some(value)
@@ -1887,64 +1778,40 @@ impl Rewrite<'_> {
     /// Only a power of two: any other modulus leaves three divisions where
     /// there was one. And not truncated subtraction, which stops at nought
     /// rather than carrying through, nor division or the remainder itself.
-    fn reduced(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Called> {
-        if self.recognised.operations[called.index()] != Some(Operation::Mod) {
-            return None;
-        }
-        let [held, modulus] = *args else {
+    fn reduced(&mut self, scope: &mut Scope, site: &Called) -> Option<Step> {
+        let (called, args) = site.parts();
+        let (Mod, &[held, modulus]) = (self.op(called)?, args) else {
             return None;
         };
-        if !self.power_of_two(scope, modulus) {
-            return None;
-        }
-        let Expr::Call(inner, held) = self.program.expr(scope.wrote(held)?) else {
-            return None;
-        };
-        if !matches!(
-            self.recognised.operations[inner.index()],
-            Some(Operation::Add | Operation::Mul)
-        ) {
-            return None;
-        }
-        let [left, right] = *self.program.atoms(held) else {
+        self.number(scope, modulus)
+            .filter(|m| m.is_power_of_two())?;
+        let (inner, Add | Mul, [left, right]) = self.op_call(scope, held)? else {
             return None;
         };
         // A side already within the modulus is left alone, and where both
         // are there is nothing to do: saying it twice says no more, and
         // this walk happens more than once.
-        let done = (
-            self.within(scope, left, modulus),
-            self.within(scope, right, modulus),
-        );
-        if done.0 && done.1 {
+        if self.within(scope, left, modulus) && self.within(scope, right, modulus) {
             return None;
         }
-        let low = self.reduce_side(called, left, modulus, done.0, scope);
+        let low = self.remainder(called, left, modulus, scope);
         // One side reduced once where both sides are the same side.
-        let right = if left == right {
+        let high = if left == right {
             low
         } else {
-            self.reduce_side(called, right, modulus, done.1, scope)
+            self.remainder(called, right, modulus, scope)
         };
-        let args = self.held(&[low, right]);
-        let sum = self.push(Expr::Call(inner, args), scope);
-        Some(Called(called, vec![sum, modulus]))
+        let sum = self.emit(inner, &[low, high], scope);
+        Some(Again(Called(called, vec![sum, modulus])))
     }
 
-    /// One side of it, reduced unless it already is.
-    fn reduce_side(
-        &mut self,
-        called: FnId,
-        side: Atom,
-        modulus: Atom,
-        done: bool,
-        scope: &mut Scope,
-    ) -> Atom {
-        if done {
-            return side;
+    /// `side` modulo `modulus`, unless it is already within it.
+    fn remainder(&mut self, called: FnId, side: Atom, modulus: Atom, scope: &mut Scope) -> Atom {
+        if self.within(scope, side, modulus) {
+            side
+        } else {
+            self.emit(called, &[side, modulus], scope)
         }
-        let args = self.held(&[side, modulus]);
-        self.push(Expr::Call(called, args), scope)
     }
 
     /// Whether a side of a sum is already every bit of itself the modulus
@@ -1958,44 +1825,73 @@ impl Rewrite<'_> {
     /// that cannot do anything, and what the tier below reads then is a
     /// number widened to the modulus and narrowed back.
     fn within(&self, scope: &Scope, atom: Atom, modulus: Atom) -> bool {
-        self.reduced_by(scope, atom, modulus) || self.under(scope, atom, modulus)
-    }
-
-    /// Whether a local was written as a remainder by this same modulus.
-    fn reduced_by(&self, scope: &Scope, atom: Atom, modulus: Atom) -> bool {
-        let Some(Expr::Call(called, args)) = scope.wrote(atom).map(|id| self.program.expr(id))
-        else {
-            return false;
-        };
-        self.recognised.operations[called.index()] == Some(Operation::Mod)
-            && self.program.atoms(args).last() == Some(&modulus)
-    }
-
-    /// Whether both locals are numbers known before the program runs, the
-    /// first under the second.
-    fn under(&self, scope: &Scope, atom: Atom, modulus: Atom) -> bool {
-        match (self.number(scope, atom), self.number(scope, modulus)) {
-            (Some(held), Some(limit)) => held < limit,
-            _ => false,
-        }
-    }
-
-    /// Whether a local was written as a power of two, known before the
-    /// program runs.
-    fn power_of_two(&self, scope: &Scope, atom: Atom) -> bool {
-        self.number(scope, atom).is_some_and(u64::is_power_of_two)
+        let reduced = matches!(self.op_call(scope, atom), Some((_, Mod, [_, m])) if m == modulus);
+        let under = (self.number(scope, atom))
+            .zip(self.number(scope, modulus))
+            .is_some_and(|(held, limit)| held < limit);
+        reduced || under
     }
 
     /// The number a local is, where it is one known before the program runs
     /// and small enough to work out with.
     fn number(&self, scope: &Scope, atom: Atom) -> Option<u64> {
-        let Some(Expr::Static(value)) = scope.wrote(atom).map(|id| self.program.expr(id)) else {
-            return None;
-        };
+        let value = self.constant(scope, atom)?;
         let super::ConstantView::Natural(number) = self.program.constant(value).view() else {
             return None;
         };
         number.try_u64().ok()
+    }
+
+    /// The recognised arithmetic operation `called` is.
+    fn op(&self, called: FnId) -> Option<Operation> {
+        self.recognised.operations[called.index()]
+    }
+
+    /// The recognised operation of two operands a local was written as a
+    /// call of, in this scope: what it called, the operation, the operands.
+    fn op_call(&self, scope: &Scope, atom: Atom) -> Option<(FnId, Operation, [Atom; 2])> {
+        let Expr::Call(called, args) = self.program.expr(scope.wrote(atom)?) else {
+            return None;
+        };
+        let &[a, b] = self.program.atoms(args) else {
+            return None;
+        };
+        Some((called, self.op(called)?, [a, b]))
+    }
+
+    /// Of two operands where exactly one was written as a constant in this
+    /// scope: the other, the constant, and whether the constant came first.
+    fn one_constant(&self, scope: &Scope, a: Atom, b: Atom) -> Option<(Atom, Atom, bool)> {
+        match (self.constant(scope, a), self.constant(scope, b)) {
+            (Some(_), None) => Some((b, a, true)),
+            (None, Some(_)) => Some((a, b, false)),
+            _ => None,
+        }
+    }
+
+    /// The number `n`, of the type `called` answers, written down.
+    fn number_of(&mut self, called: FnId, n: u64, scope: &mut Scope) -> Option<Atom> {
+        let result = self.program.function(called).result;
+        let number = self.program.intern_number(result, n).ok()?;
+        Some(self.push(Expr::Static(number), scope))
+    }
+
+    /// What wrote a local, in this scope or one around it, where a binding
+    /// did.
+    fn written_as(&self, atom: Atom) -> Option<Expr> {
+        let wrote = (*self.written.get(atom.0.index())?)?;
+        Some(self.program.expr(wrote))
+    }
+
+    /// A constructor of no fields, written down.
+    fn nullary(&mut self, ctor: super::CtorId, scope: &mut Scope) -> Atom {
+        self.push(Expr::Con(ctor, Range::default()), scope)
+    }
+
+    /// A call of `called` with `args`, written down.
+    fn emit(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Atom {
+        let args = self.held(args);
+        self.push(Expr::Call(called, args), scope)
     }
 
     fn held(&mut self, atoms: &[Atom]) -> Range {
