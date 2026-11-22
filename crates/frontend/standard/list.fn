@@ -166,6 +166,14 @@ List(a) : [Nil, Cons(a, List(a))].(
   put([_, *tail], 0, value) -> [value, *tail]
   put([head, *tail], Succ(index), value) -> [head, *put(tail, index, value)]
 
+  # The list with the element at `index` replaced by `change` applied to
+  # it; unchanged where there is none, as `put` leaves it and as
+  # `Map.update` leaves a missing key. The element is read with `get` and
+  # written back with `put`, so `values.update(i, |x| x + 1)` is the one
+  # step a caller would otherwise spell as both.
+  update : (List(a), Nat, a -> a) -> List(a)
+  update(values, index, change) -> updated(values, index, change, get(values, index))
+
   # `put`, where a miss is `Err(OutOfBounds)` rather than the list unchanged.
   set : (List(a), Nat, a) -> Result(List(a), [OutOfBounds])
   set(values, index, value) if index < len(values) -> Ok(put(values, index, value))
@@ -313,6 +321,12 @@ join_into([], joined, _, _) -> joined
 join_into([piece, *rest], joined, separator, True) -> join_into(rest, joined.concat(separator).concat(piece), separator, True)
 join_into([piece, *rest], _, separator, False) -> join_into(rest, piece, separator, True)
 
+# The read `update` already made, spent: a hit writes the changed element
+# back and a miss answers the list it was given.
+updated : (List(a), Nat, a -> a, Result(a, [OutOfBounds])) -> List(a)
+updated(values, index, change, Ok(value)) -> List.put(values, index, change(value))
+updated(values, _, _, _) -> values
+
 reverse_into : (List(a), List(a)) -> List(a)
 reverse_into([], output) -> output
 reverse_into([head, *tail], output) -> reverse_into(tail, [head, *output])
@@ -459,3 +473,5 @@ expect ["1", "2"].try_fold(0, |total, text| Nat.from_str(text).map_ok(|n| total 
 expect ["1", "x", "2"].try_fold(0, |total, text| Nat.from_str(text).map_ok(|n| total + n)).is_err()
 expect [1, 3, 5, 7].partition_point(|x| x < 5) == 2 & [1, 3].partition_point(|x| x < 9) == 2
 expect [1, 3].partition_point(|x| x < 0) == 0 & [0].drop(1).partition_point(|x| x < 1) == 0
+expect [1, 2, 3].update(0, |x| x * 10) == [10, 2, 3] & [1, 2, 3].update(2, |x| x + 1) == [1, 2, 4]
+expect [1, 2, 3].update(3, |x| x + 1) == [1, 2, 3] & [0].drop(1).update(0, |x| x + 1) == [0].drop(1)

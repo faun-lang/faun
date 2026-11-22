@@ -28,6 +28,15 @@ expect [1, 2, 3].set(5, 9) == Err(OutOfBounds)
 expect [1, 2, 3].put(5, 9) == [1, 2, 3]
 ```
 
+`update(index, change)` changes an element by a function, as a map's
+`update` changes a key's value, and is unchanged where there is none, as
+`put` is and as a map's `update` is for a missing key:
+
+```ruby
+expect [1, 2, 3].update(1, |x| x * 10) == [1, 20, 3]
+expect [1, 2, 3].update(5, |x| x * 10) == [1, 2, 3]
+```
+
 Nothing about a list is recognized by its name. `len` is a walk in the
 source, and is answered from the length a list holds because Barb
 recognizes what the walk computes; how a list is laid out and when one is
