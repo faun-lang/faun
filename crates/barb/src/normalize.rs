@@ -333,6 +333,29 @@ fn order(program: &Program, rules: Rules, only: Option<&[FnId]>) -> Vec<FnId> {
 }
 
 type CallRule<'a> = Rule<Rewrite<'a>, Scope, Called, Atom>;
+type MatchRule<'a, 'l> = Rule<Rewrite<'a>, Scope, Matching<'l>, Atom>;
+
+/// What a match may be instead, asked in this order: the arm a known
+/// scrutinee takes, the value a known sequence comes to, then one match
+/// where two turn tags into tags. Composing is left to a walk reading what
+/// is recognized, which may first ask the questions as one comparison.
+fn match_rules<'a, 'l>() -> [MatchRule<'a, 'l>; 4] {
+    const fn always(_: &Rewrite<'_>) -> bool {
+        true
+    }
+    const fn evaluates(rewrite: &Rewrite<'_>) -> bool {
+        rewrite.rules.evaluate
+    }
+    const fn recognises(rewrite: &Rewrite<'_>) -> bool {
+        !rewrite.rules.blind
+    }
+    [
+        Rule::new(always, Rewrite::selected),
+        Rule::new(evaluates, Rewrite::evaluated_match),
+        Rule::new(recognises, Rewrite::composed),
+        Rule::new(recognises, Rewrite::composed_within),
+    ]
+}
 
 /// What a call may be instead, asked in this order: evaluated, decided by
 /// an identity, inlined, answered by an earlier call, then combined with
@@ -485,6 +508,18 @@ impl Called {
 
 /// What a rule makes of a call.
 type Step = rules::Step<Called, Atom>;
+
+/// A match site: the match, its scrutinee as rewritten, its arms, and what
+/// each local it reads came to.
+pub(super) struct Matching<'l> {
+    id: ExprId,
+    scrutinee: Atom,
+    arms: Range,
+    locals: &'l [Atom],
+}
+
+/// What a rule makes of a match.
+type MatchStep<'l> = rules::Step<Matching<'l>, Atom>;
 
 /// A call as [`Rewrite::shared`] compares it: the definition, and each
 /// operand as the local it is or, where it is known, the value.
@@ -657,13 +692,10 @@ impl Rewrite<'_> {
     /// Whether a local was written as a constructor or a known value, so
     /// that a match on it takes one arm: see [`Self::selected`].
     fn decided(&self, atom: Atom) -> bool {
-        self.written
-            .get(atom.0.index())
-            .copied()
-            .flatten()
-            .is_some_and(|wrote| {
-                matches!(self.program.expr(wrote), Expr::Con(..) | Expr::Static(..))
-            })
+        matches!(
+            self.written_as(atom),
+            Some(Expr::Con(..) | Expr::Static(..))
+        )
     }
 
     /// A match of one arm, which cannot but take it, taking apart a value
@@ -850,21 +882,14 @@ impl Rewrite<'_> {
         scope: &mut Scope,
     ) -> Result<Expr, Atom> {
         let scrutinee = locals[value.0.index()];
-        if let Some(answer) = self.selected(scrutinee, arms, locals, scope) {
+        let site = Matching {
+            id,
+            scrutinee,
+            arms,
+            locals,
+        };
+        if let Ok(answer) = rules::rewrite(self, scope, &match_rules(), site) {
             return Err(answer);
-        }
-        if let Some(answer) = self.evaluated_match(id, scrutinee, locals, scope) {
-            return Err(answer);
-        }
-        // Composing questions of tags is left to a walk reading what
-        // is recognized, which may first ask them as one comparison.
-        if !self.rules.blind {
-            if let Some(answer) = self.composed(scrutinee, arms, scope) {
-                return Err(answer);
-            }
-            if let Some(answer) = self.composed_within(scrutinee, arms, scope) {
-                return Err(answer);
-            }
         }
         match self.matching(value, arms, locals, scope) {
             Matched::Rebuilt(held) => Ok(held),
@@ -985,28 +1010,19 @@ impl Rewrite<'_> {
     /// The arm a match takes where its scrutinee was written as one
     /// constructor or as a known value, taken where the match stands: its
     /// fields are the atoms that built it, or known values of their own.
-    fn selected(
-        &mut self,
-        scrutinee: Atom,
-        arms: Range,
-        locals: &[Atom],
-        scope: &mut Scope,
-    ) -> Option<Atom> {
-        let wrote = (*self.written.get(scrutinee.0.index())?)?;
-        let (ctor, fields) = match self.program.expr(wrote) {
+    fn selected<'l>(&mut self, scope: &mut Scope, site: &Matching<'l>) -> Option<MatchStep<'l>> {
+        let (ctor, fields) = match self.written_as(site.scrutinee)? {
             Expr::Con(ctor, fields) => (ctor, self.program.atoms(fields).to_vec()),
             Expr::Static(value) => self.opened(value, scope)?,
             Expr::Atom(_) | Expr::Call(..) | Expr::Match(..) => return None,
         };
-        let arm = self
+        let arm = *self
             .program
-            .arms(arms)
+            .arms(site.arms)
             .iter()
-            .find(|arm| arm.ctor == ctor)
-            .copied()?;
-        let mut inner = locals.to_vec();
-        inner.extend(fields);
-        Some(self.into(arm.body, inner, scope))
+            .find(|arm| arm.ctor == ctor)?;
+        let inner = [site.locals, &fields].concat();
+        Some(Done(self.into(arm.body, inner, scope)))
     }
 
     /// A match turning tags into tags, on a local another match wrote out of
@@ -1016,12 +1032,11 @@ impl Rewrite<'_> {
     /// what a branch on it says of `a` and `b` is seen by range analysis.
     /// Nothing is copied but tags, and a question whose answers agree, or
     /// that answers with what it asked about, is not asked at all.
-    fn composed(&mut self, scrutinee: Atom, arms: Range, scope: &mut Scope) -> Option<Atom> {
-        let wrote = (*self.written.get(scrutinee.0.index())?)?;
-        let inner = self.tag_tree(wrote, TAG_TREE_LEAVES)?;
-        let outer = self.tag_map(arms)?;
+    fn composed<'l>(&mut self, scope: &mut Scope, site: &Matching<'l>) -> Option<MatchStep<'l>> {
+        let inner = self.tag_tree(self.wrote(site.scrutinee)?, TAG_TREE_LEAVES)?;
+        let outer = self.tag_map(site.arms)?;
         let mapped = inner.mapped(&|tag| turned(&outer, tag))?;
-        Some(self.emit_tags(mapped.collapsed(), scope))
+        Some(Done(self.emit_tags(mapped.collapsed(), scope)))
     }
 
     /// The same, where the other match works something out in an arm
@@ -1029,13 +1044,16 @@ impl Rewrite<'_> {
     /// does: that match again, each arm working out what it did and
     /// answering with the tags this one turns its answer into. The first
     /// match is left for cleanup, nothing reading it any more.
-    fn composed_within(&mut self, scrutinee: Atom, arms: Range, scope: &mut Scope) -> Option<Atom> {
-        let level = scrutinee.0.index();
-        let wrote = (*self.written.get(level)?)?;
-        let Expr::Match(on, inner) = self.program.expr(wrote) else {
+    fn composed_within<'l>(
+        &mut self,
+        scope: &mut Scope,
+        site: &Matching<'l>,
+    ) -> Option<MatchStep<'l>> {
+        let level = site.scrutinee.0.index();
+        let Expr::Match(on, inner) = self.written_as(site.scrutinee)? else {
             return None;
         };
-        let outer = self.tag_map(arms)?;
+        let outer = self.tag_map(site.arms)?;
         let inner = self.program.arms(inner).to_vec();
         let leaves = TAG_TREE_LEAVES / inner.len().max(1);
         let trees = inner
@@ -1068,7 +1086,7 @@ impl Rewrite<'_> {
         }
         self.written.truncate(scope.level);
         let arms = self.program.terms.hold_arms(&found);
-        Some(self.push(Expr::Match(on, arms), scope))
+        Some(Done(self.push(Expr::Match(on, arms), scope)))
     }
 
     /// Whether `a` is below `b`, and if not whether it is `b`, is three
@@ -1079,13 +1097,14 @@ impl Rewrite<'_> {
         let Tags::Split(on, ref branches) = tags else {
             return tags;
         };
-        let Some((less, a, b)) = self.asked(on) else {
-            return tags;
-        };
-        let LessThan {
-            yes: lt_yes,
-            no: lt_no,
-        } = less
+        let Some((
+            called,
+            LessThan {
+                yes: lt_yes,
+                no: lt_no,
+            },
+            [a, b],
+        )) = self.asked(on)
         else {
             return tags;
         };
@@ -1106,9 +1125,7 @@ impl Rewrite<'_> {
             return Tags::Same(asked);
         }
         if below == equal {
-            let called = self.called(on).expect("asked is a call");
-            let args = self.program.terms.hold_atoms([b, a].into_iter());
-            let swapped = self.push(Expr::Call(called, args), scope);
+            let swapped = self.emit(called, &[b, a], scope);
             // The arms in the order the type declares its tags.
             let branches = branches
                 .iter()
@@ -1130,32 +1147,16 @@ impl Rewrite<'_> {
         let &Tags::Same(asked) = tree else {
             return None;
         };
-        let (Equals { yes, no }, x, y) = self.asked(asked)? else {
+        let (_, Equals { yes, no }, [x, y]) = self.asked(asked)? else {
             return None;
         };
         ((x, y) == (a, b) || (x, y) == (b, a)).then_some((asked, yes, no))
     }
 
-    /// The operation a local was written as a call of, with its two
-    /// operands.
-    fn asked(&self, atom: Atom) -> Option<(Operation, Atom, Atom)> {
-        let wrote = (*self.written.get(atom.0.index())?)?;
-        let Expr::Call(called, args) = self.program.expr(wrote) else {
-            return None;
-        };
-        let operation = self.recognised.operations[called.index()]?;
-        let &[a, b] = self.program.atoms(args) else {
-            return None;
-        };
-        Some((operation, a, b))
-    }
-
-    fn called(&self, atom: Atom) -> Option<FnId> {
-        let wrote = (*self.written.get(atom.0.index())?)?;
-        match self.program.expr(wrote) {
-            Expr::Call(called, _) => Some(called),
-            _ => None,
-        }
+    /// The recognised operation of two operands a local was written as a
+    /// call of, in this scope or one around it.
+    fn asked(&self, atom: Atom) -> Option<(FnId, Operation, [Atom; 2])> {
+        self.operation(self.written_as(atom)?)
     }
 
     /// The tag each arm of a match answers with, by the tag it takes, where
@@ -1645,14 +1646,17 @@ impl Rewrite<'_> {
     /// sequence, evaluated whole, where the walk evaluates: the arm it takes
     /// may read only what is known. Opening the sequence instead would hold
     /// its rest as a second known value, a copy of all but one element.
-    fn evaluated_match(
+    fn evaluated_match<'l>(
         &mut self,
-        id: ExprId,
-        scrutinee: Atom,
-        locals: &[Atom],
         scope: &mut Scope,
-    ) -> Option<Atom> {
-        if !self.rules.evaluate || self.budget.remaining == 0 {
+        &Matching {
+            id,
+            scrutinee,
+            locals,
+            ..
+        }: &Matching<'l>,
+    ) -> Option<MatchStep<'l>> {
+        if self.budget.remaining == 0 {
             return None;
         }
         self.known(scrutinee)?;
@@ -1685,7 +1689,7 @@ impl Rewrite<'_> {
         };
         let value = evaluator.expr(id, &mut env, budget).ok()?;
         let value = self.program.intern_held(&value);
-        Some(self.push(Expr::Static(value), scope))
+        Some(Done(self.push(Expr::Static(value), scope)))
     }
 
     /// A call of `called` with `args` as [`Self::shared`] compares it, where
@@ -1864,7 +1868,13 @@ impl Rewrite<'_> {
     /// The recognised operation of two operands a local was written as a
     /// call of, in this scope: what it called, the operation, the operands.
     fn op_call(&self, scope: &Scope, atom: Atom) -> Option<(FnId, Operation, [Atom; 2])> {
-        let Expr::Call(called, args) = self.program.expr(scope.wrote(atom)?) else {
+        self.operation(self.program.expr(scope.wrote(atom)?))
+    }
+
+    /// `expr` as a call of a recognised operation of two operands: what it
+    /// calls, the operation, the operands.
+    fn operation(&self, expr: Expr) -> Option<(FnId, Operation, [Atom; 2])> {
+        let Expr::Call(called, args) = expr else {
             return None;
         };
         let &[a, b] = self.program.atoms(args) else {
@@ -1893,8 +1903,12 @@ impl Rewrite<'_> {
     /// What wrote a local, in this scope or one around it, where a binding
     /// did.
     fn written_as(&self, atom: Atom) -> Option<Expr> {
-        let wrote = (*self.written.get(atom.0.index())?)?;
-        Some(self.program.expr(wrote))
+        Some(self.program.expr(self.wrote(atom)?))
+    }
+
+    /// The binding that wrote a local, in this scope or one around it.
+    fn wrote(&self, atom: Atom) -> Option<ExprId> {
+        *self.written.get(atom.0.index())?
     }
 
     /// A constructor of no fields, written down.
