@@ -394,6 +394,25 @@ fn a_tag_row_s_star_is_one_rest_after_a_comma() {
     ]);
 }
 
+/// A signature written with a definition's parameters is told to name the
+/// function alone, rather than read as a type's head.
+#[test]
+fn a_signature_names_the_function_without_its_parameters() {
+    let help = "write `parse : ...` with the parameters' types, and the parameters where it is defined, `parse(...) -> ...`";
+    told(&[
+        (
+            "parse([a, b]) : Result(Nat, [Bad])\n",
+            "a signature names the function without its parameters",
+            help,
+        ),
+        (
+            "parse(text) : Str -> Nat\n",
+            "a signature names the function without its parameters",
+            help,
+        ),
+    ]);
+}
+
 /// A record type's `*` is told as a tag row's is, of its fields.
 #[test]
 fn a_record_type_s_star_is_one_rest_after_a_comma() {
