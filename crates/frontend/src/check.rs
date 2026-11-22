@@ -411,6 +411,13 @@ enum Misfit {
         wanted: String,
         given: String,
     },
+    /// It hands more or fewer arguments than the `taken`: the types of
+    /// those `missing`, or of those handed beyond them, `extra`.
+    Count {
+        taken: usize,
+        missing: Vec<String>,
+        extra: Vec<String>,
+    },
 }
 
 /// How a member is reached.
@@ -1665,13 +1672,13 @@ impl Checker<'_> {
                 // so what does not fit is told where it is written.
                 if let Ty::Function(parameters, result) = self.infer.resolve(&head_type) {
                     if parameters.len() != arguments.len() {
-                        return Err(self.miscounted_call(
-                            module,
+                        let call = (
                             expression.span,
-                            head,
-                            parameters.len(),
-                            arguments.len(),
-                        ));
+                            &**head,
+                            &arguments[..],
+                            &argument_types[..],
+                        );
+                        return Err(self.miscounted_call(module, call, &parameters));
                     }
                     let given = arguments.iter().zip(&argument_types);
                     for ((argument, ty), parameter) in given.zip(parameters.iter()) {
@@ -2055,9 +2062,6 @@ impl Checker<'_> {
         Ok(Rc::unwrap_or_clone(result))
     }
 
-    /// A call handing a known function more or fewer arguments than it
-    /// takes. One handed fewer is not a function of the rest, as there is no
-    /// partial application, so the help writes the lambda that would be.
     /// An argument that does not fit `head`'s parameter, pointing as Rust
     /// does at the function called and where it is defined.
     fn misfit_argument(&self, refused: Refusal, module: ModuleId, head: &h::Expr) -> Refusal {
@@ -2077,13 +2081,12 @@ impl Checker<'_> {
     }
 
     fn miscounted_call(
-        &self,
+        &mut self,
         module: ModuleId,
-        span: super::ast::Span,
-        head: &h::Expr,
-        taken: usize,
-        handed: usize,
+        (span, head, arguments, argument_types): (super::ast::Span, &h::Expr, &[h::Expr], &[Ty]),
+        parameters: &[Ty],
     ) -> Refusal {
+        let (taken, handed) = (parameters.len(), arguments.len());
         let name = match head.kind {
             h::ExprKind::Global(global) => Some(self.symbols.spelling(global)),
             _ => None,
@@ -2097,19 +2100,50 @@ impl Checker<'_> {
             counted(taken, "argument"),
             given(handed)
         );
-        let refusal = failure(module, span, message);
-        if handed == 0 || handed > taken {
+        let refusal = failure(module, head.span, message);
+        let name = name.unwrap_or("f");
+        if handed > taken {
+            let extra: Vec<_> = arguments[taken..]
+                .iter()
+                .zip(&argument_types[taken..])
+                .map(|(argument, ty)| (argument.span, show(&self.infer.resolve(ty), self.symbols)))
+                .collect();
+            return extra_arguments(refusal, module, &extra);
+        }
+        let symbols = self.symbols;
+        let missing: Vec<String> = self.infer.probe(|trial| {
+            for (argument, parameter) in argument_types.iter().zip(parameters) {
+                let _ = trial.unify(argument, parameter);
+            }
+            parameters[handed..]
+                .iter()
+                .map(|parameter| show(&trial.resolve(parameter), symbols))
+                .collect()
+        });
+        let parenthesized = super::ast::Span {
+            start: head.span.end,
+            end: span.end,
+        };
+        let refusal = missing_arguments(
+            refusal,
+            module,
+            Some(parenthesized),
+            (name, handed),
+            &missing,
+        );
+        if handed == 0 {
             return refusal;
         }
-        // The arguments left out, `x` alone or `x1, x2, …`.
-        let missing = taken - handed;
-        let rest: Vec<String> = if missing == 1 {
+        // The arguments left out, `x` alone or `x1, x2, …`. One handed
+        // fewer is not a function of the rest, as there is no partial
+        // application, so the help writes the lambda that would be.
+        let rest: Vec<String> = if missing.len() == 1 {
             vec!["x".to_owned()]
         } else {
-            (1..=missing).map(|at| format!("x{at}")).collect()
+            (1..=missing.len()).map(|at| format!("x{at}")).collect()
         };
         let rest = rest.join(", ");
-        let lambda = format!("|{rest}| {}(…, {rest})", name.unwrap_or("f"));
+        let lambda = format!("|{rest}| {name}(…, {rest})");
         refusal.help(format!(
             "there is no partial application: to take the rest later, write a lambda, as `{lambda}`"
         ))
@@ -2225,7 +2259,7 @@ impl Checker<'_> {
         let nothing = matches!(&actual, Ty::Record(fields, None) if fields.is_empty());
         let (expected, actual) = show_apart(&self.infer.resolve(expected), &actual, self.symbols);
         let error = failure(module, span, "mismatched types");
-        let error = error.label(format!("expected `{expected}`, found `{actual}`"));
+        let error = error.expected_found(expected, actual);
         let error = if nothing {
             error.note(ANSWERS_NOTHING)
         } else {
@@ -2294,12 +2328,32 @@ fn apply_signature(
     let through_type = pending.reach == Reach::Type;
     let receiver = usize::from(!through_type);
     if parameters.len() != pending.arguments.len() + receiver {
-        return Err(Misfit::Said(format!(
-            "`{}` takes {}, but {} given",
-            symbols.text(pending.name),
-            counted(parameters.len() - receiver, "argument"),
-            given(pending.arguments.len())
-        )));
+        // What it takes beyond what it is handed is shown as far as what it
+        // is handed says, as its receiver says what `a` is.
+        let handed: Vec<&Ty> = std::iter::once(&pending.receiver)
+            .skip(usize::from(through_type))
+            .chain(&pending.arguments)
+            .collect();
+        let missing = infer.probe(|trial| {
+            for (argument, parameter) in handed.iter().zip(parameters.iter()) {
+                let _ = trial.unify(argument, parameter);
+            }
+            parameters
+                .iter()
+                .skip(handed.len())
+                .map(|parameter| show(&trial.resolve(parameter), symbols))
+                .collect()
+        });
+        let extra = handed
+            .iter()
+            .skip(parameters.len())
+            .map(|argument| show(&infer.resolve(argument), symbols))
+            .collect();
+        return Err(Misfit::Count {
+            taken: parameters.len() - receiver,
+            missing,
+            extra,
+        });
     }
     let given: Vec<&Ty> = if through_type {
         pending.arguments.iter().collect()
@@ -2360,6 +2414,66 @@ fn test_in(pattern: &h::Pattern) -> Option<&'static str> {
 
 fn component_name_set(monotypes: &HashMap<Symbol, Ty>) -> HashSet<Symbol> {
     monotypes.keys().copied().collect()
+}
+
+/// A call of `name` handed `handed` arguments, where those `missing`,
+/// of these types, are wanted too: its argument list, where it is written,
+/// says which, and the help writes the call with them, as rustc does.
+pub(crate) fn missing_arguments(
+    refused: Refusal,
+    module: ModuleId,
+    parenthesized: Option<super::ast::Span>,
+    (name, handed): (&str, usize),
+    missing: &[String],
+) -> Refusal {
+    let types: Vec<String> = missing.iter().map(|ty| format!("`{ty}`")).collect();
+    let label = match &types[..] {
+        [one] => format!("an argument of type {one} is missing"),
+        [init @ .., last] => format!(
+            "{} arguments of types {} and {last} are missing",
+            missing.len(),
+            init.join(", ")
+        ),
+        [] => unreachable!("an argument is missing"),
+    };
+    let refused = match parenthesized {
+        Some(span) => refused.also(module, span, label),
+        None => refused.label(label),
+    };
+    let written: Vec<String> = (handed > 0)
+        .then(|| "…".to_owned())
+        .into_iter()
+        .chain(missing.iter().map(|ty| format!("/* {ty} */")))
+        .collect();
+    let them = if missing.len() == 1 {
+        "the argument"
+    } else {
+        "the arguments"
+    };
+    refused.help(format!("provide {them}: `{name}({})`", written.join(", ")))
+}
+
+/// A call handed arguments beyond those it takes, these at their places
+/// and of their types: each is pointed at.
+pub(crate) fn extra_arguments(
+    refused: Refusal,
+    module: ModuleId,
+    extra: &[(super::ast::Span, String)],
+) -> Refusal {
+    let refused = extra.iter().fold(refused, |refused, (span, ty)| {
+        // A type not yet known, as a numeral's, says nothing.
+        let label = if ty == "_" {
+            "unexpected argument".to_owned()
+        } else {
+            format!("unexpected argument of type `{ty}`")
+        };
+        refused.also(module, *span, label)
+    });
+    refused.help(if extra.len() == 1 {
+        "remove the extra argument"
+    } else {
+        "remove the extra arguments"
+    })
 }
 
 pub(crate) fn failure(

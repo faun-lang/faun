@@ -5,6 +5,9 @@ error: mismatched types
   | --------------------- function defined here
 ...
 9 | main!(host) -> host.exit!(U8.of_nat(bad(pair)))
-  |                                     --- ^^^^ expected `{x: Nat}`, found `(_, _)`
+  |                                     --- ^^^^ expected one type, found another
   |                                     |
   |                                     arguments to this function are incorrect
+  |
+  = note: expected `{x: Nat}`
+             found `(_, _)`

@@ -10,6 +10,11 @@
 //! renders as its message. Either way it starts `error: `, as each
 //! diagnostic found with it does.
 //!
+//! A mismatch says what was expected and what was found beside the place,
+//! where that fits: when saying both there would run a line of marks past
+//! [`WIDTH`] columns, the place says only that they differ, and the two
+//! types are told below it, one above the other, as rustc tells long ones.
+//!
 //! Reading a file refuses with a syntax error, and every pass after loading
 //! with a `Refusal`: a place in a module rather than in a source, so it is
 //! made without the sources at hand. Either gathers the same [`Advice`],
@@ -21,6 +26,35 @@ use std::path::{Path, PathBuf};
 use crate::ast::Span;
 use crate::source::Source;
 
+/// How wide a line of marks may run with a mismatch's types beside it,
+/// in columns: the width of a terminal by default, which is the width
+/// rustc's and Elm's messages keep to.
+pub const WIDTH: usize = 80;
+
+/// What a mismatch says, and below its snippet where that is too wide.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Types {
+    pub expected: String,
+    pub found: String,
+}
+
+impl Types {
+    /// Said beside the place: `` expected `Nat`, found `Bool` ``.
+    #[must_use]
+    pub fn label(&self) -> String {
+        format!("expected `{}`, found `{}`", self.expected, self.found)
+    }
+
+    /// Said below the snippet, the two types aligned.
+    #[must_use]
+    pub fn note(&self) -> String {
+        format!("expected `{}`\n   found `{}`", self.expected, self.found)
+    }
+}
+
+/// What a place says when its types are told below it instead.
+pub const TYPES_DIFFER: &str = "expected one type, found another";
+
 /// What a refusal says besides its message, gathered by a pass before the
 /// source is at hand: what is at its place, what explains it, and what
 /// would fix it.
@@ -28,6 +62,10 @@ use crate::source::Source;
 pub struct Advice {
     /// What is at the place; may be empty.
     pub label: String,
+    /// The types a mismatch expected and found, said beside the place as
+    /// its label, or below it where that is too wide. Boxed, as few
+    /// refusals have them, to keep a `Result` carrying one small.
+    pub types: Option<Box<Types>>,
     pub notes: Vec<String>,
     pub help: Vec<String>,
 }
@@ -40,6 +78,20 @@ pub trait Advised: Sized {
     #[must_use]
     fn label(mut self, label: impl Into<String>) -> Self {
         self.advice().label = label.into();
+        self
+    }
+
+    /// The same, saying what type was expected at its place and what was
+    /// found there.
+    #[must_use]
+    fn expected_found(mut self, expected: impl Into<String>, found: impl Into<String>) -> Self {
+        let types = Types {
+            expected: expected.into(),
+            found: found.into(),
+        };
+        let advice = self.advice();
+        advice.label = types.label();
+        advice.types = Some(Box::new(types));
         self
     }
 
@@ -202,6 +254,9 @@ pub struct Label {
     pub location: Location,
     /// Written after the marks under the place; may be empty.
     pub text: String,
+    /// Where it happened and is a mismatch, the types expected and found
+    /// there, which `text` says unless that would be too wide.
+    pub types: Option<Types>,
 }
 
 /// Why a program was refused.
@@ -245,6 +300,7 @@ impl Diagnostic {
         let primary = Label {
             location,
             text: String::new(),
+            types: None,
         };
         if self.labels.is_empty() {
             self.labels.push(primary);
@@ -268,6 +324,9 @@ impl Diagnostic {
     #[must_use]
     pub fn advised(self, advice: Advice) -> Self {
         let mut diagnostic = self.label(advice.label);
+        if let (Some(types), Some(primary)) = (advice.types, diagnostic.labels.first_mut()) {
+            primary.types = Some(*types);
+        }
         diagnostic.notes.extend(advice.notes);
         diagnostic.help.extend(advice.help);
         diagnostic
@@ -286,7 +345,11 @@ impl Diagnostic {
     pub fn secondary_at(mut self, location: Location, text: impl Into<String>) -> Self {
         if !self.labels.is_empty() {
             let text = text.into();
-            self.labels.push(Label { location, text });
+            self.labels.push(Label {
+                location,
+                text,
+                types: None,
+            });
         }
         self
     }
@@ -314,10 +377,46 @@ impl Diagnostic {
         self
     }
 
+    /// The same, saying what type was expected where it happened and what
+    /// was found there.
+    #[must_use]
+    pub fn expected_found(self, expected: impl Into<String>, found: impl Into<String>) -> Self {
+        let types = Types {
+            expected: expected.into(),
+            found: found.into(),
+        };
+        let mut diagnostic = self.label(types.label());
+        if let Some(primary) = diagnostic.labels.first_mut() {
+            primary.types = Some(types);
+        }
+        diagnostic
+    }
+
     #[must_use]
     pub fn note(mut self, note: impl Into<String>) -> Self {
         self.notes.push(note.into());
         self
+    }
+
+    /// The same, with a mismatch whose types would run its line of marks
+    /// past [`WIDTH`] columns telling them below the snippet rather than
+    /// beside the place.
+    fn fitted(&self, gutter: &str) -> std::borrow::Cow<'_, Self> {
+        let Some((primary, Some(types))) = self.labels.first().map(|label| (label, &label.types))
+        else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        let at = &primary.location;
+        // The gutter, ` | `, what is before the place, its marks, a space,
+        // and the label.
+        let wide = gutter.len() + 3 + at.column - 1 + at.width + 1 + primary.text.chars().count();
+        if primary.text != types.label() || wide <= WIDTH {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut fitted = self.clone();
+        TYPES_DIFFER.clone_into(&mut fitted.labels[0].text);
+        fitted.notes.insert(0, types.note());
+        std::borrow::Cow::Owned(fitted)
     }
 
     #[must_use]
@@ -379,7 +478,7 @@ fn write_marks(f: &mut fmt::Formatter<'_>, gutter: &str, labels: &[(bool, &Label
     let apart = labels.windows(2).all(|pair| {
         let left = &pair[0].1.location;
         let right = &pair[1].1.location;
-        left.column + left.width < right.column
+        left.column + left.width <= right.column
     });
     if !apart {
         for (primary, label) in labels {
@@ -452,7 +551,9 @@ impl fmt::Display for Diagnostic {
             .map(|label| label.location.line.to_string().len())
             .max();
         let gutter = " ".repeat(widest.unwrap_or(1));
-        if let Some(at) = self.location() {
+        let fitted = self.fitted(&gutter);
+        let this = fitted.as_ref();
+        if let Some(at) = this.location() {
             write!(
                 f,
                 "\n{gutter}--> {}:{}:{}",
@@ -460,16 +561,21 @@ impl fmt::Display for Diagnostic {
                 at.line,
                 at.column
             )?;
-            self.write_snippets(f, &gutter)?;
-            if !self.notes.is_empty() || !self.help.is_empty() {
+            this.write_snippets(f, &gutter)?;
+            if !this.notes.is_empty() || !this.help.is_empty() {
                 write!(f, "\n{gutter} |")?;
             }
         }
-        for note in &self.notes {
-            write!(f, "\n{gutter} = note: {note}")?;
+        // A note or help of several lines is aligned after its `note: `.
+        let hung = |text: &str, kind: &str| {
+            let indent = " ".repeat(gutter.len() + " = : ".len() + kind.len());
+            text.replace('\n', &format!("\n{indent}"))
+        };
+        for note in &this.notes {
+            write!(f, "\n{gutter} = note: {}", hung(note, "note"))?;
         }
-        for help in &self.help {
-            write!(f, "\n{gutter} = help: {help}")?;
+        for help in &this.help {
+            write!(f, "\n{gutter} = help: {}", hung(help, "help"))?;
         }
         for also in &self.also {
             write!(f, "\n\n{also}")?;
@@ -572,6 +678,68 @@ mod tests {
              |           ----  ^^^^ used again here\n  \
              |           |\n  \
              |           used up here"
+        );
+    }
+
+    /// A mismatch whose types beside its place would run the line of marks
+    /// past `WIDTH` says only that they differ there, and tells them below,
+    /// aligned; one that fits says them beside it.
+    #[test]
+    fn a_wide_mismatch_tells_its_types_below() {
+        let mut sources = Sources::default();
+        let text = "x = parse(\"some long text\", 12345, name)\n";
+        let id = sources.add("main.fn", text);
+        let source = sources.get(id).unwrap();
+        let start = text.find("name").unwrap();
+        let span = Span::new(start, start + "name".len());
+        let mismatch = |expected: &str| {
+            Diagnostic::new("mismatched types")
+                .at(source, span)
+                .expected_found(expected, "Str")
+        };
+        assert_eq!(
+            mismatch("Nat").to_string(),
+            "error: mismatched types\n \
+             --> main.fn:1:36\n  \
+             |\n\
+             1 | x = parse(\"some long text\", 12345, name)\n  \
+             |                                    ^^^^ expected `Nat`, found `Str`"
+        );
+        assert_eq!(
+            mismatch("List(Nat) -> Nat").to_string(),
+            "error: mismatched types\n \
+             --> main.fn:1:36\n  \
+             |\n\
+             1 | x = parse(\"some long text\", 12345, name)\n  \
+             |                                    ^^^^ expected one type, found another\n  \
+             |\n  \
+             = note: expected `List(Nat) -> Nat`\n             \
+             found `Str`"
+        );
+    }
+
+    /// Places side by side share a row with no space between their marks,
+    /// as a method's name and its argument list do.
+    #[test]
+    fn places_side_by_side_share_a_row() {
+        let mut sources = Sources::default();
+        let text = "x = xs.blocks()\n";
+        let id = sources.add("main.fn", text);
+        let source = sources.get(id).unwrap();
+        let diagnostic = Diagnostic::new("`blocks` takes 1 argument, but 0 were given")
+            .at(source, Span::new(7, 13))
+            .secondary(
+                source,
+                Span::new(13, 15),
+                "an argument of type `Nat` is missing",
+            );
+        assert_eq!(
+            diagnostic.to_string(),
+            "error: `blocks` takes 1 argument, but 0 were given\n \
+             --> main.fn:1:8\n  \
+             |\n\
+             1 | x = xs.blocks()\n  \
+             |        ^^^^^^-- an argument of type `Nat` is missing"
         );
     }
 

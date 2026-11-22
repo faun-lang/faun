@@ -1,0 +1,7 @@
+error: `add` takes 2 arguments, but 0 were given
+ --> a_function_given_no_arguments_is_shown_what_it_takes.fn:7:37
+  |
+7 | main!(host) -> host.exit!(U8.of_nat(add()))
+  |                                     ^^^-- 2 arguments of types `Nat` and `Nat` are missing
+  |
+  = help: provide the arguments: `add(/* Nat */, /* Nat */)`
