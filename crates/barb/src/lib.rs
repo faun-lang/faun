@@ -136,6 +136,7 @@ mod pretty;
 mod program;
 mod ranges;
 mod rotation;
+mod rules;
 mod sequence;
 mod solve;
 mod specialize;
