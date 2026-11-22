@@ -323,38 +323,11 @@ fn signature_names(signature: &h::SignatureDecl) -> Vec<Named> {
 }
 
 fn type_names(ty: &h::Type, span: Span, names: &mut Vec<Named>) {
-    match ty {
-        h::Type::Named(name, arguments) => {
-            names.push(written(*name, span));
-            for argument in arguments {
-                type_names(argument, span, names);
-            }
-        }
-        h::Type::Function(parameters, result) => {
-            for parameter in parameters {
-                type_names(parameter, span, names);
-            }
-            type_names(result, span, names);
-        }
-        h::Type::Variants(constructors) => {
-            for field in constructors
-                .iter()
-                .flat_map(|constructor| &constructor.fields)
-            {
-                type_names(field, span, names);
-            }
-        }
-        h::Type::Record(fields, _) => {
-            for (_, field) in fields {
-                type_names(field, span, names);
-            }
-        }
-        h::Type::Tuple(elements) => {
-            for element in elements {
-                type_names(element, span, names);
-            }
-        }
-        h::Type::Variable(_) | h::Type::Hole => {}
+    if let h::Type::Named(name, _) = ty {
+        names.push(written(*name, span));
+    }
+    for child in ty.children() {
+        type_names(child, span, names);
     }
 }
 

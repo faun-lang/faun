@@ -505,14 +505,7 @@ struct PendingNumeral {
 
 /// Whether a written type holds no function anywhere: the type of data.
 fn first_order(ty: &h::Type) -> bool {
-    match ty {
-        h::Type::Function(..) => false,
-        h::Type::Variable(_) | h::Type::Hole => true,
-        h::Type::Named(_, arguments) => arguments.iter().all(first_order),
-        h::Type::Variants(tags) => tags.iter().flat_map(|tag| &tag.fields).all(first_order),
-        h::Type::Record(fields, _) => fields.iter().all(|(_, field)| first_order(field)),
-        h::Type::Tuple(members) => members.iter().all(first_order),
-    }
+    !matches!(ty, h::Type::Function(..)) && ty.children().into_iter().all(first_order)
 }
 
 /// Whether `kind` is one that may stand for a function: a name, or a
@@ -532,16 +525,7 @@ const fn names_a_function(kind: &h::ExprKind) -> bool {
 
 /// Whether a written type leaves some part of itself to be worked out.
 fn has_hole(ty: &h::Type) -> bool {
-    match ty {
-        h::Type::Hole => true,
-        h::Type::Variable(_) => false,
-        h::Type::Named(_, types) | h::Type::Tuple(types) => types.iter().any(has_hole),
-        h::Type::Function(parameters, result) => {
-            parameters.iter().any(has_hole) || has_hole(result)
-        }
-        h::Type::Variants(tags) => tags.iter().flat_map(|tag| &tag.fields).any(has_hole),
-        h::Type::Record(fields, _) => fields.iter().any(|(_, field)| has_hole(field)),
-    }
+    *ty == h::Type::Hole || ty.children().into_iter().any(has_hole)
 }
 
 /// Whether a written type is one a parameter may have: data, or a function

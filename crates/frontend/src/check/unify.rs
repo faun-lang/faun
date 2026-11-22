@@ -41,6 +41,30 @@ pub(super) enum Ty {
     Tuple(Rc<[Self]>),
 }
 
+impl Ty {
+    /// The types directly inside this type, where they lie in it, so that each
+    /// keeps its place as a key while this type is borrowed.
+    pub(super) fn parts(&self) -> Vec<&Self> {
+        match self {
+            Self::Var(_) | Self::Rigid(_) => Vec::new(),
+            Self::Named(_, parts) | Self::Tuple(parts) => parts.iter().collect(),
+            Self::Function(parameters, result) => {
+                parameters.iter().chain([result.as_ref()]).collect()
+            }
+            Self::Variants(tags, tail) => tags
+                .iter()
+                .flat_map(|(_, fields)| fields.iter())
+                .chain(tail.as_deref())
+                .collect(),
+            Self::Record(fields, tail) => fields
+                .iter()
+                .map(|(_, field)| field)
+                .chain(tail.as_deref())
+                .collect(),
+        }
+    }
+}
+
 /// Something a type holds a list of: a type, or a named field or tag.
 pub(super) trait Entry {
     type Part;
@@ -631,25 +655,7 @@ impl Infer {
 }
 
 pub(super) fn contains(ty: &Ty, variable: u32) -> bool {
-    match ty {
-        Ty::Var(id) => *id == variable,
-        Ty::Rigid(_) => false,
-        Ty::Named(_, arguments) => arguments.iter().any(|ty| contains(ty, variable)),
-        Ty::Function(parameters, result) => {
-            parameters.iter().any(|ty| contains(ty, variable)) || contains(result, variable)
-        }
-        Ty::Variants(tags, tail) => {
-            tags.iter()
-                .flat_map(|(_, fields)| fields.iter())
-                .any(|ty| contains(ty, variable))
-                || tail.as_deref().is_some_and(|tail| contains(tail, variable))
-        }
-        Ty::Record(fields, tail) => {
-            fields.iter().any(|(_, ty)| contains(ty, variable))
-                || tail.as_deref().is_some_and(|tail| contains(tail, variable))
-        }
-        Ty::Tuple(members) => members.iter().any(|ty| contains(ty, variable)),
-    }
+    *ty == Ty::Var(variable) || ty.parts().into_iter().any(|ty| contains(ty, variable))
 }
 
 pub(super) fn substitute(ty: &Ty, replacements: &HashMap<u32, Ty>) -> Ty {
@@ -785,47 +791,13 @@ impl<'de> Deserialize<'de> for Infer {
 
 pub(super) fn free_variables(ty: &Ty) -> Vec<u32> {
     fn collect(ty: &Ty, output: &mut Vec<u32>) {
-        match ty {
-            Ty::Var(variable) => {
-                if !output.contains(variable) {
-                    output.push(*variable);
-                }
-            }
-            Ty::Rigid(_) => {}
-            Ty::Named(_, arguments) => {
-                for ty in arguments.iter() {
-                    collect(ty, output);
-                }
-            }
-            Ty::Function(parameters, result) => {
-                for ty in parameters.iter() {
-                    collect(ty, output);
-                }
-                collect(result, output);
-            }
-            Ty::Variants(tags, tail) => {
-                for (_, fields) in tags.iter() {
-                    for ty in fields.iter() {
-                        collect(ty, output);
-                    }
-                }
-                if let Some(tail) = tail {
-                    collect(tail, output);
-                }
-            }
-            Ty::Record(fields, tail) => {
-                for (_, ty) in fields.iter() {
-                    collect(ty, output);
-                }
-                if let Some(tail) = tail {
-                    collect(tail, output);
-                }
-            }
-            Ty::Tuple(members) => {
-                for ty in members.iter() {
-                    collect(ty, output);
-                }
-            }
+        if let Ty::Var(variable) = ty
+            && !output.contains(variable)
+        {
+            output.push(*variable);
+        }
+        for part in ty.parts() {
+            collect(part, output);
         }
     }
     let mut output = Vec::new();
@@ -859,7 +831,8 @@ impl TyEmbedding {
             return found;
         }
         let found = self.couples(small, large)
-            || Self::parts(large)
+            || large
+                .parts()
                 .into_iter()
                 .any(|part| self.embeds(small, part));
         self.known.insert(pair, found);
@@ -903,28 +876,6 @@ impl TyEmbedding {
             _ => false,
         }
     }
-
-    /// The types directly inside `ty`, where they lie in it, so that each
-    /// keeps its place as a key while `ty` is borrowed.
-    fn parts(ty: &Ty) -> Vec<&Ty> {
-        match ty {
-            Ty::Var(_) | Ty::Rigid(_) => Vec::new(),
-            Ty::Named(_, parts) | Ty::Tuple(parts) => parts.iter().collect(),
-            Ty::Function(parameters, result) => {
-                parameters.iter().chain([result.as_ref()]).collect()
-            }
-            Ty::Variants(tags, tail) => tags
-                .iter()
-                .flat_map(|(_, fields)| fields.iter())
-                .chain(tail.as_deref())
-                .collect(),
-            Ty::Record(fields, tail) => fields
-                .iter()
-                .map(|(_, field)| field)
-                .chain(tail.as_deref())
-                .collect(),
-        }
-    }
 }
 
 /// Why rows whose rests are two rigid tails do not unify, each the rest a
@@ -964,7 +915,7 @@ fn rigid_rests(ty: &Ty, rests: &mut Vec<u32>) {
     {
         rests.push(*rest);
     }
-    for part in TyEmbedding::parts(ty) {
+    for part in ty.parts() {
         rigid_rests(part, rests);
     }
 }

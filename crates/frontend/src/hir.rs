@@ -115,6 +115,63 @@ pub enum Type {
     Hole,
 }
 
+impl Type {
+    /// The types directly inside this one, in the order written.
+    #[must_use]
+    pub fn children(&self) -> Vec<&Self> {
+        match self {
+            Self::Variable(_) | Self::Hole => Vec::new(),
+            Self::Named(_, types) | Self::Tuple(types) => types.iter().collect(),
+            Self::Function(parameters, result) => parameters.iter().chain([&**result]).collect(),
+            Self::Variants(tags) => tags.iter().flat_map(|tag| &tag.fields).collect(),
+            Self::Record(fields, _) => fields.iter().map(|(_, field)| field).collect(),
+        }
+    }
+
+    /// This type with each type directly inside it replaced by what `child`
+    /// makes of it, in the order written, stopping at the first refused.
+    ///
+    /// # Errors
+    /// The first error `child` answers.
+    pub fn try_map<E>(&self, child: &mut impl FnMut(&Self) -> Result<Self, E>) -> Result<Self, E> {
+        let mut each = |types: &[Self]| types.iter().map(&mut *child).collect::<Result<_, E>>();
+        Ok(match self {
+            Self::Variable(_) | Self::Hole => self.clone(),
+            Self::Named(name, arguments) => Self::Named(*name, each(arguments)?),
+            Self::Tuple(members) => Self::Tuple(each(members)?),
+            Self::Function(parameters, result) => {
+                let parameters = each(parameters)?;
+                Self::Function(parameters, Box::new(child(result)?))
+            }
+            Self::Variants(tags) => Self::Variants(
+                tags.iter()
+                    .map(|tag| {
+                        let fields = each(&tag.fields)?;
+                        Ok(ConstructorDecl {
+                            name: tag.name,
+                            fields,
+                        })
+                    })
+                    .collect::<Result<_, E>>()?,
+            ),
+            Self::Record(fields, open) => Self::Record(
+                fields
+                    .iter()
+                    .map(|(name, field)| Ok((*name, child(field)?)))
+                    .collect::<Result<_, E>>()?,
+                *open,
+            ),
+        })
+    }
+
+    /// The same, where `child` refuses nothing.
+    #[must_use]
+    pub fn map(&self, mut child: impl FnMut(&Self) -> Self) -> Self {
+        let mapped = self.try_map(&mut |ty| Ok::<_, Infallible>(child(ty)));
+        mapped.unwrap_or_else(|never| match never {})
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Clause {
     pub site: SiteId,
