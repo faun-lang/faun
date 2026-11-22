@@ -49,6 +49,15 @@ pub(crate) enum Command {
     },
 }
 
+/// Whether diagnostics are coloured, as `--color` says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Color {
+    /// Where standard error is a terminal, unless the environment says.
+    Auto,
+    Always,
+    Never,
+}
+
 /// An intermediate stage `emit` prints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stage {
@@ -60,7 +69,7 @@ pub(crate) enum Stage {
 
 /// Parse this process's arguments, printing help or an error and exiting
 /// where they ask for no command.
-pub(crate) fn parse() -> Command {
+pub(crate) fn parse() -> (Command, Color) {
     choice([
         check().boxed(),
         build().boxed(),
@@ -77,16 +86,16 @@ pub(crate) fn parse() -> Command {
     .run()
 }
 
-fn check() -> impl Parser<Command> {
+fn check() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file to check");
-    construct!(Command::Check { target, source })
+    colored(construct!(Command::Check { target, source }))
         .to_options()
         .descr("Check a Faun program against the selected machine's host")
         .command("check")
 }
 
-fn build() -> impl Parser<Command> {
+fn build() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file to compile");
     let output = short('o')
@@ -109,44 +118,44 @@ fn build() -> impl Parser<Command> {
                 SymbolTable::Omitted
             }
         });
-    construct!(Command::Build {
+    colored(construct!(Command::Build {
         output,
         symbols,
         target,
         favour,
         source,
-    })
+    }))
     .to_options()
     .descr("Compile a Faun program")
     .command("build")
 }
 
-fn run() -> impl Parser<Command> {
+fn run() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file to compile and run");
     let args = positional::<String>("ARGS")
         .help("What the program is run with; after `--`, even what looks like an option")
         .many();
-    construct!(Command::Run {
+    colored(construct!(Command::Run {
         target,
         source,
         args
-    })
+    }))
     .to_options()
     .descr("Compile a Faun program for the selected machine and run it")
     .command("run")
 }
 
-fn test() -> impl Parser<Command> {
+fn test() -> impl Parser<(Command, Color)> {
     let target = target();
     let source = positional::<PathBuf>("PATH").help("The source file whose package to test");
-    construct!(Command::Test { target, source })
+    colored(construct!(Command::Test { target, source }))
         .to_options()
         .descr("Run every `expect` in a Faun package on the selected machine")
         .command("test")
 }
 
-fn emit() -> impl Parser<Command> {
+fn emit() -> impl Parser<(Command, Color)> {
     let target = target();
     let stage = positional::<String>("STAGE")
         .help("The stage to print: barb, machine or target")
@@ -157,17 +166,17 @@ fn emit() -> impl Parser<Command> {
             _ => Err("expected barb, machine or target"),
         });
     let source = positional::<PathBuf>("PATH").help("The source file to compile");
-    construct!(Command::Emit {
+    colored(construct!(Command::Emit {
         target,
         stage,
         source,
-    })
+    }))
     .to_options()
     .descr("Print an intermediate stage of a Faun program")
     .command("emit")
 }
 
-fn bundle() -> impl Parser<Command> {
+fn bundle() -> impl Parser<(Command, Color)> {
     let target = target();
     let output = short('o')
         .long("output")
@@ -176,30 +185,46 @@ fn bundle() -> impl Parser<Command> {
         .fallback(PathBuf::from("."))
         .debug_fallback();
     let source = positional::<PathBuf>("PATH").help("The root module of the package to bundle");
-    construct!(Command::Bundle {
+    colored(construct!(Command::Bundle {
         target,
         output,
         source,
-    })
+    }))
     .to_options()
     .descr("Write a package as a bundle named by its hash, for a URL dependency to name")
     .command("bundle")
 }
 
-fn fetch() -> impl Parser<Command> {
+fn fetch() -> impl Parser<(Command, Color)> {
     let source = positional::<PathBuf>("PATH").help("The root module of the package");
-    construct!(Command::Fetch { source })
+    colored(construct!(Command::Fetch { source }))
         .to_options()
         .descr("Download every URL dependency of a package, so a later build is offline")
         .command("fetch")
 }
 
-fn uses() -> impl Parser<Command> {
+fn uses() -> impl Parser<(Command, Color)> {
     let source = positional::<PathBuf>("PATH").help("The root module of the package");
-    construct!(Command::Uses { source })
+    colored(construct!(Command::Uses { source }))
         .to_options()
         .descr("Print the packages a package uses, as a tree")
         .command("uses")
+}
+
+/// A subcommand's own arguments, with `--color`.
+fn colored(command: impl Parser<Command>) -> impl Parser<(Command, Color)> {
+    let color = long("color")
+        .help("When to colour diagnostics: auto, always or never")
+        .argument::<String>("WHEN")
+        .parse(|when| match when.as_str() {
+            "auto" => Ok(Color::Auto),
+            "always" => Ok(Color::Always),
+            "never" => Ok(Color::Never),
+            _ => Err("expected auto, always or never"),
+        })
+        .fallback(Color::Auto);
+    // Options go before what a subcommand takes positionally.
+    construct!(color, command).map(|(color, command)| (command, color))
 }
 
 /// `--target`, defaulting to [`NATIVE`] and required where there is none.

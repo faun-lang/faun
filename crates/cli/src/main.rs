@@ -10,11 +10,11 @@ mod bundle;
 mod fetch;
 
 use std::fs;
-use std::io;
+use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitCode};
 
-use args::{Command, Stage};
+use args::{Color, Command, Stage};
 use faun_aarch64_macos::Aarch64Macos;
 use faun_core::targets::{Favour, SymbolTable, Target};
 use faun_frontend::diagnostic::Diagnostic;
@@ -59,14 +59,17 @@ fn main() -> ExitCode {
     std::thread::Builder::new()
         .name("faun".to_owned())
         .stack_size(STACK)
-        .spawn(|| answer(args::parse()))
+        .spawn(|| {
+            let (command, color) = args::parse();
+            answer(command, color)
+        })
         .expect("the compiler's thread starts")
         .join()
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 /// Do what `command` says, and say what went wrong where anything did.
-fn answer(command: Command) -> ExitCode {
+fn answer(command: Command, color: Color) -> ExitCode {
     let outcome = match command {
         Command::Check { target, source } => check(&source, target).map(|()| ExitCode::SUCCESS),
         Command::Build {
@@ -81,7 +84,9 @@ fn answer(command: Command) -> ExitCode {
             source,
             args,
         } => run(&source, target, &args),
-        Command::Test { target, source } => test(&source, target).map(|()| ExitCode::SUCCESS),
+        Command::Test { target, source } => {
+            test(&source, target, color).map(|()| ExitCode::SUCCESS)
+        }
         Command::Emit {
             target,
             stage,
@@ -101,21 +106,49 @@ fn answer(command: Command) -> ExitCode {
     match outcome {
         Ok(exit) => exit,
         Err(diagnostic) => {
-            tell(diagnostic);
+            tell(diagnostic, color);
             ExitCode::FAILURE
         }
     }
 }
 
 /// Write a diagnostic to standard error, its paths shown from where this
-/// runs, as they were given.
-fn tell(diagnostic: Diagnostic) {
+/// runs, as they were given, and coloured where `color` says.
+fn tell(diagnostic: Diagnostic, color: Color) {
     let here = std::env::current_dir().and_then(fs::canonicalize);
     let diagnostic = match here {
         Ok(here) => diagnostic.relative_to(&here),
         Err(_) => diagnostic,
     };
-    eprintln!("{diagnostic}");
+    let variable = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    if colored(color, variable, io::stderr().is_terminal()) {
+        eprintln!("{}", diagnostic.colored());
+    } else {
+        eprintln!("{diagnostic}");
+    }
+}
+
+/// Whether diagnostics are coloured: as `--color` says, or for `auto`, as
+/// the environment does, read through `variable`, which answers only those
+/// set to something, and otherwise where standard error is a `terminal`.
+/// `CLICOLOR_FORCE` or `FORCE_COLOR` forces it, other than `0`, over
+/// `NO_COLOR`, which turns it off, as the `anstream` crate cargo uses
+/// decides.
+fn colored(
+    color: Color,
+    variable: impl Fn(&str) -> Option<std::ffi::OsString>,
+    terminal: bool,
+) -> bool {
+    match color {
+        Color::Always => true,
+        Color::Never => false,
+        Color::Auto => {
+            let forced = ["CLICOLOR_FORCE", "FORCE_COLOR"]
+                .into_iter()
+                .any(|name| variable(name).is_some_and(|value| value != "0"));
+            forced || (variable("NO_COLOR").is_none() && terminal)
+        }
+    }
 }
 
 /// Check a package against the target's host: a library by the frontend
@@ -199,7 +232,7 @@ fn stopping_signal(_status: std::process::ExitStatus) -> Option<i32> {
 /// Build a package's expectations for the machine this runs on, run them,
 /// and say where each one that does not hold was written, and what each
 /// comparison among them saw.
-fn test(source: &Path, target: &dyn Target) -> Result<(), Diagnostic> {
+fn test(source: &Path, target: &dyn Target, color: Color) -> Result<(), Diagnostic> {
     let runner = runner(target)?;
     let packages = fetched(source)?;
     let mut tests = faun_frontend::lower_tests_to_barb_using(
@@ -218,7 +251,7 @@ fn test(source: &Path, target: &dyn Target) -> Result<(), Diagnostic> {
     let output = execute(target, runner, &image, Process::output)?;
     let answered = tests.answered(&output.stdout).map_err(Diagnostic::new)?;
     if !output.status.success() {
-        tell_failures(&answered.failed);
+        tell_failures(&answered.failed, color);
         // Each record is printed as its expectation is asked, so the one
         // after the last is the one that stopped.
         let message = format!("the expectations stopped with {}", output.status);
@@ -230,11 +263,11 @@ fn test(source: &Path, target: &dyn Target) -> Result<(), Diagnostic> {
             None => stopped,
         });
     }
-    report(&answered.failed, count)
+    report(&answered.failed, count, color)
 }
 
 /// Tell each expectation that failed, with what each comparison saw.
-fn tell_failures(failed: &[Failure<'_>]) {
+fn tell_failures(failed: &[Failure<'_>], color: Color) {
     for failure in failed {
         let diagnostic = Diagnostic::new("this expectation does not hold");
         let mut diagnostic = diagnostic.at_location(failure.location.clone());
@@ -250,15 +283,15 @@ fn tell_failures(failed: &[Failure<'_>]) {
             }
             None => {}
         }
-        tell(diagnostic);
+        tell(diagnostic, color);
         eprintln!();
     }
 }
 
 /// Tell each expectation that failed, and how many of `count` held: an
 /// error where any failed.
-fn report(failed: &[Failure<'_>], count: usize) -> Result<(), Diagnostic> {
-    tell_failures(failed);
+fn report(failed: &[Failure<'_>], count: usize, color: Color) -> Result<(), Diagnostic> {
+    tell_failures(failed, color);
     let counted = if count == 1 {
         "1 expectation".to_owned()
     } else {
@@ -386,4 +419,37 @@ fn write(target: &dyn Target, image: &[u8], output: &Path) -> Result<PathBuf, Di
 /// What the file system refused: to `act` on `path`.
 fn cannot(act: &str, path: &Path, error: &io::Error) -> Diagnostic {
     Diagnostic::new(format!("cannot {act} {}: {error}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Color, colored};
+    use std::ffi::OsString;
+
+    /// `auto` colours a terminal unless `NO_COLOR` is set, and anywhere a
+    /// forcing variable other than `0` is, over `NO_COLOR`; `always` and
+    /// `never` hold whatever the environment says.
+    #[test]
+    fn the_flag_and_the_environment_say_when_to_colour() {
+        let set = |names: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                names
+                    .iter()
+                    .find(|(set, _)| *set == name)
+                    .map(|(_, value)| OsString::from(value))
+            }
+        };
+        assert!(colored(Color::Auto, set(&[]), true));
+        assert!(!colored(Color::Auto, set(&[]), false));
+        assert!(!colored(Color::Auto, set(&[("NO_COLOR", "1")]), true));
+        assert!(colored(Color::Auto, set(&[("CLICOLOR_FORCE", "1")]), false));
+        assert!(colored(
+            Color::Auto,
+            set(&[("FORCE_COLOR", "1"), ("NO_COLOR", "1")]),
+            false
+        ));
+        assert!(!colored(Color::Auto, set(&[("FORCE_COLOR", "0")]), false));
+        assert!(colored(Color::Always, set(&[("NO_COLOR", "1")]), false));
+        assert!(!colored(Color::Never, set(&[("FORCE_COLOR", "1")]), true));
+    }
 }

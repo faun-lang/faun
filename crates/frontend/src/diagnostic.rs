@@ -425,10 +425,23 @@ impl Diagnostic {
         self
     }
 
+    /// The same, rendered for a terminal: in rustc's colours, `error` red,
+    /// the message bold, the gutter and other places blue, where it
+    /// happened red, and `note` and `help` green and cyan.
+    #[must_use]
+    pub const fn colored(&self) -> Colored<'_> {
+        Colored(self)
+    }
+
     /// Write the lines its labels are on, each followed by the marks under
     /// its places, file by file with the file it happened in first. Lines
     /// not next to each other are parted by `...`.
-    fn write_snippets(&self, f: &mut fmt::Formatter<'_>, gutter: &str) -> fmt::Result {
+    fn write_snippets(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        gutter: &str,
+        paint: Paint,
+    ) -> fmt::Result {
         let mut files: Vec<(&Path, Vec<(bool, &Label)>)> = Vec::new();
         for (index, label) in self.labels.iter().enumerate() {
             let path = label.location.path.as_path();
@@ -438,6 +451,7 @@ impl Diagnostic {
                 None => files.push((path, vec![(primary, label)])),
             }
         }
+        let bar = paint.with(GUTTER, " |");
         for (index, (path, mut labels)) in files.into_iter().enumerate() {
             labels.sort_by_key(|(primary, label)| {
                 (label.location.line, !primary, label.location.column)
@@ -446,33 +460,130 @@ impl Diagnostic {
                 let first = &labels[0].1.location;
                 write!(
                     f,
-                    "\n{gutter}::: {}:{}:{}",
+                    "\n{gutter}{} {}:{}:{}",
+                    paint.with(GUTTER, ":::"),
                     path.display(),
                     first.line,
                     first.column
                 )?;
             }
-            write!(f, "\n{gutter} |")?;
+            write!(f, "\n{gutter}{bar}")?;
             let mut previous: Option<usize> = None;
             for line in labels.chunk_by(|a, b| a.1.location.line == b.1.location.line) {
                 let at = &line[0].1.location;
                 if previous.is_some_and(|number| at.line > number + 1) {
-                    write!(f, "\n...")?;
+                    write!(f, "\n{}", paint.with(GUTTER, "..."))?;
                 }
                 previous = Some(at.line);
                 let width = gutter.len();
-                write!(f, "\n{:<width$} | {}", at.line, at.text)?;
-                write_marks(f, gutter, line)?;
+                let number = paint.with(GUTTER, format_args!("{:<width$} |", at.line));
+                write!(f, "\n{number} {}", at.text)?;
+                write_marks(f, gutter, line, paint)?;
             }
+        }
+        Ok(())
+    }
+
+    /// Write its notes, then its help. One of several lines is aligned
+    /// after its `note: `.
+    fn write_footer(&self, f: &mut fmt::Formatter<'_>, gutter: &str, paint: Paint) -> fmt::Result {
+        let equals = paint.with(GUTTER, " =");
+        let notes = self.notes.iter().map(|note| (note, "note", NOTE));
+        let help = self.help.iter().map(|help| (help, "help", HELP));
+        for (text, kind, style) in notes.chain(help) {
+            let indent = " ".repeat(gutter.len() + " = : ".len() + kind.len());
+            let text = text.replace('\n', &format!("\n{indent}"));
+            let kind = paint.with(style, kind);
+            write!(f, "\n{gutter}{equals} {kind}: {text}")?;
+        }
+        Ok(())
+    }
+
+    /// Write it, in colour where `paint` says so.
+    fn render(&self, f: &mut fmt::Formatter<'_>, paint: Paint) -> fmt::Result {
+        let message = paint.with(BOLD, format_args!(": {}", self.message));
+        write!(f, "{}{message}", paint.with(ERROR, "error"))?;
+        let widest = self
+            .labels
+            .iter()
+            .map(|label| label.location.line.to_string().len())
+            .max();
+        let gutter = " ".repeat(widest.unwrap_or(1));
+        let bar = paint.with(GUTTER, " |");
+        let fitted = self.fitted(&gutter);
+        let this = fitted.as_ref();
+        if let Some(at) = this.location() {
+            write!(
+                f,
+                "\n{gutter}{} {}:{}:{}",
+                paint.with(GUTTER, "-->"),
+                at.path.display(),
+                at.line,
+                at.column
+            )?;
+            this.write_snippets(f, &gutter, paint)?;
+            if !this.notes.is_empty() || !this.help.is_empty() {
+                write!(f, "\n{gutter}{bar}")?;
+            }
+        }
+        this.write_footer(f, &gutter, paint)?;
+        for also in &self.also {
+            write!(f, "\n\n")?;
+            also.render(f, paint)?;
         }
         Ok(())
     }
 }
 
+/// A diagnostic rendered for a terminal; see [`Diagnostic::colored`].
+#[derive(Debug)]
+pub struct Colored<'a>(&'a Diagnostic);
+
+impl fmt::Display for Colored<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.render(f, Paint(true))
+    }
+}
+
+/// Whether a rendering is coloured, and how text is when it is: an ANSI
+/// select-graphic-rendition code around it.
+#[derive(Clone, Copy)]
+struct Paint(bool);
+
+impl Paint {
+    fn with(self, style: &str, text: impl fmt::Display) -> String {
+        if self.0 {
+            format!("\x1b[{style}m{text}\x1b[0m")
+        } else {
+            text.to_string()
+        }
+    }
+
+    /// The style of a place's marks and what it says: where it happened,
+    /// or another place.
+    fn of(self, primary: bool, text: impl fmt::Display) -> String {
+        self.with(if primary { ERROR } else { GUTTER }, text)
+    }
+}
+
+/// rustc's colours: bold red for an error and where it happened, bold for
+/// the message, bold blue for the gutter and other places, and the bright
+/// colours of its `note` and `help` levels.
+const ERROR: &str = "1;31";
+const BOLD: &str = "1";
+const GUTTER: &str = "1;34";
+const NOTE: &str = "1;92";
+const HELP: &str = "1;96";
+
 /// Write the marks under one line's places. Places apart from each other
 /// share a row, the rightmost saying what it is beside its marks and each
 /// other below, hung from a `|`; places that overlap each get a row.
-fn write_marks(f: &mut fmt::Formatter<'_>, gutter: &str, labels: &[(bool, &Label)]) -> fmt::Result {
+fn write_marks(
+    f: &mut fmt::Formatter<'_>,
+    gutter: &str,
+    labels: &[(bool, &Label)],
+    paint: Paint,
+) -> fmt::Result {
     let mut labels = labels.to_vec();
     labels.sort_by_key(|(_, label)| label.location.column);
     let apart = labels.windows(2).all(|pair| {
@@ -480,16 +591,22 @@ fn write_marks(f: &mut fmt::Formatter<'_>, gutter: &str, labels: &[(bool, &Label
         let right = &pair[1].1.location;
         left.column + left.width <= right.column
     });
+    let bar = paint.with(GUTTER, " | ");
     if !apart {
         for (primary, label) in labels {
-            write!(f, "\n{gutter} | ")?;
-            write_row(f, &[(primary, label)], label.text.as_str())?;
+            write!(f, "\n{gutter}{bar}")?;
+            write_row(
+                f,
+                &[(primary, label)],
+                (primary, label.text.as_str()),
+                paint,
+            )?;
         }
         return Ok(());
     }
     let (rightmost, hung) = labels.split_last().expect("a line has a place");
-    write!(f, "\n{gutter} | ")?;
-    write_row(f, &labels, rightmost.1.text.as_str())?;
+    write!(f, "\n{gutter}{bar}")?;
+    write_row(f, &labels, (rightmost.0, rightmost.1.text.as_str()), paint)?;
     let hung: Vec<_> = hung
         .iter()
         .filter(|(_, label)| !label.text.is_empty())
@@ -497,19 +614,24 @@ fn write_marks(f: &mut fmt::Formatter<'_>, gutter: &str, labels: &[(bool, &Label
     if hung.is_empty() {
         return Ok(());
     }
-    write!(f, "\n{gutter} | ")?;
-    write_pipes(f, &hung, "")?;
+    write!(f, "\n{gutter}{bar}")?;
+    write_pipes(f, &hung, "", paint)?;
     for index in (0..hung.len()).rev() {
-        write!(f, "\n{gutter} | ")?;
+        write!(f, "\n{gutter}{bar}")?;
         let text = &hung[index].1.text;
-        write_pipes(f, &hung[..=index], text)?;
+        write_pipes(f, &hung[..=index], text, paint)?;
     }
     Ok(())
 }
 
 /// The marks under `labels`, `^` for where it happened and `-` elsewhere,
-/// then `text` after them.
-fn write_row(f: &mut fmt::Formatter<'_>, labels: &[(bool, &Label)], text: &str) -> fmt::Result {
+/// then `text` after them, in the style of the place that says it.
+fn write_row(
+    f: &mut fmt::Formatter<'_>,
+    labels: &[(bool, &Label)],
+    (said_by_primary, text): (bool, &str),
+    paint: Paint,
+) -> fmt::Result {
     let mut written = 1;
     for (primary, label) in labels {
         let at = &label.location;
@@ -518,25 +640,35 @@ fn write_row(f: &mut fmt::Formatter<'_>, labels: &[(bool, &Label)], text: &str) 
             f,
             "{}{}",
             " ".repeat(at.column - written),
-            mark.repeat(at.width)
+            paint.of(*primary, mark.repeat(at.width))
         )?;
         written = at.column + at.width;
     }
     if !text.is_empty() {
-        write!(f, " {text}")?;
+        write!(f, " {}", paint.of(said_by_primary, text))?;
     }
     Ok(())
 }
 
 /// A `|` under the start of each of `labels`, the last replaced by `text`
 /// where there is one.
-fn write_pipes(f: &mut fmt::Formatter<'_>, labels: &[&(bool, &Label)], text: &str) -> fmt::Result {
+fn write_pipes(
+    f: &mut fmt::Formatter<'_>,
+    labels: &[&(bool, &Label)],
+    text: &str,
+    paint: Paint,
+) -> fmt::Result {
     let mut written = 1;
-    for (index, (_, label)) in labels.iter().enumerate() {
+    for (index, (primary, label)) in labels.iter().enumerate() {
         let column = label.location.column;
         let last = index + 1 == labels.len();
         let mark = if last && !text.is_empty() { text } else { "|" };
-        write!(f, "{}{mark}", " ".repeat(column - written))?;
+        write!(
+            f,
+            "{}{}",
+            " ".repeat(column - written),
+            paint.of(*primary, mark)
+        )?;
         written = column + 1;
     }
     Ok(())
@@ -544,43 +676,7 @@ fn write_pipes(f: &mut fmt::Formatter<'_>, labels: &[&(bool, &Label)], text: &st
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "error: {}", self.message)?;
-        let widest = self
-            .labels
-            .iter()
-            .map(|label| label.location.line.to_string().len())
-            .max();
-        let gutter = " ".repeat(widest.unwrap_or(1));
-        let fitted = self.fitted(&gutter);
-        let this = fitted.as_ref();
-        if let Some(at) = this.location() {
-            write!(
-                f,
-                "\n{gutter}--> {}:{}:{}",
-                at.path.display(),
-                at.line,
-                at.column
-            )?;
-            this.write_snippets(f, &gutter)?;
-            if !this.notes.is_empty() || !this.help.is_empty() {
-                write!(f, "\n{gutter} |")?;
-            }
-        }
-        // A note or help of several lines is aligned after its `note: `.
-        let hung = |text: &str, kind: &str| {
-            let indent = " ".repeat(gutter.len() + " = : ".len() + kind.len());
-            text.replace('\n', &format!("\n{indent}"))
-        };
-        for note in &this.notes {
-            write!(f, "\n{gutter} = note: {}", hung(note, "note"))?;
-        }
-        for help in &this.help {
-            write!(f, "\n{gutter} = help: {}", hung(help, "help"))?;
-        }
-        for also in &self.also {
-            write!(f, "\n\n{also}")?;
-        }
-        Ok(())
+        self.render(f, Paint(false))
     }
 }
 
