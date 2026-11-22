@@ -1,0 +1,24 @@
+# `n` values dealt into 16 buckets by their last hex digit, as a radix
+# sort's pass deals them, and joined in order: a fold appending each value
+# to the bucket it reads back out of the list of buckets.
+package {}
+
+import std.host {Host}
+
+dealt : List(Nat) -> List(Nat)
+dealt(values) -> (
+  buckets = values.fold(List.repeat([], 16), |buckets, value| (
+    at = value % 16
+    buckets.put(at, buckets.get(at).ok_or([]).append(value))
+  ))
+  buckets.flatten()
+)
+
+main! : Host -> []
+main!(host) -> (
+  n = Nat.from_str(host.args.get(1).ok_or("1000")).ok_or(1000)
+  out = dealt(List.range(n).map(|i| i * 7919 % 1000))
+  (_, sum) = out.fold((0, 0), |(at, sum), value| (at + 1, (sum + at * value) % 1000000007))
+  printed = host.println!("${out.len()} ${sum}")
+  host.exit!(0)
+)
