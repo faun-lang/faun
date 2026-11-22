@@ -450,6 +450,31 @@ impl Program {
         detail.name.map(|name| self.name(name))
     }
 
+    /// A definition declared beside `id`, named after it with `suffix`,
+    /// taking its parameters, names and all, as `edit` leaves them and
+    /// answering what it answers.
+    pub(super) fn declare_beside(
+        &mut self,
+        id: FnId,
+        suffix: &str,
+        edit: impl FnOnce(&mut Vec<(String, TypeId)>),
+    ) -> FnId {
+        let mut params: Vec<(String, TypeId)> = self
+            .parameter_names(id)
+            .map(str::to_owned)
+            .zip(self.params(id).to_vec())
+            .collect();
+        edit(&mut params);
+        let named: Vec<_> = params
+            .iter()
+            .map(|(name, ty)| (name.as_str(), *ty))
+            .collect();
+        let function = self.function(id);
+        let (name, result) = (function.name, function.result);
+        let name = format!("{}.{suffix}", self.name(name));
+        self.declare_named(&name, &named, result)
+    }
+
     /// # Panics
     ///
     /// If the program outgrew the pools it may have.

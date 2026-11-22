@@ -251,19 +251,8 @@ impl Sites {
 /// A copy of `id`, whose body is `body`, holding the values `key` knows and
 /// calling itself where `id` called itself.
 fn copied(program: &mut Program, id: FnId, body: Body, key: &Key) -> FnId {
-    let function = program.function(id);
-    let (name, result) = (function.name, function.result);
-    let params: Vec<_> = program
-        .parameter_names(id)
-        .map(str::to_owned)
-        .zip(program.params(id).to_vec())
-        .collect();
-    let named: Vec<_> = params
-        .iter()
-        .map(|(name, ty)| (name.as_str(), *ty))
-        .collect();
-    let name = format!("{}.{}", program.name(name), program.functions().len());
-    let copy = program.declare_named(&name, &named, result);
+    let suffix = program.functions().len().to_string();
+    let copy = program.declare_beside(id, &suffix, |_| {});
     let body = holding(program, body, key);
     renamed(program, body, id, copy);
     program.replace_bodies(vec![(copy, body)]);
@@ -304,7 +293,7 @@ fn renamed(program: &mut Program, body: Body, from: FnId, to: FnId) {
 /// How many matches between two or more arms `body` holds. Simplifying a
 /// copy holding a value takes the arm a match on it selects, so a copy with
 /// fewer than its original decided something.
-fn branches(program: &Program, body: Body) -> usize {
+pub(super) fn branches(program: &Program, body: Body) -> usize {
     super::walk::within(program, body)
         .filter(|&expr| matches!(program.expr(expr), Expr::Match(_, arms) if arms.len() > 1))
         .count()
