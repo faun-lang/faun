@@ -550,7 +550,7 @@ fn placed(
     inner: Option<(ExprId, Placing)>,
 ) -> FnId {
     let arity = program.params(id).len();
-    let placed = declared(program, id, "place", |params| {
+    let placed = program.declare_beside(id, "place", |params| {
         params[walk.acc] = ("left".to_owned(), ops.count);
     });
     let param = |at: usize| Atom(Local::at(at));
@@ -582,30 +582,6 @@ fn placed(
     let body = copy::close(program, scope, answer);
     program.replace_bodies(vec![(placed, body)]);
     placed
-}
-
-/// A definition declared beside `id`, named after it with `suffix`, taking
-/// its parameters as `edit` leaves them and answering what it answers.
-fn declared(
-    program: &mut Program,
-    id: FnId,
-    suffix: &str,
-    edit: impl FnOnce(&mut Vec<(String, TypeId)>),
-) -> FnId {
-    let mut params: Vec<(String, TypeId)> = program
-        .parameter_names(id)
-        .map(str::to_owned)
-        .zip(program.params(id).to_vec())
-        .collect();
-    edit(&mut params);
-    let named: Vec<_> = params
-        .iter()
-        .map(|(name, ty)| (name.as_str(), *ty))
-        .collect();
-    let function = program.function(id);
-    let (name, result) = (function.name, function.result);
-    let name = format!("{}.{suffix}", program.name(name));
-    program.declare_named(&name, &named, result)
 }
 
 /// The walk being written again as `placed`, and where `placed` has each
@@ -730,7 +706,7 @@ fn rewritten(
 /// `w` called with nothing built: `w'` on the whole, all of it left. Its
 /// parameters are `w`'s, so a call is sent to it as it stands.
 fn entry(program: &mut Program, id: FnId, walk: &Walk, ops: Operations, placed: FnId) -> FnId {
-    let entry = declared(program, id, "enter", |_| {});
+    let entry = program.declare_beside(id, "enter", |_| {});
     program.define(entry, |b, args| {
         let left = b.call(ops.length, &[args[walk.walked]]);
         let mut going = args.to_vec();

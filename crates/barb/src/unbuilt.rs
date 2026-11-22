@@ -324,7 +324,7 @@ impl Unbuilt<'_> {
     fn copied(&mut self, id: FnId, key: &Key) -> Option<FnId> {
         let body = self.program.function(id).body()?;
         let result = self.program.function(id).result;
-        let before = branches(self.program, body);
+        let before = super::specialize::branches(self.program, body);
         let originals = self.program.params(id).to_vec();
         let mut params: Vec<TypeId> = Vec::new();
         for (at, &ty) in originals.iter().enumerate() {
@@ -361,7 +361,7 @@ impl Unbuilt<'_> {
             .function(copy)
             .body()
             .expect("a copy has a body");
-        (branches(self.program, simplified) < before).then_some(copy)
+        (super::specialize::branches(self.program, simplified) < before).then_some(copy)
     }
 }
 
@@ -443,11 +443,4 @@ fn built(program: &mut Program, shape: &Shape, next: &mut usize, scope: &mut Sco
         .collect();
     let fields = program.terms.hold_atoms(fields.into_iter());
     copy::push(program, scope, Expr::Con(shape.ctor, fields))
-}
-
-/// How many matches between two or more arms `body` holds.
-fn branches(program: &Program, body: Body) -> usize {
-    super::walk::within(program, body)
-        .filter(|&expr| matches!(program.expr(expr), Expr::Match(_, arms) if arms.len() > 1))
-        .count()
 }
