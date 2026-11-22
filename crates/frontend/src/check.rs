@@ -331,6 +331,10 @@ struct Bound {
     /// What a numeral of the type asks of it, where one does: where a use
     /// leaves the type undecided, the numeral takes its default there.
     numeral: Option<Asked>,
+    /// Where the member is written, in this definition's body or in that
+    /// of a definition it uses, so a use that cannot meet it can say where
+    /// it is asked for. None for a bound a signature writes.
+    origin: Option<(ModuleId, super::ast::Span)>,
 }
 
 /// What a numeral asks of its type: to be built from a natural, to be built
@@ -354,6 +358,7 @@ impl Bound {
             bare: self.bare,
             through: self.through,
             numeral: self.numeral,
+            origin: self.origin,
         }
     }
 }
@@ -395,6 +400,13 @@ struct PendingMethod {
     owing: Option<usize>,
     /// What a numeral of the receiver asks of it; see [`Bound::numeral`].
     numeral: Option<Asked>,
+    /// Where the definition whose bound this is asks for it; see
+    /// [`Bound::origin`].
+    origin: Option<(ModuleId, super::ast::Span)>,
+    /// The numeral whose default, and the type it took, gave the receiver
+    /// its type, where one did: where the receiver then lacks the member,
+    /// that numeral is why.
+    defaulted: Option<((ModuleId, super::ast::Span), Ty)>,
     /// Where a written call's parts are, which says which does not fit.
     places: Option<Places>,
     /// The `to_str` showing a failed expectation's side that this is, or

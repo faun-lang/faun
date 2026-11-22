@@ -1,0 +1,9 @@
+import std.host {Host}
+
+rotate((dx, dy), 'L') -> (-dy, dx)
+rotate((dx, dy), _) -> (dy, -dx)
+
+facing(turns) -> turns.fold((0, 1), |facing, turn| rotate(facing, turn))
+
+main! : Host -> []
+main!(host) -> host.exit!(U8.of_nat(facing(['L']).to_str().len()))

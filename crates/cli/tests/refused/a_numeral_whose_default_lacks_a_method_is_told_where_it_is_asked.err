@@ -1,0 +1,10 @@
+error: `Nat` has no field or method `neg`
+ --> a_numeral_whose_default_lacks_a_method_is_told_where_it_is_asked.fn:3:27
+  |
+3 | rotate((dx, dy), 'L') -> (-dy, dx)
+  |                           ^^^
+...
+6 | facing(turns) -> turns.fold((0, 1), |facing, turn| rotate(facing, turn))
+  |                              - nothing decides this numeral's type, so it is a `Nat`
+  |
+  = help: `Nat` has no negative numbers: use `Int` here, for example with a signature, or by writing `Int.of_nat(…)`

@@ -1,0 +1,10 @@
+error: `Nat` has no field or method `abs`
+ --> a_numeral_s_default_is_blamed_for_what_it_decides.fn:5:12
+  |
+5 | size(x) -> x.abs()
+  |            ^^^^^^^
+...
+7 | walked = size(step(0, 3))
+  |                    - nothing decides this numeral's type, so it is a `Nat`
+  |
+  = help: `Nat` has no negative numbers: use `Int` here, for example with a signature, or by writing `Int.of_nat(…)`

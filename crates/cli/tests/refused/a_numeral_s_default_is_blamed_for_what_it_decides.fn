@@ -1,0 +1,10 @@
+import std.host {Host}
+
+step(x, dx) -> x + dx
+
+size(x) -> x.abs()
+
+walked = size(step(0, 3))
+
+main! : Host -> []
+main!(host) -> host.exit!(U8.of_nat(walked.to_str().len()))

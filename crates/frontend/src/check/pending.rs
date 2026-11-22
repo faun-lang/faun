@@ -146,6 +146,8 @@ impl Checker<'_> {
             owed: None,
             owing: None,
             numeral: None,
+            origin: None,
+            defaulted: None,
             places,
             shown: self
                 .sites
@@ -201,6 +203,8 @@ impl Checker<'_> {
                 owed: Some((definition, bound.through)),
                 owing: self.obliging,
                 numeral: bound.numeral,
+                origin: bound.origin,
+                defaulted: None,
                 places: None,
                 shown: self
                     .obliging
@@ -390,24 +394,34 @@ impl Checker<'_> {
                         && !is_generic(self, &generic, &pending.receiver)
                 })
             };
-            // Where it stands, its type, and whether it is a decimal.
+            // Where it stands, its type, whether it is a decimal, and
+            // where it is written.
             let next = |negative: bool| {
                 let written = undecided(negative).map(|index| {
                     let numeral = &self.pending_numerals[index];
                     let decimal = numeral.scale.is_some();
-                    (numeral.module, numeral.span, numeral.ty.clone(), decimal)
+                    let at = (numeral.module, numeral.span);
+                    (
+                        numeral.module,
+                        numeral.span,
+                        numeral.ty.clone(),
+                        decimal,
+                        at,
+                    )
                 });
                 let carried = || {
                     let pending = &self.pending_methods[owed(negative)?];
                     let ty = pending.receiver.clone();
                     let decimal = self.owes_decimal(method_start, &ty);
-                    Some((pending.module, pending.span, ty, decimal))
+                    let at = pending.origin.unwrap_or((pending.module, pending.span));
+                    Some((pending.module, pending.span, ty, decimal, at))
                 };
                 written.or_else(carried)
             };
             let negative = next(true);
             let negated = negative.is_some();
-            let Some((module, span, ty, decimal)) = negative.or_else(|| next(false)) else {
+            let Some((module, span, ty, decimal, written)) = negative.or_else(|| next(false))
+            else {
                 break;
             };
             if !spread {
@@ -427,8 +441,10 @@ impl Checker<'_> {
                 (false, _) if negated => Ty::Named(self.prelude.int, Rc::default()),
                 (false, _) => Ty::Named(self.prelude.nat, Rc::default()),
             };
+            let marked = self.mark_defaulted(method_start, written, &default);
             self.unify_at(module, span, &ty, &default)?;
             self.settle_by(marks, pass, &generic)?;
+            self.unmark(&marked);
         }
         for index in numeral_start..self.pending_numerals.len() {
             let numeral = self.pending_numerals[index].clone();
@@ -452,6 +468,45 @@ impl Checker<'_> {
                 .map_err(|message| failure(closing.module, closing.span, message))?;
         }
         Ok(())
+    }
+
+    /// Mark every method pending since `start` on a receiver not yet
+    /// known as possibly typed by the default the numeral written at
+    /// `written` is about to take, answering those marked. What the
+    /// default and what it settles decide is its doing, so one the type
+    /// then cannot meet says which numeral chose it; [`Self::unmark`]
+    /// clears the mark on those it left undecided.
+    fn mark_defaulted(
+        &mut self,
+        start: usize,
+        written: (ModuleId, crate::ast::Span),
+        default: &Ty,
+    ) -> Vec<usize> {
+        let mut marked = Vec::new();
+        for index in start..self.pending_methods.len() {
+            let pending = &self.pending_methods[index];
+            if !pending.resolved
+                && pending.defaulted.is_none()
+                && matches!(self.infer.resolve(&pending.receiver), Ty::Var(_))
+            {
+                self.pending_methods[index].defaulted = Some((written, default.clone()));
+                marked.push(index);
+            }
+        }
+        marked
+    }
+
+    /// Clear the mark [`Self::mark_defaulted`] left on those `marked`
+    /// whose receiver the default did not decide.
+    fn unmark(&mut self, marked: &[usize]) {
+        for &index in marked {
+            if matches!(
+                self.infer.resolve(&self.pending_methods[index].receiver),
+                Ty::Var(_)
+            ) {
+                self.pending_methods[index].defaulted = None;
+            }
+        }
     }
 
     /// Whether a numeral a definition used here carries in at `receiver`
@@ -703,6 +758,8 @@ impl Checker<'_> {
             owed: None,
             owing: None,
             numeral: Some(asked),
+            origin: None,
+            defaulted: None,
             places: None,
             shown: None,
         });
@@ -721,6 +778,8 @@ impl Checker<'_> {
                 owed: None,
                 owing: None,
                 numeral: Some(Asked::Negation),
+                origin: None,
+                defaulted: None,
                 places: None,
                 shown: None,
             });
@@ -775,6 +834,7 @@ impl Checker<'_> {
                     bare: pending.reach == Reach::Bare,
                     through: None,
                     numeral: pending.numeral,
+                    origin: pending.origin.or(Some((pending.module, pending.span))),
                 }),
             }
             if let Some(site) = pending.site {
@@ -1157,20 +1217,7 @@ impl Checker<'_> {
                             receiver if let Some(refused) = self.unordered(&pending, &receiver) => {
                                 refused
                             }
-                            receiver => {
-                                let message = format!(
-                                    "`{}` has no field or method `{name}`",
-                                    show(&receiver, self.symbols)
-                                );
-                                let refused = failure(pending.module, pending.span, message);
-                                match pending.site.and_then(|site| self.prefix_helps.get(&site)) {
-                                    Some(help) => refused.help(*help),
-                                    None => match self.derivable(pending.name, &receiver) {
-                                        Some(help) => refused.help(help),
-                                        None => refused,
-                                    },
-                                }
-                            }
+                            receiver => self.lacking(&pending, &receiver),
                         };
                         return Err(refused);
                     }
@@ -1211,6 +1258,48 @@ impl Checker<'_> {
             }
             unresolved = next;
         }
+    }
+
+    /// The refusal of `receiver`, a type known, lacking the member
+    /// `pending` asks for. Where a numeral's default chose the type, it is
+    /// told where the member is asked for, beside the numeral, rather than
+    /// at the use that took the default, far from both.
+    fn lacking(&self, pending: &PendingMethod, receiver: &Ty) -> Refusal {
+        let name = self.symbols.text(pending.name);
+        let shown = show(receiver, self.symbols);
+        let message = format!("`{shown}` has no field or method `{name}`");
+        let refused = match &pending.defaulted {
+            Some(((module, span), default)) => {
+                let (at_module, at_span) = pending.origin.unwrap_or((pending.module, pending.span));
+                let default = show(default, self.symbols);
+                failure(at_module, at_span, message).also(
+                    *module,
+                    *span,
+                    format!("nothing decides this numeral's type, so it is a `{default}`"),
+                )
+            }
+            None => failure(pending.module, pending.span, message),
+        };
+        if let Some(help) = pending.site.and_then(|site| self.prefix_helps.get(&site)) {
+            return refused.help(*help);
+        }
+        if let Some(help) = self.derivable(pending.name, receiver) {
+            return refused.help(help);
+        }
+        let int = self.prelude.int;
+        let int_has = self
+            .methods
+            .get(&pending.name)
+            .is_some_and(|implementations| implementations.iter().any(|it| it.owner == int));
+        if *receiver == Ty::Named(self.prelude.nat, Rc::default()) && int_has {
+            let help = if pending.defaulted.is_some() {
+                "`Nat` has no negative numbers: use `Int` here, for example with a signature, or by writing `Int.of_nat(…)`"
+            } else {
+                "`Nat` has no negative numbers: use `Int` here, for example by writing `Int.of_nat(…)`"
+            };
+            return refused.help(help);
+        }
+        refused
     }
 
     /// Leave the failed expectation's side `root` shows unshown, as
@@ -1698,6 +1787,8 @@ impl Checker<'_> {
                 owed: None,
                 owing: None,
                 numeral: None,
+                origin: pending.origin,
+                defaulted: pending.defaulted.clone(),
                 places: None,
                 shown: pending.shown,
             });
