@@ -1,0 +1,35 @@
+# Exact arithmetic as a benchmark: the harmonic number H(n), the sum of one
+# over each of 1 to `n`, and Newton's method for the square root of two run
+# `steps` steps from one, each step doubling the digits; answering the
+# digits of each denominator and their first decimals.
+
+package {
+  uses: {
+    rational: "../src/rational"
+  }
+}
+
+import rational {Rational}
+
+harmonic : Nat -> Rational
+harmonic(n) -> List.range(n).fold(Rational.zero, |sum, k| sum + Rational.of_nat(k + 1).recip())
+
+# `x` after `steps` of Newton's method for `x * x = 2`.
+root_two : (Rational, Nat) -> Rational
+root_two(x, 0) -> x
+root_two(x, Succ(steps)) -> root_two((x + Rational.of_nat(2) / x) / Rational.of_nat(2), steps)
+
+Tally = {harmonic: Str, digits: Nat, root: Str, root_digits: Nat}
+
+app : {args: List(Str)} -> Result(Tally, [Malformed])
+app({args}) -> (
+  n = Nat.from_str(args.get(1).ok_or("2000"))?
+  steps = Nat.from_str(args.get(2).ok_or("10"))?
+  h = harmonic(n)
+  r = root_two(Rational.one, steps)
+  Ok({harmonic: h.to_fixed(6), digits: h.den().to_str().len(), root: r.to_fixed(12), root_digits: r.den().to_str().len()})
+)
+
+main!(host) -> host.run!(app)
+
+expect app({args: ["harmonic", "10", "1"]}) == Ok({harmonic: "2.928968", digits: 4, root: "1.500000000000", root_digits: 1})
