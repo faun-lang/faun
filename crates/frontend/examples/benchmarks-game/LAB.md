@@ -34,9 +34,10 @@ log. A scoring-policy change starts a new measurement series.
   Barb, its machine IR, layout, allocation and x86-64 Linux emission.
   Target-neutral passes may be added to Barb; its input language and
   observable semantics stay the same.
-- The stock x86 backend remains the default. The planned CLI selector
-  is `faun build --target=x86_64-linux --backend=x86-lab`; the selector
-  does not exist at the prep commit. The host stays `x86_64-linux`.
+- The stock x86 backend was the default while the experiment ran, and the
+  new one was chosen beside it. Both are now one: the stock backend is
+  gone, so `faun build --target=x86_64-linux` builds with this one, and
+  no backend is named. The host stays `x86_64-linux`.
   Reuse the frontend, host, standard library and suitable low-level code.
   The stock target trait's input is already lowered machine IR: swapping
   only its emitter would be too late to make placement decisions.
@@ -69,14 +70,13 @@ nix develop -c just codegen-lab --cpu 30 --json target/lab/stock.json
 # Later, after the experimental backend exists and builds:
 new=../faun-lang-x86-lab
 nix develop -c just codegen-lab --cpu 30 --candidate-tree "$new" \
-  --candidate-backend x86-lab --only binary-trees --runs 1 \
-  --json target/lab/try.json
+  --only binary-trees --runs 1 --json target/lab/try.json
 nix develop -c just codegen-lab --cpu 30 --candidate-tree "$new" \
-  --candidate-backend x86-lab --gate --seed 2 --json target/lab/check-1.json
+  --gate --seed 2 --json target/lab/check-1.json
 ```
 
 Repeat the gate on an idle machine with a different seed and report path.
-For a later incumbent, add `--baseline-tree PATH --baseline-backend x86-lab`.
+For a later incumbent, add `--baseline-tree PATH`.
 A focused run is for diagnosis; only a full gate can pass. A failed
 correctness check aborts before a score is written. A completed gate
 writes its evidence even if it rejects the change. Existing reports are

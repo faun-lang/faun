@@ -649,17 +649,15 @@ class Families(unittest.TestCase):
 
 
 class Backend(unittest.TestCase):
-    """One backend is measured, lab, and a cell is a program on a target."""
+    """Every target has one backend, and a cell is a program on a target."""
 
-    def test_every_build_names_the_lab_backend(self):
+    def test_no_build_names_a_backend(self):
         for small in (False, True):
             command = ratchet.faun_command(Path("faun"), WASM, small)
-            at = command.index("--backend")
-            self.assertEqual(command[at + 1], "lab")
+            self.assertNotIn("--backend", command)
             self.assertEqual("--small" in command, small)
-        self.assertFalse(hasattr(ratchet, "BACKENDS"))
 
-    def test_a_probes_twin_is_built_with_lab_too(self):
+    def test_a_probes_twin_is_built_the_same_way(self):
         built = []
 
         def build(side, target, small, workload, directory, file="main.fn"):
@@ -672,7 +670,7 @@ class Backend(unittest.TestCase):
             ratchet.c_build(X86, probe, Path(), side)
         [command] = built
         self.assertEqual(command[-1], "twin.fn")
-        self.assertEqual(command[command.index("--backend") + 1], "lab")
+        self.assertEqual(command[:-1], ratchet.faun_command(Path("faun"), X86, False))
 
     def test_the_summary_has_a_row_a_target(self):
         cells = suite([cell(size=4900, image="two")], target=X86)

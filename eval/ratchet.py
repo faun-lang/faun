@@ -2,14 +2,14 @@
 
 Each side is a checkout directory, built in place, or a git revision, exported
 into a cache and built there; no git worktrees are created. Both compile the
-suite's programs for every target with the lab backend, favouring speed and
-favouring size. A program must print what its C twin prints, and is then
-measured beside it: the instructions, fuel or cycles it ran, the memory it
-used, and the bytes of its image. Beside the suite are the probes: each a
-natural Faun program and its hand-written workaround, its twin, which must
-print the same. Probes named `family-spelling` are one computation spelled
-several ways, a family, whose spread, its worst spelling over its best, is
-scored beside them. See RATCHET.md for the rules.
+suite's programs for every target, favouring speed and favouring size. A
+program must print what its C twin prints, and is then measured beside it: the
+instructions, fuel or cycles it ran, the memory it used, and the bytes of its
+image. Beside the suite are the probes: each a natural Faun program and its
+hand-written workaround, its twin, which must print the same. Probes named
+`family-spelling` are one computation spelled several ways, a family, whose
+spread, its worst spelling over its best, is scored beside them. See RATCHET.md
+for the rules.
 """
 
 import argparse
@@ -53,8 +53,6 @@ SERIES = 9
 
 X86, WASM, MOS = "x86_64-linux", "wasm32-wasi", "mos6502-sim65"
 TARGETS = (X86, WASM, MOS)
-# The one backend measured, named on every build.
-BACKEND = "lab"
 # What is measured of a program: how long it ran, in the target's own steady
 # count; its peak memory; its image built for speed; its image built `--small`;
 # and the instructions the compiler ran to build both.
@@ -560,10 +558,9 @@ def faun_build(side, target, small, workload, directory, file="main.fn"):
 
 
 def faun_command(binary, target, small):
-    """The compiler's command building for a target, the backend named: a
-    revision whose default was another backend builds with lab all the same,
-    and one whose only backend is lab takes the flag as it is."""
-    command = [binary, "build", f"--target={target}", "--backend", BACKEND]
+    """The compiler's command building for a target. Every target has one
+    backend, so none is named."""
+    command = [binary, "build", f"--target={target}"]
     return command + ["--small"] if small else command
 
 
@@ -1389,7 +1386,6 @@ def evaluate(args):
                 "again": AGAIN,
                 "steady": STEADY,
                 "memory_limit": MEMORY,
-                "backend": BACKEND,
             },
         }
         sides = {"candidate": candidate, "incumbent": incumbent}

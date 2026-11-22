@@ -1,4 +1,4 @@
-"""Verify the complete x86-lab MD5 program makes zero Faun heap allocations.
+"""Verify the complete x86-64 MD5 program makes zero Faun heap allocations.
 
 Build main.fn with --symbols. The cases cover both sides of MD5's padding
 boundary, complete compression blocks, and multiple host reads.
@@ -54,7 +54,7 @@ def calls(image, size, work):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "image", type=Path, help="x86-lab MD5 executable built with --symbols"
+        "image", type=Path, help="x86-64 MD5 executable built with --symbols"
     )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="md5-calls-") as directory:

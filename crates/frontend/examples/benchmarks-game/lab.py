@@ -167,7 +167,7 @@ def benchmark(work, args, compilers, name, checked, size, fasta):
     images = {"c": work / f"{name}-c"}
     c_build(args.cc, name, images["c"])
     rows = {}
-    for side, (tree, compiler, backend) in compilers.items():
+    for side, (tree, compiler) in compilers.items():
         # Only main.fn counts as program source. Compiling from an empty
         # package prevents hiding a benchmark-specific helper in another file.
         folder = work / side / name
@@ -175,11 +175,8 @@ def benchmark(work, args, compilers, name, checked, size, fasta):
         src = folder / "main.fn"
         shutil.copyfile(tree / SUITE / name / "main.fn", src)
         image = work / f"{name}-{side}"
-        cmd = [compiler, "build", "--target=x86_64-linux"]
-        if backend:
-            cmd.append(f"--backend={backend}")
         subprocess.run(
-            [*cmd, src, "-o", image],
+            [compiler, "build", "--target=x86_64-linux", src, "-o", image],
             env={
                 **os.environ,
                 "FAUN_STD": str(REPOSITORY / "crates/frontend/standard"),
@@ -295,9 +292,6 @@ def main():
         parser.add_argument(
             f"--{side}-bin", type=Path, help="default: TREE/target/release/faun"
         )
-        parser.add_argument(
-            f"--{side}-backend", help="optional name for faun build --backend"
-        )
     args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         parser.error("requires native x86-64 Linux")
@@ -311,7 +305,7 @@ def main():
         )
     if args.json.exists():
         parser.error(f"{args.json} exists; choose a new report")
-    if (args.candidate_bin or args.candidate_backend) and not args.candidate_tree:
+    if args.candidate_bin and not args.candidate_tree:
         parser.error("choose the candidate source tree with --candidate-tree")
     os.sched_setaffinity(0, {args.cpu})
     compilers, provenance = {}, {}
@@ -324,14 +318,12 @@ def main():
             ).resolve()
             if not binary.is_file() or not os.access(binary, os.X_OK):
                 parser.error(f"build the release compiler first: {binary}")
-            backend = getattr(args, f"{side}_backend")
-            compilers[side] = tree, binary, backend
+            compilers[side] = tree, binary
             provenance[side] = {
                 **revision(tree),
                 "tree": str(tree),
                 "binary": str(binary),
                 "compiler_sha256": sha(binary),
-                "backend": backend or "default",
             }
     report = {
         "schema": 1,
