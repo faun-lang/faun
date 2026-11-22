@@ -1,8 +1,8 @@
 //! A buffer nothing else holds is written where it lies, even where the
-//! program reads it around the write: a run of a list joined to it, and a
-//! read of a list written beside it in the same record, each leave the list
-//! held once when it is written, so a step costs what it writes and not the
-//! whole list.
+//! program reads it around the write: a run of a list joined to it, a read
+//! of a list written beside it in the same record, and an element read out
+//! of a list and written back grown, each leave the list held once when it
+//! is written, so a step costs what it writes and not the whole list.
 mod support;
 
 use support::{Package, run_counted};
@@ -141,4 +141,93 @@ fn a_read_beside_a_write_of_the_same_list_is_made_before_it() {
     let (few, many, _) = per_step(&package, 1024);
     assert_eq!(few, expected(100));
     assert_eq!(many, expected(200));
+}
+
+#[test]
+fn an_element_read_out_and_written_back_grows_where_it_lies() {
+    // Buckets of a radix sort: each step appends to the bucket it reads,
+    // in a binding, in an arm of a match on the read, and in a definition
+    // answering the write, and a step past the last bucket changes nothing. Every bucket starts as one list,
+    // held four times, so each is copied once, by its first append, and
+    // grows where it lies after.
+    let package = Package::new(
+        "in-place-element",
+        r#"
+        deal : (List(List(Nat)), Nat) -> List(List(Nat))
+        deal(buckets, 0) -> buckets
+        deal(buckets, Succ(left)) -> (
+          at = left * 7 % 5
+          put = buckets.put(at, buckets.get(at).ok_or([]).append(left))
+          matched = if put.get(left % 3) is Ok(bucket) then put.put(left % 3, bucket.append(left)) else put
+          deal(dealt(matched, left % 9, left), left)
+        )
+
+        dealt : (List(List(Nat)), Nat, Nat) -> List(List(Nat))
+        dealt(buckets, at, value) if at >= 6 -> dealt(buckets, at - 6, value)
+        dealt(buckets, at, value) -> buckets.put(at, buckets.get(at).ok_or([]).append(value))
+
+        app : {stdin: List(U8), *} -> Str
+        app(input) -> (
+          start = List.repeat(List.range(8000), 4)
+          dealt = deal(start, input.stdin.len())
+          "${start.map(|b| b.len())} ${dealt.map(|b| b.len())} ${dealt.map(|b| b.sum())}"
+        )
+
+        main!(host) -> host.run_stdin!(app)
+    "#,
+    );
+    let expected = |steps: usize| {
+        let mut buckets = vec![(0..8000).collect::<Vec<usize>>(); 4];
+        for left in (0..steps).rev() {
+            for at in [left * 7 % 5, left % 3, left % 9 % 6] {
+                if let Some(bucket) = buckets.get_mut(at) {
+                    bucket.push(left);
+                }
+            }
+        }
+        let lens: Vec<usize> = buckets.iter().map(Vec::len).collect();
+        let sums: Vec<usize> = buckets.iter().map(|b| b.iter().sum()).collect();
+        format!("[8000, 8000, 8000, 8000] {lens:?} {sums:?}")
+    };
+    let (few, many, _) = per_step(&package, 8000);
+    assert_eq!(few, expected(100));
+    assert_eq!(many, expected(200));
+}
+
+#[test]
+fn an_element_written_back_leaves_every_kept_list_as_it_was() {
+    // The list of rows kept beside the one written, a row read out and
+    // kept, a write past the end, rows of cells each grown where it is
+    // read, and words, each a wrapped list.
+    let package = Package::new(
+        "in-place-kept",
+        r#"
+        app : {stdin: List(U8), *} -> Str
+        app(input) -> (
+          rows = List.range(3).map(|r| List.range(r + 1))
+          kept = rows
+          row = rows.get(1).ok_or([])
+          grown = rows.put(1, rows.get(1).ok_or([]).append(9))
+          missed = grown.put(7, grown.get(7).ok_or([]).append(9))
+          grid = List.repeat(List.repeat([], 2), 2)
+          cells = List.range(input.stdin.len()).fold(grid, |grid, n| (
+            r = n % 3
+            c = n / 3 % 2
+            row = grid.get(r).ok_or([])
+            grid.put(r, row.put(c, row.get(c).ok_or([]).append(n)))
+          ))
+          words = List.range(2).map(|n| n.to_str())
+          said = words.put(0, words.get(0).ok_or("").concat("!"))
+          "${kept} ${row} ${grown} ${missed} ${cells} ${words} ${said}"
+        )
+
+        main!(host) -> host.run_stdin!(app)
+    "#,
+    );
+    let (written, _) = spent(&package, 7);
+    assert_eq!(
+        written,
+        "[[0], [0, 1], [0, 1, 2]] [0, 1] [[0], [0, 1, 9], [0, 1, 2]] [[0], [0, 1, 9], [0, 1, 2]] \
+         [[[0, 6], [3]], [[1], [4]]] [\"0\", \"1\"] [\"0!\", \"1\"]"
+    );
 }

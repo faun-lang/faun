@@ -16,13 +16,28 @@
 //! `{head: head.put(key, at), prev: prev.put(at, head.get(key))}` the read of
 //! `head` goes before its `put`.
 //!
+//! A write replacing an element read out of the same sequence at the same
+//! place, `xs.put(i, xs.get(i).ok_or([]).append(v))`, first replaces it
+//! with an empty one, once nothing reads the run `xs.drop(i)` any more. The
+//! element read out then has no other holder than what it was read into,
+//! so where nothing else holds `xs` the element grows in place too, and
+//! the empty one put there is replaced in place; where `xs` is shared, the
+//! first replacement copies it and the second writes in the copy, as one
+//! replacement would. Only an element that is a sequence, or wraps one, is
+//! emptied, since only one of those is written in place, and only where
+//! the write, after the read or first in an arm of a match on what it
+//! read, is the last that reads `xs`.
+//!
 //! Rebuild into fresh term pools, then replace the old pools in one commit.
 //! Declarations and constants stay in place; expression IDs and ranges change.
 
 use super::terms::TermArena;
 use rustc_hash::FxHashMap as HashMap;
 
-use super::{Arm, Atom, Body, Expr, ExprId, FnId, Local, Program, Range, SequenceOperation};
+use super::{
+    Arm, Atom, Body, CtorId, Expr, ExprId, FnId, Local, Program, Range, SequenceOperation, TypeId,
+    TypeShape, type_shape,
+};
 
 pub(super) fn cleanup(program: &mut Program) {
     let recognised = program.recognised().clone();
@@ -66,13 +81,30 @@ struct PlannedBody {
     bindings: Vec<Option<PlannedExpr>>,
     /// The order the kept bindings are worked out in, by index.
     order: Vec<usize>,
+    /// Elements emptied before they are written: see [`Order::emptied`].
+    emptied: Vec<Emptied>,
     tail: PlannedExpr,
+}
+
+/// An element of a sequence replaced with an empty one after the binding
+/// `after`, or first where there is none, before a later write replaces
+/// it: the sequence's and the place's locals, and the constructors building
+/// the empty element, outermost first.
+struct Emptied {
+    after: Option<usize>,
+    sequence: Atom,
+    place: Atom,
+    replace: FnId,
+    empty: Vec<CtorId>,
 }
 
 struct PlannedExpr {
     id: ExprId,
     arms: Vec<PlannedBody>,
 }
+
+/// The elements a body empties: see [`Order::planned`].
+type Emptying = Vec<(Option<(usize, usize)>, Emptied)>;
 
 /// Where a body's local is read, as far as that body can tell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,16 +222,33 @@ fn plan_body(
         }
     }
     let captures = reads.iter().map(|&read| read != Read::Unread).collect();
-    let order = Order::new(program, body, base, sites).reads_first(program, inert);
-    (
-        PlannedBody {
-            sunk: vec![],
-            bindings: kept,
-            order,
-            tail,
-        },
-        captures,
-    )
+    let (order, emptying) = Order::new(program, body, base, sites).planned(program, inert);
+    let planned = PlannedBody {
+        sunk: vec![],
+        bindings: kept,
+        order,
+        emptied: vec![],
+        tail,
+    };
+    (planned.emptying(emptying), captures)
+}
+
+impl PlannedBody {
+    /// Each element in `emptying` emptied where it is: in this body, or
+    /// first in an arm of one of its matches.
+    fn emptying(mut self, emptying: Emptying) -> Self {
+        for (within, empty) in emptying {
+            let Some((site, arm)) = within else {
+                self.emptied.push(empty);
+                continue;
+            };
+            let target = self.bindings.get_mut(site).map_or(&mut self.tail, |kept| {
+                kept.as_mut().expect("a write's match is kept")
+            });
+            target.arms[arm].emptied.push(empty);
+        }
+        self
+    }
 }
 
 /// Plan the expression at `site` of the body `reads` belongs to, which
@@ -250,6 +299,7 @@ fn plan_expr(
 /// reads of a sequence before a write of it.
 struct Order {
     bindings: Vec<ExprId>,
+    tail: ExprId,
     base: usize,
     /// Where each binding is worked out: see [`plan_body`].
     sites: Vec<Option<usize>>,
@@ -278,6 +328,7 @@ impl Order {
         }
         Self {
             bindings,
+            tail: body.tail,
             base,
             sites,
             reads,
@@ -369,6 +420,111 @@ impl Order {
         (!moved.is_empty()).then_some(moved)
     }
 
+    /// The kept bindings' order, and the elements emptied in it: each in
+    /// this body, or first in an arm of a match, by the match's binding, or
+    /// the tail as the number of bindings, and the arm.
+    fn planned(&self, program: &Program, inert: &mut Inert) -> (Vec<usize>, Emptying) {
+        let order = self.reads_first(program, inert);
+        let tail = self.bindings.len();
+        let mut emptied = vec![];
+        for (at, write) in order.iter().copied().chain([tail]).enumerate() {
+            let id = self.bindings.get(write).copied().unwrap_or(self.tail);
+            if let Expr::Match(_, arms) = program.expr(id) {
+                for (arm, &Arm { body, .. }) in program.arms(arms).iter().enumerate() {
+                    let ids = program.bindings(body.bindings).iter().chain([&body.tail]);
+                    for &id in ids {
+                        let empty =
+                            self.emptied(program, inert, &order, ((at, write), (id, Some(body))));
+                        emptied.extend(empty.map(|empty| (Some((write, arm)), empty)));
+                    }
+                }
+            }
+            let empty = self.emptied(program, inert, &order, ((at, write), (id, None)));
+            emptied.extend(empty.map(|empty| (None, empty)));
+        }
+        (order, emptied)
+    }
+
+    /// Where `write`, at `at` in `order`, is `id`, `put(xs, i, e)`, or a
+    /// match one of whose arms, `arm`, holds `id`, and an earlier binding
+    /// `xs.drop(i)` read the element: the element emptied after the last
+    /// binding reading that run, or a run of it, or first in the arm, where
+    /// nothing from there on reads `xs` but `id`.
+    fn emptied(
+        &self,
+        program: &Program,
+        inert: &Inert,
+        order: &[usize],
+        ((at, write), (id, arm)): ((usize, usize), (ExprId, Option<Body>)),
+    ) -> Option<Emptied> {
+        let call = |id: ExprId, operation| match program.expr(id) {
+            Expr::Call(called, args) if inert.sequences[called.index()] == Some(operation) => {
+                Some((called, program.atoms(args)))
+            }
+            _ => None,
+        };
+        let (replace, &[sequence, place, _]) = call(id, SequenceOperation::Replace)? else {
+            return None;
+        };
+        let empty = empty_element(program, program.params(replace)[0])?;
+        let read = order[..at].iter().rposition(|&index| {
+            call(self.bindings[index], SequenceOperation::Drop)
+                .is_some_and(|(_, args)| args == [sequence, place])
+        })?;
+        let (after, held) = self.run_read(program, inert, order, (read, at));
+        let local = sequence.0.index();
+        let tail = self.bindings.len();
+        let mut later = order[after + 1..].iter().copied().chain([tail]);
+        let mut others = later.any(|index| index != write && self.reads(index).contains(&local));
+        others |= self.reads(write).iter().any(|r| held.contains(r));
+        // In an arm, nothing else in it reads `xs`.
+        let mut beside = vec![];
+        if let Some(body) = arm {
+            for &other in program.bindings(body.bindings).iter().chain([&body.tail]) {
+                if other != id {
+                    free_reads(program, other, local + 1, &mut beside);
+                }
+            }
+        }
+        (!others && !beside.contains(&local)).then_some(Emptied {
+            after: arm.is_none().then(|| order[after]),
+            sequence,
+            place,
+            replace,
+            empty,
+        })
+    }
+
+    /// Where in `order`, before `at`, the run the binding at `read` answers,
+    /// or a run of it, is last read, and the locals holding those runs.
+    fn run_read(
+        &self,
+        program: &Program,
+        inert: &Inert,
+        order: &[usize],
+        (read, at): (usize, usize),
+    ) -> (usize, Vec<usize>) {
+        let mut held = vec![self.base + order[read]];
+        let mut after = read;
+        for (between, &index) in order.iter().enumerate().take(at).skip(read + 1) {
+            if self.reads(index).iter().any(|r| held.contains(r)) {
+                after = between;
+                if let Expr::Call(called, _) = program.expr(self.bindings[index])
+                    && inert.views(called)
+                {
+                    held.push(self.base + index);
+                }
+            }
+        }
+        (after, held)
+    }
+
+    /// The locals the binding `index` reads, or the answer where it is the
+    /// number of bindings.
+    fn reads(&self, index: usize) -> &[usize] {
+        self.reads.get(index).unwrap_or(&self.answer)
+    }
+
     /// Add to `moved` the bindings after the write at `at` in `order` that
     /// the binding `index` reads, or `None` where it reads the write's
     /// answer.
@@ -394,6 +550,28 @@ impl Order {
             }
         }
         Some(())
+    }
+}
+
+/// The constructors building an empty element of the sequence type `list`,
+/// outermost first, where it is a sequence or wraps one.
+fn empty_element(program: &Program, list: TypeId) -> Option<Vec<CtorId>> {
+    let TypeShape::Sequence { mut element, .. } = type_shape(program, list) else {
+        return None;
+    };
+    let mut empty = vec![];
+    loop {
+        match type_shape(program, element) {
+            TypeShape::Sequence { empty: nothing, .. } => {
+                empty.push(nothing);
+                return Some(empty);
+            }
+            TypeShape::Wrapper { constructor, field } => {
+                empty.push(constructor);
+                element = field;
+            }
+            _ => return None,
+        }
     }
 }
 
@@ -476,6 +654,7 @@ impl Rewrite<'_> {
             };
             locals[local] = Some(value);
         }
+        level = self.empty(&plan.emptied, None, &mut locals, (&mut bindings, level));
         // Each binding reads the locals written before it, which the order
         // has worked out first, and a match's fields are numbered after them.
         let start = locals.len();
@@ -493,6 +672,8 @@ impl Rewrite<'_> {
                 Atom(Local::at(level - 1))
             };
             locals[start + index] = Some(value);
+            let after = Some(index);
+            level = self.empty(&plan.emptied, after, &mut locals, (&mut bindings, level));
         }
         let expr = self.expr(plan.tail, &locals, level);
         // A body answering its last binding is that binding's expression.
@@ -503,6 +684,35 @@ impl Rewrite<'_> {
             _ => self.terms.push(expr),
         };
         self.terms.hold_body(&bindings, tail)
+    }
+
+    /// Bind each element emptied `after` a binding, or first, and the
+    /// sequence with it put in place of the one read out, which the write,
+    /// the only one reading the sequence from here on, then reads in its
+    /// place. The level after them.
+    fn empty(
+        &mut self,
+        emptied: &[Emptied],
+        after: Option<usize>,
+        locals: &mut [Option<Atom>],
+        (bindings, mut level): (&mut Vec<ExprId>, usize),
+    ) -> usize {
+        for empty in emptied.iter().filter(|empty| empty.after == after) {
+            let mut element = None;
+            for &ctor in empty.empty.iter().rev() {
+                let args = self.terms.hold_atoms(element.into_iter());
+                bindings.push(self.terms.push(Expr::Con(ctor, args)));
+                element = Some(Atom(Local::at(level)));
+                level += 1;
+            }
+            let mut args = vec![local(locals, empty.sequence), local(locals, empty.place)];
+            args.extend(element);
+            let args = self.terms.hold_atoms(args.into_iter());
+            bindings.push(self.terms.push(Expr::Call(empty.replace, args)));
+            locals[empty.sequence.0.index()] = Some(Atom(Local::at(level)));
+            level += 1;
+        }
+        level
     }
 
     fn expr(&mut self, plan: PlannedExpr, locals: &[Option<Atom>], level: usize) -> Expr {
