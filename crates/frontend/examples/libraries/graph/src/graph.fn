@@ -7,17 +7,18 @@
 # `UnGraph`, since each keeps what the other has no use for: a directed
 # graph its edges in, so it turns round without building anything, and an
 # undirected one each edge once. An algorithm asks a graph only the members
-# it uses, and that says which graphs it takes: the walks and Dijkstra ask
-# what `Walkable` asks, the edges leaving each node, which both answer, and
-# so does a grid that works its edges out rather than storing them;
+# it uses, and that says which graphs it takes: the walks, Dijkstra, A* and
+# Bellman-Ford ask what `Walkable` asks, the edges leaving each node, which
+# both answer, and so does a grid that works its edges out rather than
+# storing them;
 # `toposort` asks how many edges come into a node and `strong_components`
 # for the graph turned round, which only a directed graph answers;
 # `components` asks for every edge once, which only an undirected one does.
 #
 # `edge` is what a search asks, `adjacency` how both graphs build their
 # lists, `walk` the walks, which are each one worklist, and `components`,
-# `dijkstra` and `toposort` the rest. Each table a search keeps is written
-# with `List.put`.
+# `dijkstra`, `astar`, `bellman` and `toposort` the rest. Each table a
+# search keeps is written with `List.put`.
 
 package {
   uses: {
@@ -32,8 +33,10 @@ import walk {bfs, dfs}
 import components {components, strong_components}
 import dijkstra {dijkstra, Paths, Weight}
 import toposort {toposort}
+import astar {astar, Route}
+import bellman {bellman_ford}
 
-export {DiGraph, UnGraph, Edge, Unweighted, Walkable, Paths, Weight, bfs, dfs, components, strong_components, dijkstra, toposort}
+export {DiGraph, UnGraph, Edge, Unweighted, Walkable, Paths, Weight, Route, bfs, dfs, components, strong_components, dijkstra, toposort, astar, bellman_ford}
 
 # A diamond with a shortcut that costs more than the long way round.
 diamond : DiGraph(Nat)
@@ -106,3 +109,16 @@ expect toposort(DiGraph.from_edges(3, [(0, 1), (1, 2), (2, 1)])) == Err(Cycle)
 # in that order: 3, 5, 7, 8, 11, 10, 9, 2. The cookbook takes the nodes ready
 # from the start last first, and answers 7, 5, 11, 2, 3, 8, 10, 9.
 expect toposort(DiGraph.from_edges(8, [(1, 4), (1, 6), (2, 7), (3, 7), (3, 4), (4, 5), (4, 6), (7, 0), (7, 5), (7, 6)])) == Ok([1, 2, 3, 4, 7, 6, 5, 0])
+
+# A* with no guess is Dijkstra's search, stopped at the goal.
+expect astar(diamond, 0, 3, |_| 0) == Ok({cost: 4, path: [0, 1, 2, 3]}) & astar(diamond, 3, 0, |_| 0) == Err(Unreachable)
+expect astar(diamond, 2, 2, |_| 0) == Ok({cost: 0, path: [2]}) & astar(diamond, 9, 0, |_| 0) == Err(Unreachable)
+
+# Bellman-Ford takes negative weights, and refuses a cycle below nought.
+expect (
+  signed = DiGraph.from_weighted_edges(4, [(0, 1, 4), (0, 2, 5), (1, 3, -3), (2, 1, -2), (3, 2, 6)])
+  bellman_ford(signed, 0) == Ok([Ok(0), Ok(3), Ok(5), Ok(0)])
+)
+expect bellman_ford(diamond, 0) == Ok([Ok(0), Ok(1), Ok(3), Ok(4)])
+expect bellman_ford(diamond, 2) == Ok([Err(Unreachable), Err(Unreachable), Ok(0), Ok(1)])
+expect bellman_ford(DiGraph.from_weighted_edges(3, [(0, 1, 1), (1, 2, -2), (2, 1, 1)]), 0) == Err(NegativeCycle)
