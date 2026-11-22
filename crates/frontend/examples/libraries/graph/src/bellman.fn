@@ -1,0 +1,33 @@
+# Bellman and Ford's cheapest paths, which allow negative weights: every
+# edge relaxed once a round, as many rounds as there are nodes less one,
+# after which no cheapest path can improve; a round more that still
+# improves one has found a cycle whose weights sum below nought, and no
+# path through it has a cheapest cost.
+
+import edge {Walkable}
+import dijkstra {Weight}
+
+export {bellman_ford}
+
+# The least cost of a path from `source` to each node, `Err(Unreachable)`
+# where none reaches it, or `Err(NegativeCycle)` where a cycle the source
+# reaches costs less than nought.
+bellman_ford : (g, Nat) -> Result(List(Result(e, [Unreachable])), [NegativeCycle]) where Walkable(g, e), Weight(e)
+bellman_ford(graph, source) -> (
+  n = graph.node_count()
+  start = List.repeat(Err(Unreachable), n).put(source, Ok(e.zero))
+  costs = List.range(n).fold(start, |costs, _| relaxed(graph, costs).costs)
+  if relaxed(graph, costs).changed then Err(NegativeCycle) else Ok(costs)
+)
+
+# Every edge relaxed once, in order, and whether any cost fell.
+relaxed : (g, List(Result(e, [Unreachable]))) -> {costs: List(Result(e, [Unreachable])), changed: Bool} where Walkable(g, e), Weight(e)
+relaxed(graph, costs) -> List.range(graph.node_count()).fold({costs, changed: False}, |state, node| (
+  state.costs.get(node) is Ok(Ok(here)) else return state
+  graph.edges_from(node).fold(state, |{costs, changed}, edge| (
+    through = here + edge.weight
+    if costs.get(edge.target) is Ok(Ok(known)) & known <= through return {costs, changed}
+    if edge.target >= costs.len() return {costs, changed}
+    {costs: costs.put(edge.target, Ok(through)), changed: True}
+  ))
+))

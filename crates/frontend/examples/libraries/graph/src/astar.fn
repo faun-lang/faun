@@ -1,0 +1,51 @@
+# A*, Hart, Nilsson and Raphael's: Dijkstra's search toward one goal, its
+# heap ordered by the cost so far plus a guess of the cost still to go, so
+# it settles first the nodes that look nearest the goal and stops there.
+# Where the guess never overestimates, the path found is a cheapest one;
+# a guess of nought everywhere is Dijkstra's algorithm.
+
+import edge {Walkable}
+import heap {Heap}
+import dijkstra {Weight}
+
+export {astar, Route}
+
+# A cheapest route found: what it costs, and its nodes from the source to
+# the goal.
+Route(e) = {cost: e, path: List(Nat)}
+
+# A cheapest route from `source` to `goal`, `guess` saying how far a node
+# looks from the goal. The weights must not be negative.
+astar : (g, Nat, Nat, Nat -> e) -> Result(Route(e), [Unreachable]) where Walkable(g, e), Weight(e)
+astar(graph, source, goal, guess) -> (
+  if source >= graph.node_count() return Err(Unreachable)
+  open = Heap.empty.push(guess(source), {node: source, from: source, cost: e.zero})
+  searched(graph, goal, guess, open, List.repeat(Err(Unreachable), graph.node_count()))
+)
+
+# Every node settled so far, as `Ok` of the node it was reached from, or
+# `Err(Unreachable)`.
+Reached = List(Result(Nat, [Unreachable]))
+
+# The search from `open`, cheapest-looking first: a node's first entry
+# settles it, and the goal's ends the search.
+searched : (g, Nat, Nat -> e, Heap(e, {node: Nat, from: Nat, cost: e}), Reached) -> Result(Route(e), [Unreachable]) where Walkable(g, e), Weight(e)
+searched(graph, goal, guess, open, reached) -> (
+  open.pop() is Ok({value: {node, from, cost}, rest, *}) else return Err(Unreachable)
+  if reached.get(node).ok_or(Ok(node)).is_ok() return searched(graph, goal, guess, rest, reached)
+  reached = reached.put(node, Ok(from))
+  if node == goal return Ok({cost, path: traced(reached, node, [])})
+  onward = graph.edges_from(node).map(|edge| (
+    reaching = cost + edge.weight
+    (reaching + guess(edge.target), {node: edge.target, from: node, cost: reaching})
+  ))
+  searched(graph, goal, guess, rest.push_all(onward), reached)
+)
+
+# The path back from `node` to the node reached from itself, onto `path`.
+traced : (Reached, Nat, List(Nat)) -> List(Nat)
+traced(reached, node, path) -> (
+  walked = [node, *path]
+  reached.get(node).ok_or(Ok(node)) is Ok(from) & from != node else return walked
+  traced(reached, from, walked)
+)

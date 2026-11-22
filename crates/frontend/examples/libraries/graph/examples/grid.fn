@@ -10,7 +10,7 @@ package {
   }
 }
 
-import graph {Edge, bfs, dfs, components, dijkstra}
+import graph {Edge, bfs, dfs, components, dijkstra, astar}
 
 # Cells numbered along each row, then down; a step between neighbours
 # costs one, and a wall is a cell no step enters or leaves.
@@ -66,3 +66,16 @@ expect dijkstra(maze, 0).cost(5) == Err(Unreachable)
 # step enters, is a group of its own.
 expect components(maze) == [[0, 1, 2, 3, 4, 7, 8, 9, 11], [5], [6], [10]]
 expect maze.edges_from(5) == []
+
+# A* guided by the steps a cell is from the goal, walls aside, which never
+# overestimates, finds a route as cheap as Dijkstra's.
+expect astar(maze, 8, 11, |cell| manhattan(cell, 11)).map_ok(|route| route.cost) == Ok(7)
+expect astar(maze, 0, 5, |cell| manhattan(cell, 5)) == Err(Unreachable)
+
+# How many steps apart two cells are, along rows and columns.
+manhattan : (Nat, Nat) -> Nat
+manhattan(a, b) -> (
+  (ax, ay) = (a % 4, a / 4)
+  (bx, by) = (b % 4, b / 4)
+  (ax - bx) + (bx - ax) + (ay - by) + (by - ay)
+)

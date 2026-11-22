@@ -1,0 +1,66 @@
+# The searches as a benchmark: a square grid `side` cells wide, a wall down
+# every fourth column with one gap in each, crossed from one corner to the
+# other by Dijkstra's algorithm and by A* guided by the steps left, and the
+# grid's components counted, answering both costs and the components.
+
+package {
+  uses: {
+    graph: "../src/graph"
+  }
+}
+
+import graph {Edge, dijkstra, astar, components}
+
+# Cells numbered along each row, then down, a step between neighbours
+# costing one. Column `x` is a wall where `x % 4` is 2, but for the row
+# `x * 7 % side`.
+Field : {side: Nat}.(
+  node_count : Field -> Nat
+  node_count(Field({side})) -> side * side
+
+  edges_from : (Field, Nat) -> List(Edge(Nat))
+  edges_from(field is Field({side}), cell) -> (
+    if field.wall(cell) return []
+    (x, y) = (cell % side, cell / side)
+    beside = [(x > 0, cell - 1), (x + 1 < side, cell + 1), (y > 0, cell - side), (y + 1 < side, cell + side)]
+    beside.filter(|(within, next)| within & !field.wall(next)).map(|(_, next)| {target: next, weight: 1})
+  )
+
+  # Every step once, from the earlier cell of the two.
+  edges : Field -> List((Nat, Nat, Nat))
+  edges(field) -> List.range(field.node_count()).flat_map(|cell|
+    field.edges_from(cell).filter(|step| step.target > cell).map(|step| (cell, step.target, step.weight)))
+
+  wall : (Field, Nat) -> Bool
+  wall(Field({side}), cell) -> (
+    (x, y) = (cell % side, cell / side)
+    x % 4 == 2 & y != x * 7 % side
+  )
+)
+
+# How many steps apart two cells are, along rows and columns.
+apart : (Nat, Nat, Nat) -> Nat
+apart(side, a, b) -> (
+  (ax, ay) = (a % side, a / side)
+  (bx, by) = (b % side, b / side)
+  (ax - bx) + (bx - ax) + (ay - by) + (by - ay)
+)
+
+Tally = {dijkstra: Nat, astar: Nat, components: Nat}
+
+app : {args: List(Str)} -> Result(Tally, [Malformed, Unreachable])
+app({args}) -> (
+  side = Nat.from_str(args.get(1).ok_or("200"))?
+  field = Field({side})
+  goal = side * side - 1
+  cheapest = dijkstra(field, 0).cost(goal)?
+  guided = astar(field, 0, goal, |cell| apart(side, cell, goal))?
+  Ok({dijkstra: cheapest, astar: guided.cost, components: components(field).len()})
+)
+
+main!(host) -> host.run!(app)
+
+# The gaps, in rows 5 and 6, lie on a way down and across, so the route
+# costs what the corners are apart; each wall cell is a component of its
+# own beside the one of open cells.
+expect app({args: ["route", "9"]}) == Ok({dijkstra: 16, astar: 16, components: 17})
