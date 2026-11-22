@@ -336,6 +336,18 @@ impl<'s> Grouping<'s> {
                     }),
                 )
             }
+            // `f(x) : T` mixes a signature with a definition's head.
+            ExprKind::Call(callee, _) if matches!(callee.kind, ExprKind::Name(name) if !is_type_name(name, self.source)) =>
+            {
+                let ExprKind::Name(name) = callee.kind else {
+                    unreachable!("matched above")
+                };
+                let name = name.text(self.source);
+                Err(SyntaxError::new(span, "a signature names the function without its parameters")
+                    .help(format!(
+                        "write `{name} : ...` with the parameters' types, and the parameters where it is defined, `{name}(...) -> ...`"
+                    )))
+            }
             _ => self.data(head, typed),
         }
     }
