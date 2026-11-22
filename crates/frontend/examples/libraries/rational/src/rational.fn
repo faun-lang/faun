@@ -21,7 +21,7 @@ Rational : {num: Int, den: Nat}.(
   of_parts : (Int, Int) -> Rational
   of_parts(num, den) -> (
     if den == 0 return zero
-    common = gcd(num.abs(), den.abs())
+    common = num.abs().gcd(den.abs())
     signed = if den.is_negative() then -num else num
     Rational({num: signed / Int.of_nat(common), den: den.abs() / common})
   )
@@ -149,11 +149,6 @@ Rational : {num: Int, den: Nat}.(
   limit_den(r is Rational({den, *}), limit) if den <= limit | limit == 0 -> r
   limit_den(r, limit) -> bounded(r, limit, (0, 1), (1, 0), r)
 )
-
-# The greatest common divisor, Euclid's.
-gcd : (Nat, Nat) -> Nat
-gcd(a, 0) -> a
-gcd(a, b) -> gcd(b, a % b)
 
 # The decimal `text` writes, `-1.25` or `3`.
 decimal : Str -> Result(Rational, [Malformed])
