@@ -356,6 +356,7 @@ fn entry(
         span,
         name: main.symbol,
         patterns: vec![h::Pattern::Bind(h::LocalId(0))],
+        pattern_spans: Vec::new(),
         guard: None,
         body: h::Body {
             bindings,

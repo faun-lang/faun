@@ -1,0 +1,8 @@
+error: `parse_cmd` does not handle every list
+ --> clauses_taking_lists_of_one_length_leave_the_others_unhandled.fn:4:11
+  |
+4 | parse_cmd([a, b]) -> a
+  |           ^^^^^^ only lists of exactly two match
+  |
+  = note: not handled: `[]`, `[_]`, and lists of three or more, `[_, _, _, *_]`
+  = help: add clauses for them, or one that catches the rest: `parse_cmd(_) -> …`

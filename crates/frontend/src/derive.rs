@@ -170,6 +170,7 @@ fn equal_order(
         span,
         name,
         patterns: binds(0..2),
+        pattern_spans: Vec::new(),
         guard: None,
         body: h::Body {
             bindings: Vec::new(),
@@ -481,6 +482,7 @@ impl Writer<'_> {
             span: self.span,
             name: self.name,
             patterns,
+            pattern_spans: Vec::new(),
             guard: None,
             body: h::Body {
                 bindings: Vec::new(),

@@ -1,0 +1,6 @@
+Shape : [Circle(Nat), Square(Nat), Dot, Line(Nat), Ring(Nat, Nat), Star]
+
+size : Shape -> Nat
+size(shape) -> shape is (
+  Circle(r) then r
+)

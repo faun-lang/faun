@@ -1,7 +1,7 @@
-error: `describe` does not cover every case
+error: `describe` does not handle every tag of `Result`
  --> a_tag_inside_a_constructor_must_be_covered.fn:4:1
   |
 4 | describe(Ok(n)) -> n
-  | ^^^^^^^^^^^^^^^^^^^^ no clause matches `describe(Err(Invalid(_)))`
+  | ^^^^^^^^ no clause matches `Err(Invalid(_))`
   |
-  = help: add a clause matching `describe(Err(Invalid(_)))`
+  = help: add a clause for it, or one that catches the rest: `describe(_) -> …`

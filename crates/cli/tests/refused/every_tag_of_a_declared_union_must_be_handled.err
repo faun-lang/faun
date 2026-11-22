@@ -1,0 +1,8 @@
+error: `turn` does not handle every tag of `Dir`
+ --> every_tag_of_a_declared_union_must_be_handled.fn:4:1
+  |
+4 | turn(North) -> East
+  | ^^^^ no clause matches the 2 cases below
+  |
+  = note: not handled: `South` and `West`
+  = help: add clauses for them, or one that catches the rest: `turn(_) -> …`

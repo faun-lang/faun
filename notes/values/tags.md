@@ -263,7 +263,7 @@ the row flows, not on how deep it lies.
   refuses a closed row lacking `A`. The body sees the rest as a caller's,
   and three things are refused. Clauses that take the row apart without
   a catch-all are refused as any clauses not covering their type are,
-  `` no clause matches `f(_)` ``, and arms the same way: `` `[A, *]` may
+  `no clause catches the rest`, and arms the same way: `` `[A, *]` may
   hold tags a caller adds, which no pattern here matches: write a
   catch-all ``. A pattern naming a tag the row does not write, as
   `r.age` under `{name: Str, *}` is refused: `` `B` is not among the

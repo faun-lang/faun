@@ -1,7 +1,8 @@
-error: this `is` does not cover every case
+error: this `is` does not handle every tag of `Shape`
  --> arms_cover_every_case.fn:6:16
   |
 6 | area(shape) -> shape is (
   |                ^^^^^ no arm matches `Square(_)`
   |
-  = help: add an arm matching `Square(_)`, or `_ then …` for the rest
+  = note: an arm with a guard covers nothing here, since the guard may fail
+  = help: add an arm for it, or one that catches the rest: `_ then …`
