@@ -46,6 +46,7 @@ use super::constant::Held;
 use super::evaluate::{CannotFold, Evaluation, Evaluator};
 use super::facts::Recognised;
 use super::inline::{InlineLimits, Inlining};
+use super::rules::{self, Rule, Step::Again, Step::Done};
 use super::{
     Arm, Atom, Body, Expr, ExprId, FnId, Local, Operation, Program, Range, SequenceOperation,
 };
@@ -330,6 +331,93 @@ fn order(program: &Program, rules: Rules, only: Option<&[FnId]>) -> Vec<FnId> {
     }
 }
 
+type CallRule<'a> = Rule<Rewrite<'a>, Scope, Called, Atom>;
+
+/// What a call may be instead, asked in this order: evaluated, decided by
+/// an identity, inlined, answered by an earlier call, then combined with
+/// the constants around it.
+#[expect(clippy::too_many_lines, reason = "one entry per rule, in order")]
+fn call_rules<'a>() -> [CallRule<'a>; 10] {
+    const fn always(_: &Rewrite<'_>) -> bool {
+        true
+    }
+    const fn identities(rewrite: &Rewrite<'_>) -> bool {
+        rewrite.rules.identities
+    }
+    const fn algebra(rewrite: &Rewrite<'_>) -> bool {
+        rewrite.rules.algebra
+    }
+    [
+        Rule {
+            on: always,
+            apply: |rewrite, scope, Called(called, args)| {
+                rewrite
+                    .evaluated(args, scope, |evaluator, args, budget| {
+                        evaluator.call(*called, args, budget)
+                    })
+                    .map(Done)
+            },
+        },
+        Rule {
+            on: always,
+            apply: |rewrite, scope, Called(called, args)| {
+                rewrite.counted(*called, args, scope).map(Done)
+            },
+        },
+        Rule {
+            on: identities,
+            apply: |rewrite, _, Called(called, args)| {
+                rewrite.float_double(*called, args).map(Again)
+            },
+        },
+        Rule {
+            on: identities,
+            apply: |rewrite, _, Called(called, args)| rewrite.one_less(*called, args).map(Done),
+        },
+        Rule {
+            on: identities,
+            apply: |rewrite, scope, Called(called, args)| {
+                rewrite.identity(*called, args, scope).map(Done)
+            },
+        },
+        Rule {
+            on: always,
+            apply: |rewrite, scope, Called(called, args)| {
+                let body = rewrite.callee(*called)?;
+                rewrite.inline_depth += 1;
+                let answer = rewrite.into(body, args.clone(), scope);
+                rewrite.inline_depth -= 1;
+                Some(Done(answer))
+            },
+        },
+        Rule {
+            on: always,
+            apply: |rewrite, scope, Called(called, args)| {
+                let call = rewrite.sharing(*called, args)?;
+                rewrite.shared(&call, scope).map(Done)
+            },
+        },
+        Rule {
+            on: algebra,
+            apply: |rewrite, scope, Called(called, args)| {
+                rewrite.chained(*called, args, scope).map(Again)
+            },
+        },
+        Rule {
+            on: algebra,
+            apply: |rewrite, scope, Called(called, args)| {
+                rewrite.associated(*called, args, scope).map(Again)
+            },
+        },
+        Rule {
+            on: algebra,
+            apply: |rewrite, scope, Called(called, args)| {
+                rewrite.reduced(*called, args, scope).map(Again)
+            },
+        },
+    ]
+}
+
 /// The most answers a question of tags is composed through.
 const TAG_TREE_LEAVES: usize = 16;
 
@@ -442,6 +530,9 @@ struct Rewrite<'a> {
 /// The rest of a body still to write: the body, the binding it goes on
 /// from, and what each binding before that came to.
 struct Rest(Body, usize, Vec<Atom>);
+
+/// A call site: what is called, and with what.
+pub(super) struct Called(FnId, Vec<Atom>);
 
 /// A call as [`Rewrite::shared`] compares it: the definition, and each
 /// operand as the local it is or, where it is known, the value.
@@ -760,10 +851,6 @@ impl Rewrite<'_> {
         let arms = self.program.terms.hold_arms(&found);
         self.push(Expr::Match(locals[scrutinee.0.index()], arms), scope)
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm per expression kind, and the match arm decides before it rebuilds"
-    )]
     fn expr(&mut self, id: ExprId, locals: &[Atom], scope: &mut Scope) -> Atom {
         let expr = match self.program.expr(id) {
             Expr::Atom(a) => return locals[a.0.index()],
@@ -779,54 +866,7 @@ impl Rewrite<'_> {
             }
             Expr::Call(called, args) => {
                 let args = self.args(args, locals);
-                if let Some(held) = self.evaluated(&args, scope, |evaluator, args, budget| {
-                    evaluator.call(called, args, budget)
-                }) {
-                    return held;
-                }
-                if let Some(held) = self.counted(called, &args, scope) {
-                    return held;
-                }
-                if self.rules.identities
-                    && let Some(held) = self.float_double(called, &args, scope)
-                {
-                    return held;
-                }
-                if self.rules.identities
-                    && let Some(held) = self
-                        .one_less(called, &args)
-                        .or_else(|| self.identity(called, &args, scope))
-                {
-                    return held;
-                }
-                if let Some(body) = self.callee(called) {
-                    self.inline_depth += 1;
-                    let answer = self.into(body, args, scope);
-                    self.inline_depth -= 1;
-                    return answer;
-                }
-                let call = self.sharing(called, &args);
-                if let Some(held) = call.as_ref().and_then(|call| self.shared(call, scope)) {
-                    return held;
-                }
-                if self.rules.algebra {
-                    if let Some(held) = self.chained(called, &args, scope) {
-                        return held;
-                    }
-                    if let Some(held) = self.associated(called, &args, scope) {
-                        return held;
-                    }
-                    if let Some(held) = self.reduced(called, &args, scope) {
-                        return held;
-                    }
-                }
-                let args = self.program.terms.hold_atoms(args.into_iter());
-                let held = self.push(Expr::Call(called, args), scope);
-                if let Some(call) = call {
-                    let wrote = *scope.bindings.last().expect("a call just written");
-                    self.calls.insert(call, (held, wrote));
-                }
-                return held;
+                return self.call(Called(called, args), scope);
             }
             Expr::Match(value, arms) => {
                 let scrutinee = locals[value.0.index()];
@@ -931,6 +971,24 @@ impl Rewrite<'_> {
             self.shaped(self.program.expr(binding), base, shape)?;
         }
         self.shaped(self.program.expr(body.tail), base, shape)
+    }
+
+    /// A call, as the first of [`call_rules`] to fire rewrites it, the rules
+    /// asked again of each call a rule rewrites it to, or else written as
+    /// it stands.
+    fn call(&mut self, site: Called, scope: &mut Scope) -> Atom {
+        let Called(called, args) = match rules::rewrite(self, scope, &call_rules(), site) {
+            Ok(answer) => return answer,
+            Err(site) => site,
+        };
+        let call = self.sharing(called, &args);
+        let args = self.held(&args);
+        let held = self.push(Expr::Call(called, args), scope);
+        if let Some(call) = call {
+            let wrote = *scope.bindings.last().expect("a call just written");
+            self.calls.insert(call, (held, wrote));
+        }
+        held
     }
 
     /// The arm a match takes where its scrutinee was written as one
@@ -1533,7 +1591,7 @@ impl Rewrite<'_> {
     /// (x monus a) monus b = x monus (a + b)
     /// (x / a) / b         = x / (a * b)
     /// ```
-    fn chained(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Atom> {
+    fn chained(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Called> {
         let op @ (Operation::Monus | Operation::Div) = self.recognised.operations[called.index()]?
         else {
             return None;
@@ -1558,8 +1616,7 @@ impl Rewrite<'_> {
             _ => unreachable!("a directional arithmetic chain"),
         };
         let combined = self.calculate(combine, called, inner_constant, outer_constant, scope)?;
-        let args = self.held(&[dynamic, combined]);
-        Some(self.push(Expr::Call(called, args), scope))
+        Some(Called(called, vec![dynamic, combined]))
     }
 
     /// Combine constants across one nested associative operation.
@@ -1569,7 +1626,7 @@ impl Rewrite<'_> {
     /// same pure, total operation; rewriting them neither drops nor reorders
     /// observable work. Constants are combined under the same bounded
     /// evaluator as ordinary folding.
-    fn associated(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Atom> {
+    fn associated(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Called> {
         let op @ (Operation::Add | Operation::Mul) = self.recognised.operations[called.index()]?
         else {
             return None;
@@ -1585,14 +1642,16 @@ impl Rewrite<'_> {
             (false, true) => (right, left, false),
             _ => return None,
         };
+        // Where nothing combines, a lone constant goes on the right.
+        let commuted = swap.then(|| Called(called, vec![inner, outer_constant]));
         let Some(inner_expr) = scope.wrote(inner) else {
-            return self.commuted(called, inner, outer_constant, swap, scope);
+            return commuted;
         };
         let Expr::Call(inner_called, inner_args) = self.program.expr(inner_expr) else {
-            return self.commuted(called, inner, outer_constant, swap, scope);
+            return commuted;
         };
         if self.recognised.operations[inner_called.index()] != Some(op) {
-            return self.commuted(called, inner, outer_constant, swap, scope);
+            return commuted;
         }
         let [inner_left, inner_right] = *self.program.atoms(inner_args) else {
             return None;
@@ -1606,25 +1665,7 @@ impl Rewrite<'_> {
             _ => return None,
         };
         let combined = self.calculate(op, called, outer_constant, inner_constant, scope)?;
-        let args = self.held(&[dynamic, combined]);
-        Some(self.push(Expr::Call(called, args), scope))
-    }
-
-    /// Put a lone constant on the right, leaving an already canonical call
-    /// for the ordinary rebuilding path.
-    fn commuted(
-        &mut self,
-        called: FnId,
-        dynamic: Atom,
-        constant: Atom,
-        swap: bool,
-        scope: &mut Scope,
-    ) -> Option<Atom> {
-        if !swap {
-            return None;
-        }
-        let args = self.held(&[dynamic, constant]);
-        Some(self.push(Expr::Call(called, args), scope))
+        Some(Called(called, vec![dynamic, combined]))
     }
 
     /// Evaluate two known operands under this pass's shared folding budget.
@@ -1846,7 +1887,7 @@ impl Rewrite<'_> {
     /// Only a power of two: any other modulus leaves three divisions where
     /// there was one. And not truncated subtraction, which stops at nought
     /// rather than carrying through, nor division or the remainder itself.
-    fn reduced(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Atom> {
+    fn reduced(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Option<Called> {
         if self.recognised.operations[called.index()] != Some(Operation::Mod) {
             return None;
         }
@@ -1887,8 +1928,7 @@ impl Rewrite<'_> {
         };
         let args = self.held(&[low, right]);
         let sum = self.push(Expr::Call(inner, args), scope);
-        let args = self.held(&[sum, modulus]);
-        Some(self.push(Expr::Call(called, args), scope))
+        Some(Called(called, vec![sum, modulus]))
     }
 
     /// One side of it, reduced unless it already is.

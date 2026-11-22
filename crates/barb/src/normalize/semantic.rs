@@ -1,5 +1,5 @@
 //! Value identities applied before storage or instruction selection.
-use super::{Atom, Expr, FnId, Rewrite, Scope};
+use super::{Atom, Called, Expr, FnId, Rewrite, Scope};
 use crate::float::{Float, Format, Operation};
 
 impl Rewrite<'_> {
@@ -51,12 +51,7 @@ impl Rewrite<'_> {
 
     /// Under Faun's IEEE semantics, doubling has the same rounded result
     /// through addition, including infinities and the sign of zero.
-    pub(super) fn float_double(
-        &mut self,
-        called: FnId,
-        args: &[Atom],
-        scope: &mut Scope,
-    ) -> Option<Atom> {
+    pub(super) fn float_double(&self, called: FnId, args: &[Atom]) -> Option<Called> {
         let float = self.recognised.floats[called.index()]?;
         if float.operation != Operation::Mul {
             return None;
@@ -88,7 +83,6 @@ impl Rewrite<'_> {
                     && self.program.function(id).result == self.program.function(called).result)
                     .then_some(id)
             })?;
-        let args = self.program.terms.hold_atoms([value, value].into_iter());
-        Some(self.push(Expr::Call(function, args), scope))
+        Some(Called(function, vec![value, value]))
     }
 }
