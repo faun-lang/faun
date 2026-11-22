@@ -174,6 +174,44 @@ impl<I> Code<I> {
     }
 }
 
+/// Which of `count` steps need their wide form, and where every step lands
+/// once they have it.
+///
+/// `len` is what step `id` costs, wide or not, and `misses` whether step
+/// `id`, short, fails to reach where it goes from where `at` puts it, which
+/// only a branch can.
+///
+/// Nothing is written to find out. Every branch starts short, and any
+/// found not to reach is widened and the measuring done again; a branch
+/// only ever widens, so this settles.
+pub fn settled(
+    count: usize,
+    len: impl Fn(usize, bool) -> usize,
+    misses: impl Fn(&[usize], usize) -> bool,
+) -> (Vec<bool>, Vec<usize>) {
+    let mut far = vec![false; count];
+    loop {
+        // Where each step would land, at the widths it was given.
+        let mut at = Vec::with_capacity(count + 1);
+        let mut held = 0;
+        for (id, &wide) in far.iter().enumerate() {
+            at.push(held);
+            held += len(id, wide);
+        }
+        at.push(held);
+        let mut again = false;
+        for (id, wide) in far.iter_mut().enumerate() {
+            if !*wide && misses(&at, id) {
+                *wide = true;
+                again = true;
+            }
+        }
+        if !again {
+            return (far, at);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Code;

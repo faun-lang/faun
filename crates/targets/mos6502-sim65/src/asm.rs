@@ -1031,43 +1031,15 @@ impl Assembler {
 
     /// Which branches do not reach, and where every step lands once they
     /// have the width they need.
-    ///
-    /// Nothing is written to find out. Every branch starts near, and any
-    /// found not to reach is widened and the measuring done again; a branch
-    /// only ever widens, so this settles.
     fn settled(&self) -> (Vec<bool>, Vec<usize>) {
-        let mut far = vec![false; self.code.insts().len()];
-        loop {
-            let at = self.positions(&far);
-            let mut again = false;
-            for (id, inst) in self.code.insts().iter().enumerate() {
-                let Inst::Branch { to, .. } = *inst else {
-                    continue;
-                };
-                if far[id] {
-                    continue;
-                }
-                if i8::try_from(self.step_to(&at, id, to, 2)).is_err() {
-                    far[id] = true;
-                    again = true;
-                }
-            }
-            if !again {
-                return (far, at);
-            }
-        }
-    }
-
-    /// Where each step would land in the image, at the widths it was given.
-    fn positions(&self, far: &[bool]) -> Vec<usize> {
-        let mut at = Vec::with_capacity(self.code.insts().len() + 1);
-        let mut held = 0;
-        for (id, inst) in self.code.insts().iter().enumerate() {
-            at.push(held);
-            held += inst.len(far[id]);
-        }
-        at.push(held);
-        at
+        let insts = self.code.insts();
+        let len = |id: usize, far| insts[id].len(far);
+        faun_core::targets::code::settled(insts.len(), len, |at, id| {
+            let Inst::Branch { to, .. } = insts[id] else {
+                return false;
+            };
+            i8::try_from(self.step_to(at, id, to, 2)).is_err()
+        })
     }
 
     /// Where a label stands, as the machine addresses it.
