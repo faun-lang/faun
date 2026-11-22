@@ -26,7 +26,7 @@ pub(crate) fn encode(program: &Allocated) -> Code {
             Inst::Move { dst, src, width } => {
                 asm.mov_reg(dst, src, width == RegisterWidth::Word);
             }
-            Inst::PushImmediate(value) => asm.push_imm8(value),
+            Inst::PushImmediate(value) => asm.fixed(&[0x6A, value.cast_unsigned()]),
             Inst::PushRegister { src } => asm.push_reg(src),
             Inst::Pop { dst } => asm.pop(dst),
             Inst::MoveImmediate32 { dst, value } => asm.mov_imm32(dst, value),
@@ -94,18 +94,18 @@ pub(crate) fn encode(program: &Allocated) -> Code {
                 right,
             } => asm.float(float, dst, left, right),
             Inst::Divide(width) => asm.divide(width),
-            Inst::Syscall => asm.syscall(),
-            Inst::Halt => asm.halt(),
-            Inst::LoadStack { dst, displacement } => asm.load_slot(dst, displacement),
+            Inst::Syscall => asm.fixed(&[0x0F, 0x05]),
+            Inst::Halt => asm.fixed(&[0xF4]),
+            Inst::LoadStack { dst, displacement } => asm.slot(0x8B, dst, displacement),
             Inst::LoadStackNarrow {
                 dst,
                 displacement,
                 bits,
             } => asm.load_stack_narrow(dst, displacement, bits),
-            Inst::LoadFrame { dst, slot } => asm.load_slot(dst, slot.offset()),
-            Inst::StoreFrame { src, slot } => asm.store_slot(src, slot.offset()),
-            Inst::OpenFrame { slots } => asm.open_frame(frame_bytes(slots)),
-            Inst::CloseFrame { slots } => asm.close_frame(frame_bytes(slots)),
+            Inst::LoadFrame { dst, slot } => asm.slot(0x8B, dst, slot.offset()),
+            Inst::StoreFrame { src, slot } => asm.slot(0x89, src, slot.offset()),
+            Inst::OpenFrame { slots } => asm.adjust_rsp(0xEC, frame_bytes(slots)),
+            Inst::CloseFrame { slots } => asm.adjust_rsp(0xC4, frame_bytes(slots)),
             Inst::Alu { op, dst, src, bits } => {
                 asm.alu_sized(alu_opcode(op), dst, src, bits);
             }
@@ -124,12 +124,9 @@ pub(crate) fn encode(program: &Allocated) -> Code {
                 let hole = asm.call();
                 branches.push((hole, target));
             }
-            Inst::Return => asm.ret(),
+            Inst::Return => asm.fixed(&[0xC3]),
             Inst::Jump { condition, target } => {
-                let hole = match condition {
-                    Some(condition) => asm.jump_if(condition_code(condition)),
-                    None => asm.jump(),
-                };
+                let hole = asm.branch(condition.map(condition_code));
                 branches.push((hole, target));
             }
         }
@@ -307,50 +304,21 @@ impl RawEncoder {
     /// Which jumps need four bytes of displacement, and where every step
     /// lands once they have them.
     ///
-    /// Nothing is written to find out. Every jump starts near, and any
-    /// found not to reach is widened and the measuring done again; a jump
-    /// only ever widens, so this settles.
-    ///
     /// # Panics
     ///
     /// If a jump was never aimed.
     fn settled(&self) -> (Vec<bool>, Vec<usize>) {
-        let mut far = vec![false; self.insts.len()];
-        loop {
-            let at = self.positions(&far);
-            let mut again = false;
-            for (id, inst) in self.insts.iter().enumerate() {
-                let RawInst::Jump { to, .. } = *inst else {
-                    continue;
-                };
-                if far[id] {
-                    continue;
-                }
-                let to = to.expect("every jump is aimed");
-                let from = at[id] + inst.len(false);
-                let step = i64::try_from(at[to]).expect("a reachable offset")
-                    - i64::try_from(from).expect("a reachable offset");
-                if i8::try_from(step).is_err() {
-                    far[id] = true;
-                    again = true;
-                }
-            }
-            if !again {
-                return (far, at);
-            }
-        }
-    }
-
-    /// Where each step would land, at the widths it was given.
-    fn positions(&self, far: &[bool]) -> Vec<usize> {
-        let mut at = Vec::with_capacity(self.insts.len() + 1);
-        let mut held = 0;
-        for (id, inst) in self.insts.iter().enumerate() {
-            at.push(held);
-            held += inst.len(far[id]);
-        }
-        at.push(held);
-        at
+        let len = |id: usize, far| self.insts[id].len(far);
+        faun_core::targets::code::settled(self.insts.len(), len, |at, id| {
+            let RawInst::Jump { to, .. } = self.insts[id] else {
+                return false;
+            };
+            let to = to.expect("every jump is aimed");
+            let from = at[id] + self.insts[id].len(false);
+            let step = i64::try_from(at[to]).expect("a reachable offset")
+                - i64::try_from(from).expect("a reachable offset");
+            i8::try_from(step).is_err()
+        })
     }
 
     /// The shortest zeroing, and it clears all 64 bits despite naming the
@@ -395,10 +363,12 @@ impl RawEncoder {
         }
     }
 
-    /// Sign-extends to a full 64-bit stack slot.
-    fn push_imm8(&mut self, value: i8) {
+    /// One step of bytes that are the same wherever it lands: a push of a
+    /// byte, which sign-extends to a full 64-bit stack slot, a `syscall`, a
+    /// `hlt` or a `ret`.
+    fn fixed(&mut self, bytes: &[u8]) {
         self.step();
-        self.emit(&[0x6A, value.cast_unsigned()]);
+        self.emit(bytes);
     }
 
     fn push_reg(&mut self, src: Reg) {
@@ -722,28 +692,6 @@ impl RawEncoder {
         self.emit(&[0xF7, 0xF1]);
     }
 
-    fn syscall(&mut self) {
-        self.step();
-        self.emit(&[0x0F, 0x05]);
-    }
-
-    fn halt(&mut self) {
-        self.step();
-        self.emit(&[0xF4]);
-    }
-
-    /// A `ModRM` `rm` of 100 means a SIB byte follows; 0x24 is rsp as the
-    /// base with no index.
-    fn load_slot(&mut self, dst: Reg, disp: u32) {
-        self.step();
-        self.slot(0x8B, dst, disp);
-    }
-
-    fn store_slot(&mut self, src: Reg, disp: u32) {
-        self.step();
-        self.slot(0x89, src, disp);
-    }
-
     fn load_stack_narrow(&mut self, dst: Reg, disp: u32, bits: u16) {
         self.step();
         let mode = match disp {
@@ -765,9 +713,12 @@ impl RawEncoder {
         }
     }
 
-    /// The `ModRM` mode says how much displacement follows, so a slot near
-    /// the stack pointer costs less to reach than a distant one.
+    /// A load from a stack slot, `0x8B`, or a store to one, `0x89`. The
+    /// `ModRM` mode says how much displacement follows, so a slot near the
+    /// stack pointer costs less to reach than a distant one; an `rm` of 100
+    /// means a SIB byte follows, and 0x24 is rsp as the base with no index.
     fn slot(&mut self, opcode: u8, reg: Reg, disp: u32) {
+        self.step();
         let mode = match disp {
             0 => 0x00,
             1..=0x7F => 0x40,
@@ -788,14 +739,6 @@ impl RawEncoder {
         }
     }
 
-    fn open_frame(&mut self, bytes: u32) {
-        self.step();
-        self.adjust_rsp(0xEC, bytes);
-    }
-
-    /// `dst = dst op src` at the width a class fixes. The 32-bit form is
-    /// the one to reach for: it zero-extends into the whole register, so
-    /// nothing has to follow it.
     /// `dst = dst op src`, in the narrowest form that leaves nought above
     /// the bits it answers. The eight- and sixteen-bit forms write only
     /// their own half of the register and are no use for that; the
@@ -804,12 +747,8 @@ impl RawEncoder {
     /// nothing above what it needs.
     fn alu_sized(&mut self, opcode: u8, dst: Reg, src: Reg, bits: u16) {
         self.step();
-        if bits <= 32 {
-            self.rex(false, Some(src), dst);
-            self.emit(&[opcode, modrm(src, dst)]);
-        } else {
-            self.alu(opcode, dst, src);
-        }
+        self.rex(bits > 32, Some(src), dst);
+        self.emit(&[opcode, modrm(src, dst)]);
     }
 
     fn alu_immediate(&mut self, op: Alu, dst: Reg, immediate: i32, bits: u16) {
@@ -831,13 +770,6 @@ impl RawEncoder {
             self.emit(&[0x81, operand]);
             self.emit(&immediate.to_le_bytes());
         }
-    }
-
-    /// `dst = dst op src`.
-    fn alu(&mut self, opcode: u8, dst: Reg, src: Reg) {
-        self.step();
-        self.rex(true, Some(src), dst);
-        self.emit(&[opcode, modrm(src, dst)]);
     }
 
     /// `dst = 1` when the flags satisfy `cc`, else 0, zero-extended.
@@ -872,20 +804,11 @@ impl RawEncoder {
         self.insts.len() - 1
     }
 
-    fn ret(&mut self) {
-        self.step();
-        self.emit(&[0xC3]);
-    }
-
-    fn close_frame(&mut self, bytes: u32) {
-        self.step();
-        self.adjust_rsp(0xC4, bytes);
-    }
-
-    /// `sub rsp` or `add rsp`, which differ only in their `ModRM`. The
-    /// sign-extended byte form takes three bytes fewer, so a small frame
-    /// uses it.
+    /// `sub rsp` or `add rsp`, opening or closing a frame, which differ
+    /// only in their `ModRM`. The sign-extended byte form takes three bytes
+    /// fewer, so a small frame uses it.
     fn adjust_rsp(&mut self, modrm: u8, bytes: u32) {
+        self.step();
         if let Ok(small) = i8::try_from(bytes) {
             self.emit(&[0x48, 0x83, modrm, small.cast_unsigned()]);
         } else {
@@ -894,16 +817,8 @@ impl RawEncoder {
         }
     }
 
-    /// Unconditional, or taken when the flags satisfy `cc`. Both answer
-    /// which step they are, for saying later where they go.
-    fn jump(&mut self) -> usize {
-        self.branch(None)
-    }
-
-    fn jump_if(&mut self, cc: u8) -> usize {
-        self.branch(Some(cc))
-    }
-
+    /// Unconditional, or taken when the flags satisfy `cc`: which step it
+    /// is, for saying later where it goes.
     fn branch(&mut self, cc: Option<u8>) -> usize {
         self.close();
         self.insts.push(RawInst::Jump { cc, to: None });
