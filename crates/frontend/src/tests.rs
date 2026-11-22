@@ -239,7 +239,7 @@ fn a_tag_row_may_end_in_a_star() {
         ]
     );
     for (source, said) in [
-        ("f : [*, A] -> Nat\n", "expected `]`, found `A`"),
+        ("f : [*, A] -> Nat\n", "comes after all its tags"),
         ("f : [A, *r] -> Nat\n", "expected `]`, found `r`"),
         ("f : [A, *, *] -> Nat\n", "a tag row holds one `*`"),
     ] {
@@ -344,16 +344,27 @@ fn every_line_that_cannot_be_read_is_told_at_once() {
     assert!(told[2].1.contains("found `)`"), "{told:?}");
 }
 
-/// A tag row's `*` is one rest, after a comma: a second `*`, or one with
-/// no comma before it, is told so with the row written as it should be,
-/// not with a list's advice.
+/// Each source is refused with the message and help given: a row's `*`
+/// misplaced is told with the row written as it should be.
+fn told(cases: &[(&str, &str, &str)]) {
+    for &(source, message, help) in cases {
+        let error = parse(source).unwrap_err();
+        assert_eq!(error.message, message, "{source}");
+        assert_eq!(error.advice.help, [help], "{source}");
+    }
+}
+
+/// A tag row's `*` is one rest, after a comma and its tags: a second `*`,
+/// one with no comma before it, or tags after it, is told so with the row
+/// written as it should be, not with a list's advice.
 #[test]
 fn a_tag_row_s_star_is_one_rest_after_a_comma() {
-    for (source, message, help) in [
+    let any = "for these tags or any others, write";
+    told(&[
         (
             "f : [A, B(Nat), *, *] -> Nat\n",
             "a tag row holds one `*`, written last",
-            "for these tags or any others, write `[A, B(Nat), *]`",
+            &format!("{any} `[A, B(Nat), *]`"),
         ),
         (
             "f : [*, *] -> Nat\n",
@@ -363,18 +374,65 @@ fn a_tag_row_s_star_is_one_rest_after_a_comma() {
         (
             "f : [A *] -> Nat\n",
             "a tag row's `*` follows its tags after a comma",
-            "for these tags or any others, write `[A, *]`",
+            &format!("{any} `[A, *]`"),
         ),
         (
             "f : [A*] -> Nat\n",
             "a tag row's `*` follows its tags after a comma",
-            "for these tags or any others, write `[A, *]`",
+            &format!("{any} `[A, *]`"),
         ),
-    ] {
-        let error = parse(source).unwrap_err();
-        assert_eq!(error.message, message, "{source}");
-        assert_eq!(error.advice.help, [help], "{source}");
-    }
+        (
+            "f : [A, *, B(Nat), C] -> Nat\n",
+            "a tag row's `*` comes after all its tags",
+            &format!("{any} `[A, B(Nat), C, *]`"),
+        ),
+        (
+            "f : [*, A] -> Nat\n",
+            "a tag row's `*` comes after all its tags",
+            &format!("{any} `[A, *]`"),
+        ),
+    ]);
+}
+
+/// A record type's `*` is told as a tag row's is, of its fields.
+#[test]
+fn a_record_type_s_star_is_one_rest_after_a_comma() {
+    let any = "for these fields or any others, write";
+    told(&[
+        (
+            "f : {x: Nat, *, *} -> Nat\n",
+            "a record type holds one `*`, written last",
+            &format!("{any} `{{x: Nat, *}}`"),
+        ),
+        (
+            "f : {*, *} -> Nat\n",
+            "a record type holds one `*`, written last",
+            "for any fields, write `{*}`",
+        ),
+        (
+            "f : {x: Nat *} -> Nat\n",
+            "a record type's `*` follows its fields after a comma",
+            &format!("{any} `{{x: Nat, *}}`"),
+        ),
+        (
+            "f : {x: Nat*} -> Nat\n",
+            "a record type's `*` follows its fields after a comma",
+            &format!("{any} `{{x: Nat, *}}`"),
+        ),
+        (
+            "f : {x: Nat, *, y: Nat -> Nat} -> Nat\n",
+            "a record type's `*` comes after all its fields",
+            &format!("{any} `{{x: Nat, y: Nat -> Nat, *}}`"),
+        ),
+        (
+            "f : {*, x: Nat} -> Nat\n",
+            "a record type's `*` comes after all its fields",
+            &format!("{any} `{{x: Nat, *}}`"),
+        ),
+    ]);
+    // A rest named where a record type has none is not a field after it.
+    let error = parse("f : {x: Nat, *r} -> Nat\n").unwrap_err();
+    assert!(error.message.contains("found `r`"), "{}", error.message);
 }
 
 /// A file that is not Faun is read for its first twenty errors and no
