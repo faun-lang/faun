@@ -1407,7 +1407,7 @@ impl<'a> Lowering<'a> {
                     self.asm.jump(self.block_labels[else_target.index()]);
                 }
             }
-            Terminator::Return { values } => {
+            Terminator::Return { values, .. } => {
                 let owner = self.selected.blocks[layout.block].owner;
                 if owner == entry {
                     if values.is_empty() {
