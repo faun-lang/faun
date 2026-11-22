@@ -9,31 +9,14 @@ use num_bigint::BigUint;
 
 use barb::Bounds;
 
+use super::test_support::returned;
 use super::{Binary, Class, Op, Program, Relation, Returns, ValueId, evaluate, optimize, validate};
 
 const BIT: Class = Class::fixed(1);
 
-/// A host that answers nothing, for programs that call nothing.
-struct Silent;
-
-impl evaluate::Host for Silent {
-    fn call(
-        &mut self,
-        name: &str,
-        _: &[BigUint],
-        _: &mut evaluate::Memory<'_>,
-    ) -> Result<evaluate::HostResult, evaluate::Error> {
-        Err(evaluate::Error::Host(name.to_owned()))
-    }
-}
-
 fn returns(p: &Program) -> BigUint {
     validate(p).expect("a sound program");
-    evaluate::evaluate(p, p.entry(), &[], evaluate::Config::default(), &mut Silent)
-        .expect("reference execution")
-        .returned()
-        .expect("a returning program")[0]
-        .clone()
+    returned(p, p.entry())[0].clone()
 }
 
 /// Optimized, having checked that it still answers what it answered.

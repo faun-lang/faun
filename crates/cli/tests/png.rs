@@ -6,75 +6,24 @@
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+mod support;
 
-fn library() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/examples/libraries/png")
-}
+use std::path::PathBuf;
+use std::process::Stdio;
 
-/// The example built once into a directory of its own, removed when
-/// dropped.
-struct ToPam(PathBuf);
+use support::{Built, crc32, exit_code, file_name as name, library, pipe};
 
-impl ToPam {
-    fn build() -> Self {
-        // Numbered, since `cargo test` runs this file's tests side by side
-        // in one process, and each builds into, and then removes, its own.
-        static MADE: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "faun-png-{}-{}",
-            std::process::id(),
-            MADE.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let image = dir.join("topam");
-        let status = Command::new(env!("CARGO_BIN_EXE_faun"))
-            .arg("build")
-            .arg(format!("--output={}", image.display()))
-            .arg(library().join("examples/topam.fn"))
-            .status()
-            .unwrap();
-        assert!(status.success(), "the png example builds");
-        Self(dir)
-    }
-
-    /// The status the example exits with on `input`, and the pixels it
-    /// wrote after the PAM header.
-    fn decode(&self, input: &[u8]) -> (i32, Vec<u8>) {
-        let mut child = Command::new(self.0.join("topam"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let mut stdin = child.stdin.take().unwrap();
-        let input = input.to_vec();
-        let writer = std::thread::spawn(move || {
-            // A program that refuses early may close its input first.
-            let _ = stdin.write_all(&input);
-        });
-        let output = child.wait_with_output().unwrap();
-        writer.join().unwrap();
-        let status = output.status.code().unwrap_or_else(|| {
-            panic!("ended by a signal: {:?}", output.status);
-        });
-        let end = b"ENDHDR\n";
-        let pixels = output
-            .stdout
-            .windows(end.len())
-            .position(|window| window == end)
-            .map_or_else(Vec::new, |at| output.stdout[at + end.len()..].to_vec());
-        (status, pixels)
-    }
-}
-
-impl Drop for ToPam {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
+/// The status the example exits with on `input`, and the pixels it wrote
+/// after the PAM header.
+fn decode(decoder: &Built, input: &[u8]) -> (i32, Vec<u8>) {
+    let output = pipe(decoder.command("topam").stderr(Stdio::null()), input);
+    let end = b"ENDHDR\n";
+    let pixels = output
+        .stdout
+        .windows(end.len())
+        .position(|window| window == end)
+        .map_or_else(Vec::new, |at| output.stdout[at + end.len()..].to_vec());
+    (exit_code(&output), pixels)
 }
 
 /// What a file should decode to: its pixels' count and CRC-32, or nothing
@@ -82,7 +31,7 @@ impl Drop for ToPam {
 type Expected = Option<(usize, u32)>;
 
 fn suite() -> Vec<(PathBuf, Expected)> {
-    let dir = library().join("fixtures");
+    let dir = library("png").join("fixtures");
     std::fs::read_to_string(dir.join("expected.txt"))
         .unwrap()
         .lines()
@@ -103,23 +52,6 @@ fn suite() -> Vec<(PathBuf, Expected)> {
         .collect()
 }
 
-/// CRC-32 as zlib computes it, a bit at a time: slow, and plainly right.
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut register = u32::MAX;
-    for &byte in bytes {
-        register ^= u32::from(byte);
-        for _ in 0..8 {
-            let low = register & 1;
-            register = (register >> 1) ^ (0xedb8_8320 * low);
-        }
-    }
-    !register
-}
-
-fn name(path: &Path) -> &str {
-    path.file_name().unwrap().to_str().unwrap()
-}
-
 #[test]
 fn crc32_is_zlibs() {
     assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
@@ -127,11 +59,11 @@ fn crc32_is_zlibs() {
 
 #[test]
 fn every_image_decodes_to_the_reference_and_every_corrupt_one_is_refused() {
-    let decoder = ToPam::build();
+    let decoder = Built::new("png", &["topam"]);
     let all = suite();
     assert!(all.len() >= 170, "{} images", all.len());
     for (path, expected) in all {
-        let (status, pixels) = decoder.decode(&std::fs::read(&path).unwrap());
+        let (status, pixels) = decode(&decoder, &std::fs::read(&path).unwrap());
         match expected {
             Some((len, crc)) => {
                 assert_eq!(status, 0, "{}", name(&path));
@@ -154,7 +86,7 @@ fn every_image_decodes_to_the_reference_and_every_corrupt_one_is_refused() {
 /// CRC-32, ancillary chunks' as well.
 #[test]
 fn a_file_cut_short_or_flipped_is_refused() {
-    let decoder = ToPam::build();
+    let decoder = Built::new("png", &["topam"]);
     let mut seed: u64 = 2003;
     let mut next = move || {
         seed ^= seed << 13;
@@ -169,14 +101,14 @@ fn a_file_cut_short_or_flipped_is_refused() {
         let file = std::fs::read(&path).unwrap();
         let len = file.len();
         for cut in (0..len).step_by((len / 8).max(1)).chain(len - 3..len) {
-            let (status, _) = decoder.decode(&file[..cut]);
+            let (status, _) = decode(&decoder, &file[..cut]);
             assert_eq!(status, 1, "{} cut to {cut} of {len}", name(&path));
         }
         for _ in 0..4 {
             let mut flipped = file.clone();
             let at = usize::try_from(next()).unwrap() % len;
             flipped[at] ^= 1 << (next() % 8);
-            let (status, _) = decoder.decode(&flipped);
+            let (status, _) = decode(&decoder, &flipped);
             assert_eq!(status, 1, "{} flipped at {at}", name(&path));
         }
     }

@@ -1,5 +1,24 @@
 //! Assertions shared by representation and ownership tests.
-use super::{Origin, Program, evaluate::Evaluation, natural::Config};
+use num_bigint::BigUint;
+
+use super::evaluate::{self, Evaluation};
+use super::{FunctionId, Origin, Program, natural::Config};
+
+/// What `function` answers, called with nothing on a host that answers
+/// nothing.
+pub(super) fn returned(p: &Program, function: FunctionId) -> Vec<BigUint> {
+    evaluate::evaluate(
+        p,
+        function,
+        &[],
+        evaluate::Config::default(),
+        &mut evaluate::RejectHost,
+    )
+    .expect("reference execution")
+    .returned()
+    .expect("a returning program")
+    .to_vec()
+}
 
 pub(super) fn word(bytes: &[u8]) -> usize {
     let mut value = [0; 8];

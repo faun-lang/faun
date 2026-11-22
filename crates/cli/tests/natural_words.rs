@@ -7,7 +7,7 @@
 mod support;
 
 use std::process::Command;
-use support::{Package, run_counted};
+use support::{MACHINES, Package, faun, run_counted};
 
 /// The fuel a program spends on `steps` bytes of input, and what it prints.
 fn spent(package: &Package, steps: usize) -> (String, u64) {
@@ -125,25 +125,15 @@ fn a_count_below_a_constant_joined_by_and_is_a_word() {
     );
 }
 
-/// Every target `faun run` builds for.
-const MACHINES: [&str; 3] = ["x86_64-linux", "wasm32-wasi", "mos6502-sim65"];
-
 /// That `package` prints `expected` built for every target.
 fn prints_everywhere(package: &Package, expected: &str) {
     for target in MACHINES {
-        let result = Command::new(env!("CARGO_BIN_EXE_faun"))
-            .args(["run", "--target", target])
-            .arg(package.entry())
-            .output()
-            .unwrap();
+        let (status, written, said) =
+            faun(&["run", "--target", target], &package.entry(), &[], b"");
         assert_eq!(
-            (
-                result.status.code(),
-                String::from_utf8_lossy(&result.stdout).trim()
-            ),
+            (status, written.trim()),
             (Some(0), expected),
-            "{target}: {}",
-            String::from_utf8_lossy(&result.stderr)
+            "{target}: {said}"
         );
     }
 }

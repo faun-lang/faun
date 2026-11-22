@@ -5,74 +5,21 @@
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+mod support;
 
-fn library() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/examples/libraries/flate")
-}
+use std::process::Command;
 
-/// The gzip example built once into a directory of its own, removed when
-/// dropped.
-struct Gzip(PathBuf);
+use support::{Built, file_name as name, library, pipe};
 
-impl Gzip {
-    fn build() -> Self {
-        // Numbered, since `cargo test` runs this file's tests side by side
-        // in one process, and each builds into, and then removes, its own.
-        static MADE: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "faun-deflate-{}-{}",
-            std::process::id(),
-            MADE.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let image = dir.join("gzip");
-        let status = Command::new(env!("CARGO_BIN_EXE_faun"))
-            .arg("build")
-            .arg(format!("--output={}", image.display()))
-            .arg(library().join("examples/gzip.fn"))
-            .status()
-            .unwrap();
-        assert!(status.success(), "the gzip example builds");
-        Self(dir)
-    }
-
-    fn run(&self, args: &[&str], input: &[u8]) -> Vec<u8> {
-        let output = pipe(Command::new(self.0.join("gzip")).args(args), input);
-        assert!(
-            output.status.success(),
-            "gzip {args:?}: {:?}",
-            output.status
-        );
-        output.stdout
-    }
-}
-
-impl Drop for Gzip {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-/// What `command` writes with `input` on its standard input.
-fn pipe(command: &mut Command, input: &[u8]) -> std::process::Output {
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let input = input.to_vec();
-    let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(&input);
-    });
-    let output = child.wait_with_output().unwrap();
-    writer.join().unwrap();
-    output
+/// What `gzip` writes, given `args`, with `input` on its standard input.
+fn run(gzip: &Built, args: &[&str], input: &[u8]) -> Vec<u8> {
+    let output = pipe(gzip.command("gzip").args(args), input);
+    assert!(
+        output.status.success(),
+        "gzip {args:?}: {:?}",
+        output.status
+    );
+    output.stdout
 }
 
 /// Python's zlib reading `stream` as `format` (`gzip`, `zlib` or `raw`)
@@ -106,7 +53,7 @@ fn python(script: &str, args: &[&str], input: &[u8]) -> Vec<u8> {
 /// edges: a run longer than any match, every byte value, and random blocks
 /// repeated exactly a window apart and just past one.
 fn inputs() -> Vec<(String, Vec<u8>)> {
-    let dir = library().join("fixtures/input");
+    let dir = library("flate").join("fixtures/input");
     let mut found: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -136,13 +83,9 @@ fn inputs() -> Vec<(String, Vec<u8>)> {
     all
 }
 
-fn name(path: &Path) -> &str {
-    path.file_name().unwrap().to_str().unwrap()
-}
-
 #[test]
 fn every_level_reads_back_through_every_reader() {
-    let gzip = Gzip::build();
+    let gzip = Built::new("flate", &["gzip"]);
     for (name, input) in inputs() {
         for level in 0..=9 {
             let flag = format!("-{level}");
@@ -151,11 +94,11 @@ fn every_level_reads_back_through_every_reader() {
                 if format != "gzip" {
                     args.push(if format == "zlib" { "--zlib" } else { "--raw" });
                 }
-                let stream = gzip.run(&args, &input);
+                let stream = run(&gzip, &args, &input);
                 let mut back = vec!["-d"];
                 back.extend(&args[1..]);
                 let what = format!("{name} at {flag} as {format}");
-                assert!(gzip.run(&back, &stream) == input, "{what}: our inflate");
+                assert!(run(&gzip, &back, &stream) == input, "{what}: our inflate");
                 assert!(
                     python(PYTHON_READ, &[format], &stream) == input,
                     "{what}: Python's zlib"
@@ -174,10 +117,10 @@ fn every_level_reads_back_through_every_reader() {
 /// search and the codes are zlib's, so falling further behind is a fault.
 #[test]
 fn sizes_stay_near_zlib() {
-    let gzip = Gzip::build();
+    let gzip = Built::new("flate", &["gzip"]);
     for (name, input) in inputs() {
         for level in [1, 6, 9] {
-            let ours = gzip.run(&[&format!("-{level}"), "--raw"], &input).len();
+            let ours = run(&gzip, &[&format!("-{level}"), "--raw"], &input).len();
             let theirs: usize =
                 String::from_utf8(python(PYTHON_SIZE, &["raw", &level.to_string()], &input))
                     .unwrap()

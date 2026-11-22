@@ -5,7 +5,7 @@
 mod support;
 
 use faun_x86_64_linux::X86_64Linux;
-use support::{Package, run_counted};
+use support::{Package, crc32, run_counted};
 
 /// CRC-32 a byte at a time, through a table named inside the walk: too
 /// large to fold, so worked out as the program runs.
@@ -29,21 +29,6 @@ const CRC: &str = r"
 
     main!(host) -> host.run_stdin!(app)
 ";
-
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut register = !0u32;
-    for &byte in bytes {
-        register ^= u32::from(byte);
-        for _ in 0..8 {
-            register = if register & 1 == 1 {
-                0xedb8_8320 ^ (register >> 1)
-            } else {
-                register >> 1
-            };
-        }
-    }
-    !register
-}
 
 fn optimized(package: &Package) -> barb::Program {
     let mut program =

@@ -3,7 +3,7 @@
 mod support;
 
 use std::process::Command;
-use support::Package;
+use support::{Package, faun};
 
 const BYTE_RESULT: &str = r"pick : (Nat, List(U8)) -> Result(List(U8), U8)
         pick(0, _) -> Err(11)
@@ -22,30 +22,12 @@ fn both_arms_run_on_wasm_and_6502() {
     let package = Package::new("byte-result-targets", BYTE_RESULT);
     for target in ["wasm32-wasi", "mos6502-sim65"] {
         for (args, expected) in [(vec![], 11), (vec!["a", "b"], 3)] {
-            let result = Command::new(env!("CARGO_BIN_EXE_faun"))
-                .args(["run", "--target", target])
-                .arg(package.entry())
-                .arg("--")
-                .args(args)
-                .output()
-                .unwrap();
-            assert_eq!(
-                result.status.code(),
-                Some(expected),
-                "{target}: {}",
-                String::from_utf8_lossy(&result.stderr)
-            );
+            let (status, _, said) =
+                faun(&["run", "--target", target], &package.entry(), &args, b"");
+            assert_eq!(status, Some(expected), "{target}: {said}");
         }
-        let result = Command::new(env!("CARGO_BIN_EXE_faun"))
-            .args(["test", "--target", target])
-            .arg(package.entry())
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{target}: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        let (status, _, said) = faun(&["test", "--target", target], &package.entry(), &[], b"");
+        assert_eq!(status, Some(0), "{target}: {said}");
     }
 }
 
@@ -138,16 +120,7 @@ fn shared_semantic_facts_lower_on_wasm_and_6502() {
     ",
     );
     for target in ["wasm32-wasi", "mos6502-sim65"] {
-        let result = Command::new(env!("CARGO_BIN_EXE_faun"))
-            .args(["run", "--target", target])
-            .arg(package.entry())
-            .output()
-            .unwrap();
-        assert_eq!(
-            result.status.code(),
-            Some(2),
-            "{target}: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        let (status, _, said) = faun(&["run", "--target", target], &package.entry(), &[], b"");
+        assert_eq!(status, Some(2), "{target}: {said}");
     }
 }

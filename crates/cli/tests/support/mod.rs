@@ -8,7 +8,9 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Write as _;
 use std::path::PathBuf;
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use faun_core::ir::evaluate::{self, Error, Host, HostResult, Memory};
@@ -84,6 +86,126 @@ impl Package {
     pub(crate) fn run(&self) -> u32 {
         run_file(&self.entry(), &[]).0
     }
+}
+
+/// A library under the examples, by its directory's name.
+pub(crate) fn library(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../frontend/examples/libraries")
+        .join(name)
+}
+
+/// Examples of a library built for this machine into a directory of their
+/// own, removed when dropped.
+pub(crate) struct Built(pub(crate) PathBuf);
+
+impl Built {
+    /// Each of `names`, the library's `examples/<name>.fn`, built as `name`.
+    pub(crate) fn new(name: &str, names: &[&str]) -> Self {
+        // Numbered, since `cargo test` runs a file's tests side by side in
+        // one process, and each builds into, and then removes, its own.
+        static MADE: AtomicUsize = AtomicUsize::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "faun-{name}-{}-{}",
+            std::process::id(),
+            MADE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        for example in names {
+            let status = Command::new(env!("CARGO_BIN_EXE_faun"))
+                .arg("build")
+                .arg(format!("--output={}", directory.join(example).display()))
+                .arg(library(name).join(format!("examples/{example}.fn")))
+                .status()
+                .unwrap();
+            assert!(status.success(), "the {example} example builds");
+        }
+        Self(directory)
+    }
+
+    /// A command running the example built as `name`.
+    pub(crate) fn command(&self, name: &str) -> Command {
+        Command::new(self.0.join(name))
+    }
+}
+
+impl Drop for Built {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// What `command` writes with `input` on its standard input.
+pub(crate) fn pipe(command: &mut Command, input: &[u8]) -> Output {
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let input = input.to_vec();
+    let writer = std::thread::spawn(move || {
+        // A program that refuses early may close its input first.
+        let _ = stdin.write_all(&input);
+    });
+    let output = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    output
+}
+
+/// Every target `faun run` builds for.
+pub(crate) const MACHINES: [&str; 3] = ["x86_64-linux", "wasm32-wasi", "mos6502-sim65"];
+
+/// `faun` given `command`, such as `["run", "--target", target]`, then
+/// `entry`, then `args` for the program, with `input` on its standard
+/// input: its status, and what it wrote to standard output and to
+/// standard error.
+pub(crate) fn faun(
+    command: &[&str],
+    entry: &std::path::Path,
+    args: &[&str],
+    input: &[u8],
+) -> (Option<i32>, String, String) {
+    let output = pipe(
+        Command::new(env!("CARGO_BIN_EXE_faun"))
+            .args(command)
+            .arg(entry)
+            .args(if args.is_empty() { &[][..] } else { &["--"] })
+            .args(args)
+            .stderr(Stdio::piped()),
+        input,
+    );
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// The status a program exited with, where no signal ended it.
+pub(crate) fn exit_code(output: &Output) -> i32 {
+    output
+        .status
+        .code()
+        .unwrap_or_else(|| panic!("ended by a signal: {:?}", output.status))
+}
+
+/// The last part of `path`.
+pub(crate) fn file_name(path: &std::path::Path) -> &str {
+    path.file_name().unwrap().to_str().unwrap()
+}
+
+/// CRC-32 as zlib computes it, a bit at a time: slow, and plainly right.
+pub(crate) fn crc32(bytes: &[u8]) -> u32 {
+    let mut register = u32::MAX;
+    for &byte in bytes {
+        register ^= u32::from(byte);
+        for _ in 0..8 {
+            let low = register & 1;
+            register = (register >> 1) ^ (0xedb8_8320 * low);
+        }
+    }
+    !register
 }
 
 /// Run the program at `entry` on the reference interpreter, handed an
