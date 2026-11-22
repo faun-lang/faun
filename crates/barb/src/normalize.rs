@@ -1440,6 +1440,7 @@ impl Rewrite<'_> {
             Monus | Xor if a == b => self.number_of(called, 0, scope)?,
             Mul | Div | And if x == Some(0) || y == Some(0) => self.number_of(called, 0, scope)?,
             Mod if x == Some(0) || y == Some(1) || a == b => self.number_of(called, 0, scope)?,
+            Mod if self.remainder_by(a, b) => a,
             Equals { yes, .. } if a == b => self.nullary(yes, scope),
             LessThan { no, .. } if a == b => self.nullary(no, scope),
             // In particular x/x is NOT one: x can be zero.
@@ -1819,16 +1820,22 @@ impl Rewrite<'_> {
         } else {
             self.remainder(called, right, modulus, scope)
         };
-        let sum = self.emit(inner, &[low, high], scope);
+        let sum = self.call(Called(inner, vec![low, high]), scope);
         Some(Again(Called(called, vec![sum, modulus])))
     }
 
-    /// `side` modulo `modulus`, unless it is already within it.
+    /// `side` modulo `modulus`, unless it is already within it. The
+    /// remainder is a call like any other, so the rules are asked of it: a
+    /// side that is itself a sum or a product is worked out modulo the same
+    /// power of two throughout, all the way down at once, and a remainder
+    /// the same as one still in scope answers what that one did. A second
+    /// walk then finds nothing left to push inside, rather than going one
+    /// sum further down each time.
     fn remainder(&mut self, called: FnId, side: Atom, modulus: Atom, scope: &mut Scope) -> Atom {
         if self.within(scope, side, modulus) {
             side
         } else {
-            self.emit(called, &[side, modulus], scope)
+            self.call(Called(called, vec![side, modulus]), scope)
         }
     }
 
@@ -1911,15 +1918,24 @@ impl Rewrite<'_> {
         *self.written.get(atom.0.index())?
     }
 
-    /// A constructor of no fields, written down.
-    fn nullary(&mut self, ctor: super::CtorId, scope: &mut Scope) -> Atom {
-        self.push(Expr::Con(ctor, Range::default()), scope)
+    /// Whether a local was written as a remainder by `modulus`, in this
+    /// scope or one around it, so that taking it again changes nothing.
+    fn remainder_by(&self, atom: Atom, modulus: Atom) -> bool {
+        let Some(Expr::Call(called, args)) = self.written_as(atom) else {
+            return false;
+        };
+        self.op(called) == Some(Mod) && self.program.atoms(args).get(1) == Some(&modulus)
     }
 
     /// A call of `called` with `args`, written down.
     fn emit(&mut self, called: FnId, args: &[Atom], scope: &mut Scope) -> Atom {
         let args = self.held(args);
         self.push(Expr::Call(called, args), scope)
+    }
+
+    /// A constructor of no fields, written down.
+    fn nullary(&mut self, ctor: super::CtorId, scope: &mut Scope) -> Atom {
+        self.push(Expr::Con(ctor, Range::default()), scope)
     }
 
     fn held(&mut self, atoms: &[Atom]) -> Range {
