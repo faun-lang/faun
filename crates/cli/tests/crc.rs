@@ -5,24 +5,9 @@
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+mod support;
 
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut register = !0u32;
-    for &byte in bytes {
-        register ^= u32::from(byte);
-        for _ in 0..8 {
-            register = if register & 1 == 1 {
-                0xedb8_8320 ^ (register >> 1)
-            } else {
-                register >> 1
-            };
-        }
-    }
-    !register
-}
+use support::{Built, crc32, pipe};
 
 fn adler32(bytes: &[u8]) -> u32 {
     let (mut low, mut high) = (1u32, 0u32);
@@ -46,42 +31,16 @@ fn noise(len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// The example built into `dir`.
-fn build(dir: &Path) -> PathBuf {
-    std::fs::create_dir_all(dir).unwrap();
-    let image = dir.join("basic");
-    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../frontend/examples/libraries/crc/examples/basic.fn");
-    let status = Command::new(env!("CARGO_BIN_EXE_faun"))
-        .arg("build")
-        .arg(format!("--output={}", image.display()))
-        .arg(source)
-        .status()
-        .unwrap();
-    assert!(status.success(), "the crc example builds");
-    image
-}
-
 /// What the example prints for `input`.
-fn printed(image: &Path, input: &[u8]) -> String {
-    let mut child = Command::new(image)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let written = input.to_vec();
-    let writer = std::thread::spawn(move || stdin.write_all(&written).unwrap());
-    let output = child.wait_with_output().unwrap();
-    writer.join().unwrap();
+fn printed(built: &Built, input: &[u8]) -> String {
+    let output = pipe(&mut built.command("basic"), input);
     assert!(output.status.success());
     String::from_utf8(output.stdout).unwrap()
 }
 
 #[test]
 fn long_inputs_agree_with_checksums_worked_out_here() {
-    let dir = std::env::temp_dir().join(format!("faun-crc-{}", std::process::id()));
-    let image = build(&dir);
+    let built = Built::new("crc", &["basic"]);
     // 0xff is the largest each sum can grow by, and 17 MB passes four
     // reductions of Adler-32; the lengths leave each tail of eight.
     let inputs = [
@@ -96,7 +55,6 @@ fn long_inputs_agree_with_checksums_worked_out_here() {
             crc32(&input),
             adler32(&input)
         );
-        assert_eq!(printed(&image, &input), expected, "{} bytes", input.len());
+        assert_eq!(printed(&built, &input), expected, "{} bytes", input.len());
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }

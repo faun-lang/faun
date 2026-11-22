@@ -573,19 +573,7 @@ fn named(machine: &Program, name: &str) -> FunctionId {
     )
 }
 
-fn run(machine: &Program, function: FunctionId) -> Vec<BigUint> {
-    evaluate::evaluate(
-        machine,
-        function,
-        &[],
-        evaluate::Config::default(),
-        &mut evaluate::RejectHost,
-    )
-    .unwrap()
-    .returned()
-    .unwrap()
-    .to_vec()
-}
+use crate::ir::test_support::returned as run;
 
 /// A product is its fields' values: a call takes and answers one machine
 /// value per leaf, nested products included, and nothing is built.

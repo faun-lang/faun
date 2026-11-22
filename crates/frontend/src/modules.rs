@@ -1299,23 +1299,10 @@ fn insert_unique(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    struct Fixture {
-        root: PathBuf,
-    }
+    use crate::scratch::Scratch as Fixture;
 
     impl Fixture {
-        fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!("faun-modules-{unique}"));
-            fs::create_dir_all(&root).unwrap();
-            Self { root }
-        }
-
         /// A standard library that exports nothing, beside the fixture's own
         /// package so it does not claim the fixture's namespaces.
         fn empty_prelude(&self) -> PathBuf {
@@ -1326,26 +1313,11 @@ mod tests {
         fn host(&self) -> PathBuf {
             self.write("host/host.fn", "export {Host}\nHost : {argc: Nat}\n")
         }
-
-        fn write(&self, name: &str, source: &str) -> PathBuf {
-            let path = self.root.join(name);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).unwrap();
-            }
-            fs::write(&path, source).unwrap();
-            path
-        }
-    }
-
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.root);
-        }
     }
 
     #[test]
     fn imports_only_the_public_interface() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("modules");
         fixture.write(
             "numbers.fn",
             "export {Nat.*}\nNat : [Zero, Succ(Nat)]\nsecret = Zero\n",
@@ -1361,7 +1333,7 @@ mod tests {
 
     #[test]
     fn private_names_cannot_be_imported() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("modules");
         fixture.write("hidden.fn", "secret = 0\n");
         let entry = fixture.write("main.fn", "import hidden {secret}\nmain = secret\n");
         let error = load_program(&entry, &fixture.empty_prelude(), &fixture.host()).unwrap_err();
@@ -1370,7 +1342,7 @@ mod tests {
 
     #[test]
     fn import_cycles_are_rejected_before_reloading_a_source() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("modules");
         let first = fixture.write("first.fn", "import second {}\n");
         fixture.write("second.fn", "import first {}\n");
         let error = load_program(&first, &fixture.empty_prelude(), &fixture.host()).unwrap_err();
@@ -1379,7 +1351,7 @@ mod tests {
 
     #[test]
     fn std_host_is_a_compiler_selected_virtual_module() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("modules");
         let host = fixture.write("target/host.fn", "export {Host}\nHost : {argc: Nat}\n");
         let entry = fixture.write(
             "main.fn",
@@ -1399,7 +1371,7 @@ mod tests {
 
     #[test]
     fn standard_namespaces_are_path_stable() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("modules");
         fixture.write("nat.fn", "export {Nat.*}\nNat : [Zero, Succ(Nat)]\n");
         let root = fixture.write(
             "standard.fn",

@@ -1,18 +1,5 @@
-use num_bigint::BigUint;
-
-use super::{Binary, Class, Offset, Op, Program, Width, common::common, evaluate, validate};
-
-struct Silent;
-impl evaluate::Host for Silent {
-    fn call(
-        &mut self,
-        name: &str,
-        _: &[BigUint],
-        _: &mut evaluate::Memory<'_>,
-    ) -> Result<evaluate::HostResult, evaluate::Error> {
-        Err(evaluate::Error::Host(name.to_owned()))
-    }
-}
+use super::test_support::returned;
+use super::{Binary, Class, Offset, Op, Program, Width, common::common, validate};
 
 fn checked(source: &Program) -> Program {
     let result = common(source);
@@ -20,11 +7,7 @@ fn checked(source: &Program) -> Program {
         .into_iter()
         .map(|p| {
             validate(p).unwrap();
-            evaluate::evaluate(p, p.entry(), &[], evaluate::Config::default(), &mut Silent)
-                .unwrap()
-                .returned()
-                .unwrap()
-                .to_vec()
+            returned(p, p.entry())
         })
         .collect();
     assert_eq!(answers[0], answers[1]);

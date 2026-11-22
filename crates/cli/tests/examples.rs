@@ -229,19 +229,7 @@ fn an_effect_passing_its_failure_on_goes_on_to_the_next() {
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 #[test]
 fn argument_runners_hand_the_program_its_arguments() {
-    let run = |package: &support::Package, args: &[&str]| {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_faun"))
-            .arg("run")
-            .arg(package.entry())
-            .arg("--")
-            .args(args)
-            .output()
-            .unwrap();
-        (
-            output.status.code(),
-            String::from_utf8(output.stdout).unwrap(),
-        )
-    };
+    let run = |package: &support::Package, args: &[&str]| run(package, args, "");
     let counting = support::Package::new(
         "run-args",
         "count : {args: List(Str)} -> Nat
@@ -271,21 +259,8 @@ fn argument_runners_hand_the_program_its_arguments() {
 /// `package` run with `args`, `input` on its standard input: how it exits,
 /// and what it writes.
 fn run(package: &support::Package, args: &[&str], input: &str) -> (Option<i32>, String) {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_faun"))
-        .arg("run")
-        .arg(package.entry())
-        .arg("--")
-        .args(args)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    std::io::Write::write_all(&mut child.stdin.take().unwrap(), input.as_bytes()).unwrap();
-    let output = child.wait_with_output().unwrap();
-    (
-        output.status.code(),
-        String::from_utf8(output.stdout).unwrap(),
-    )
+    let (status, written, _) = support::faun(&["run"], &package.entry(), args, input.as_bytes());
+    (status, written)
 }
 
 /// A call whose answer is needed and never comes back hangs the program
@@ -350,7 +325,7 @@ fn a_call_that_never_comes_back_with_five_arguments_runs_everywhere() {
          main! : Host -> []
          main!(host) -> count!(host, 1, 2, 3, 4, 5)",
     );
-    for target in MACHINES {
+    for target in support::MACHINES {
         let (status, written, said) = run_on(target, &package.entry(), b"hello world\n");
         assert_eq!(
             (status, written.as_str()),
@@ -378,7 +353,7 @@ fn a_byte_an_arm_leaves_with_prints_as_itself_everywhere() {
            host.exit!(0)
          )",
     );
-    for target in MACHINES {
+    for target in support::MACHINES {
         let (status, written, said) = run_on(target, &package.entry(), b"");
         assert_eq!(
             (status, written.as_str()),
@@ -402,7 +377,7 @@ fn shift_operators_are_the_shift_methods_everywhere() {
         ("U64", 64, "0 0 2 1 0 0\n"),
     ] {
         let package = support::Package::new(&format!("shift-{name}"), &shifts(name, width));
-        for target in MACHINES {
+        for target in support::MACHINES {
             let (status, written, said) = run_on(target, &package.entry(), b"");
             assert_eq!(
                 (status, written.as_str()),
@@ -478,7 +453,7 @@ fn records_sort_by_a_key_or_a_written_cmp_everywhere() {
            host.exit!(0)
          )",
     );
-    for target in MACHINES {
+    for target in support::MACHINES {
         let (status, written, said) = run_on(target, &package.entry(), b"");
         assert_eq!(
             (status, written.as_str()),
@@ -488,28 +463,11 @@ fn records_sort_by_a_key_or_a_written_cmp_everywhere() {
     }
 }
 
-/// Every target `faun run` builds for.
-const MACHINES: [&str; 3] = ["x86_64-linux", "wasm32-wasi", "mos6502-sim65"];
-
 /// Build `entry` for `target` and run it with `input` on
 /// standard input: its status, and what it wrote to standard output and to
 /// standard error.
 fn run_on(target: &str, entry: &Path, input: &[u8]) -> (Option<i32>, String, String) {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_faun"))
-        .args(["run", "--target", target])
-        .arg(entry)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    std::io::Write::write_all(&mut child.stdin.take().unwrap(), input).unwrap();
-    let output = child.wait_with_output().unwrap();
-    (
-        output.status.code(),
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
-    )
+    support::faun(&["run", "--target", target], entry, &[], input)
 }
 
 /// A call going deeper than the stack has room for ends the program saying

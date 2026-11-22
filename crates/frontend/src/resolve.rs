@@ -2900,39 +2900,12 @@ fn error(module: ModuleId, span: s::Span, said: impl Into<Refusal>) -> Refusal {
 mod tests {
     use super::*;
     use crate::modules;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    struct Fixture(PathBuf);
-
-    impl Fixture {
-        fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!("faun-resolve-{unique}"));
-            fs::create_dir_all(&root).unwrap();
-            Self(root)
-        }
-
-        fn write(&self, name: &str, source: &str) -> PathBuf {
-            let path = self.0.join(name);
-            fs::write(&path, source).unwrap();
-            path
-        }
-    }
-
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::scratch::Scratch as Fixture;
 
     #[test]
     fn resolves_prelude_types_constructors_and_static_methods() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("resolve");
         let entry = fixture.write(
             "main.fn",
             "number : Int\nnumber = Int.of_nat(42)\ntext : Str\ntext = \"é\"\n",
@@ -2960,7 +2933,7 @@ mod tests {
 
     #[test]
     fn rejects_an_unresolved_name_at_its_span() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("resolve");
         let entry = fixture.write("main.fn", "f = missing\n");
         let loaded =
             modules::load_program(&entry, crate::standard_path(), &crate::test_host()).unwrap();

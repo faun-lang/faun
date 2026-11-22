@@ -245,40 +245,15 @@ fn symbol(program: &LoadedProgram, name: &str) -> Result<Symbol, Diagnostic> {
 mod tests {
     use super::*;
     use crate::modules;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    struct Fixture(PathBuf);
+    use crate::scratch::Scratch as Fixture;
 
     impl Fixture {
-        fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!("faun-host-{unique}"));
-            fs::create_dir_all(&root).unwrap();
-            Self(root)
-        }
-
-        fn write(&self, name: &str, source: &str) -> PathBuf {
-            let path = self.0.join(name);
-            fs::write(&path, source).unwrap();
-            path
-        }
-
-        fn load(&self, host: &str, entry: &str) -> LoadedProgram {
+        fn load_hosted(&self, host: &str, entry: &str) -> LoadedProgram {
             let host = self.write("host.fn", host);
             let entry = self.write("main.fn", entry);
             let standard = crate::standard_path();
             modules::load_program(&entry, standard, &host).unwrap()
-        }
-    }
-
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
         }
     }
 
@@ -288,31 +263,31 @@ mod tests {
 
     #[test]
     fn application_entry_requires_a_clause() {
-        let fixture = Fixture::new();
-        let loaded = fixture.load(HOST, "import std.host {Host}\nmain! : Host -> []\n");
+        let fixture = Fixture::new("host");
+        let loaded = fixture.load_hosted(HOST, "import std.host {Host}\nmain! : Host -> []\n");
         let failure = Main::find_in(&loaded).unwrap_err();
         assert!(failure.message.contains("define `main!`"));
     }
 
     #[test]
     fn an_entry_without_main_is_a_library() {
-        let fixture = Fixture::new();
-        let loaded = fixture.load(HOST, "double : Nat -> Nat\ndouble(n) -> n + n\n");
+        let fixture = Fixture::new("host");
+        let loaded = fixture.load_hosted(HOST, "double : Nat -> Nat\ndouble(n) -> n + n\n");
         assert_eq!(Main::find_in(&loaded).unwrap(), None);
         HostIds::find_in(&loaded).unwrap();
     }
 
     #[test]
     fn host_authority_cannot_be_constructed_or_implemented_by_source() {
-        let fixture = Fixture::new();
-        let exported = HostIds::find_in(&fixture.load(
+        let fixture = Fixture::new("host");
+        let exported = HostIds::find_in(&fixture.load_hosted(
             "export {Host.*}\nHost : {argc: Nat}.(\n  exit! : (Host, Nat) -> []\n)\n",
             ENTRY,
         ))
         .unwrap_err();
         assert!(exported.message.contains("must not be publicly exposed"));
 
-        let bodyful = HostIds::find_in(&fixture.load(
+        let bodyful = HostIds::find_in(&fixture.load_hosted(
                 "export {Host}\nHost : {argc: Nat}.(\n  exit! : (Host, Nat) -> []\n  exit!(host, code) -> host.exit!(code)\n)\n",
                 ENTRY,
             ))

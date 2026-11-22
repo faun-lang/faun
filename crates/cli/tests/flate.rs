@@ -4,77 +4,30 @@
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+mod support;
 
-fn library() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/examples/libraries/flate")
-}
+use std::path::PathBuf;
+use std::process::Stdio;
 
-/// The gzip example built once into a directory of its own, removed when
-/// dropped.
-struct Gzip(PathBuf);
+use support::{Built, exit_code, file_name as name, library, pipe};
 
-impl Gzip {
-    fn build() -> Self {
-        // Numbered, since `cargo test` runs this file's tests side by side
-        // in one process, and each builds into, and then removes, its own.
-        static MADE: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "faun-flate-{}-{}",
-            std::process::id(),
-            MADE.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let image = dir.join("gzip");
-        let status = Command::new(env!("CARGO_BIN_EXE_faun"))
-            .arg("build")
-            .arg(format!("--output={}", image.display()))
-            .arg(library().join("examples/gzip.fn"))
-            .status()
-            .unwrap();
-        assert!(status.success(), "the gzip example builds");
-        Self(dir)
-    }
-
-    /// The status `gzip -d` exits with on `input`, read as `format`, and
-    /// what it wrote to standard output.
-    fn decompress(&self, format: Option<&str>, input: &[u8]) -> (i32, Vec<u8>) {
-        let mut child = Command::new(self.0.join("gzip"))
+/// The status `gzip -d` exits with on `input`, read as `format`, and what
+/// it wrote to standard output.
+fn decompress(gzip: &Built, format: Option<&str>, input: &[u8]) -> (i32, Vec<u8>) {
+    let output = pipe(
+        gzip.command("gzip")
             .arg("-d")
             .args(format)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let mut stdin = child.stdin.take().unwrap();
-        let input = input.to_vec();
-        let writer = std::thread::spawn(move || {
-            // A program that refuses early may close its input first.
-            let _ = stdin.write_all(&input);
-        });
-        let output = child.wait_with_output().unwrap();
-        writer.join().unwrap();
-        let status = output.status.code().unwrap_or_else(|| {
-            panic!("ended by a signal: {:?}", output.status);
-        });
-        (status, output.stdout)
-    }
-}
-
-impl Drop for Gzip {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
+            .stderr(Stdio::null()),
+        input,
+    );
+    (exit_code(&output), output.stdout)
 }
 
 /// The fixtures, each with the format flag it is read with and the input
 /// it was made from.
 fn fixtures() -> Vec<(PathBuf, Option<&'static str>, Vec<u8>)> {
-    let dir = library().join("fixtures");
+    let dir = library("flate").join("fixtures");
     let mut found: Vec<_> = std::fs::read_dir(dir.join("deflate"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -96,17 +49,13 @@ fn fixtures() -> Vec<(PathBuf, Option<&'static str>, Vec<u8>)> {
         .collect()
 }
 
-fn name(path: &Path) -> &str {
-    path.file_name().unwrap().to_str().unwrap()
-}
-
 #[test]
 fn every_fixture_inflates_to_its_input() {
-    let gzip = Gzip::build();
+    let gzip = Built::new("flate", &["gzip"]);
     let all = fixtures();
     assert!(all.len() >= 70, "{} fixtures", all.len());
     for (path, format, expected) in all {
-        let (status, written) = gzip.decompress(format, &std::fs::read(&path).unwrap());
+        let (status, written) = decompress(&gzip, format, &std::fs::read(&path).unwrap());
         assert_eq!(status, 0, "{}", name(&path));
         assert!(written == expected, "{} inflates to its input", name(&path));
     }
@@ -116,14 +65,14 @@ fn every_fixture_inflates_to_its_input() {
 /// bytes, is refused with status one.
 #[test]
 fn a_stream_cut_short_is_refused() {
-    let gzip = Gzip::build();
+    let gzip = Built::new("flate", &["gzip"]);
     for (path, format, _) in fixtures() {
         let stream = std::fs::read(&path).unwrap();
         let len = stream.len();
         let step = (len / 12).max(1);
         let cuts = (0..len).step_by(step).chain(len.saturating_sub(4)..len);
         for cut in cuts {
-            let (status, _) = gzip.decompress(format, &stream[..cut]);
+            let (status, _) = decompress(&gzip, format, &stream[..cut]);
             assert_eq!(status, 1, "{} cut to {cut} of {len}", name(&path));
         }
     }
@@ -135,7 +84,7 @@ fn a_stream_cut_short_is_refused() {
 /// stream, end with an answer or a refusal, never a crash.
 #[test]
 fn a_corrupted_stream_is_refused_or_read_never_a_crash() {
-    let gzip = Gzip::build();
+    let gzip = Built::new("flate", &["gzip"]);
     let mut seed: u64 = 1952;
     let mut next = move || {
         seed ^= seed << 13;
@@ -155,7 +104,7 @@ fn a_corrupted_stream_is_refused_or_read_never_a_crash() {
             let from = if format.is_none() { 10 } else { 0 };
             let at = from + usize::try_from(next()).unwrap() % (stream.len() - from);
             flipped[at] ^= 1 << (next() % 8);
-            let (status, written) = gzip.decompress(format, &flipped);
+            let (status, written) = decompress(&gzip, format, &flipped);
             let read_alike = status == 0 && written == expected;
             if format == Some("--raw") {
                 assert!(status <= 1, "{} flipped at {at}: {status}", name(&path));
@@ -167,7 +116,7 @@ fn a_corrupted_stream_is_refused_or_read_never_a_crash() {
     for size in [1, 2, 3, 7, 64, 1000, 20000] {
         let noise: Vec<u8> = (0..size).map(|_| next().to_le_bytes()[0]).collect();
         for format in [None, Some("--zlib"), Some("--raw")] {
-            let (status, _) = gzip.decompress(format, &noise);
+            let (status, _) = decompress(&gzip, format, &noise);
             assert!(status <= 1, "{size} random bytes as {format:?}: {status}");
         }
     }

@@ -2385,57 +2385,13 @@ pub(crate) fn failure(
 mod tests {
     use super::*;
     use crate::modules;
-    use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    struct Fixture(PathBuf);
+    use crate::scratch::Scratch as Fixture;
 
     impl Fixture {
-        fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!("faun-check-{unique}"));
-            fs::create_dir_all(&root).unwrap();
-            Self(root)
-        }
-
-        fn write(&self, name: &str, source: &str) -> PathBuf {
-            let path = self.0.join(name);
-            fs::write(&path, source).unwrap();
-            path
-        }
-
         fn load(&self, entry_source: &str) -> (h::Program, Context) {
-            self.write("bool.fn", "export {Bool.*}\nBool : [False, True].(not : Bool -> Bool\nnot(False) -> True\nnot(True) -> False\nand : (Bool, Bool) -> Bool\nand(True, True) -> True\nand(_, _) -> False\nor : (Bool, Bool) -> Bool\nor(False, False) -> False\nor(_, _) -> True)\n");
-            self.write("nat.fn", "export {Nat.*}\nNat : [Zero, Succ(Nat)].(add : (Nat, Nat) -> Nat\nadd(0, y) -> y\nadd(Succ(n), y) -> Succ(n.add(y)))\n");
-            self.write(
-                "int.fn",
-                "export {Int.*}\nInt : [Pos(Nat), NegSucc(Nat)].(of_nat : Nat -> Int\nof_nat(n) -> Pos(n)\nneg : Int -> Int\nneg(i) -> i)\n",
-            );
-            self.write("u8.fn", "export {U8}\nU8 : Nat\n");
-            self.write(
-                "list.fn",
-                "export {List.*}\nList(a) : [Nil, Cons(a, List(a))].(len : List(a) -> Nat\nlen(_) -> 0\ntake : (List(a), Nat) -> List(a)\ntake(values, _) -> values\ndrop : (List(a), Nat) -> List(a)\ndrop(values, _) -> values)\n",
-            );
-            self.write(
-                "str.fn",
-                "export {Str}\nStr : List(U8).(concat : (Str, Str) -> Str\nconcat(left, _) -> left\nequals : (Str, Str) -> Bool\nequals(_, _) -> False)\n",
-            );
-            self.write(
-                "result.fn",
-                "export {Result.*}\nResult(a, e) : [Ok(a), Err(e)]\n",
-            );
-            self.write(
-            "order.fn",
-            "export {Order.*}\nOrder : [Lt, Eq, Gt].(lt : Order -> Bool\nlt(Lt) -> True\nlt(_) -> False\nle : Order -> Bool\nle(Gt) -> False\nle(_) -> True\ngt : Order -> Bool\ngt(Gt) -> True\ngt(_) -> False\nge : Order -> Bool\nge(Lt) -> False\nge(_) -> True\neq : Order -> Bool\neq(Eq) -> True\neq(_) -> False\nor : (Order, Order) -> Order\nor(Eq, next) -> next\nor(decided, _) -> decided)\n",
-        );
-            let standard = self.write(
-                "standard.fn",
-                "package {}\nimport bool {Bool.*}\nimport order {Order.*}\nimport nat {Nat.*}\nimport int {Int.*}\nimport u8 {U8}\nimport list {List.*}\nimport result {Result.*}\nimport str {Str}\nexport {Bool.*, Order.*, Nat.*, Int.*, U8, List.*, Result.*, Str}\n",
-            );
+            let standard = self.standard();
             let entry = self.write("main.fn", entry_source);
             let host = self.write(
                 "host.fn",
@@ -2443,12 +2399,6 @@ mod tests {
             );
             let loaded = modules::load_program(&entry, &standard, &host).unwrap();
             crate::resolve(loaded).unwrap()
-        }
-    }
-
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
         }
     }
 
@@ -2478,7 +2428,7 @@ mod tests {
 
     #[test]
     fn declarations_group_clauses_and_lift_unsigned_methods() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, cx) = fixture.load(
             "pick : Nat -> Nat\npick(0) -> 1\npick(_) -> 2\n\
              external : Nat -> Nat\n\
@@ -2511,7 +2461,7 @@ mod tests {
 
     #[test]
     fn context_selects_nat_int_and_str_elaboration() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "natural : Nat\nnatural = 42\ninteger : Int\ninteger = -42\ntext : Str\ntext = \"é\"\n",
         );
@@ -2540,7 +2490,7 @@ mod tests {
 
     #[test]
     fn elaboration_preserves_unwrapped_expression_sites() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "Label : [Label].(to_str : Label -> Str\nto_str(_) -> \"label\")\n\
              text : Label -> Str\ntext(value) -> \"${value}\"\n\
@@ -2583,7 +2533,7 @@ mod tests {
     #[test]
     fn typed_hir_carries_projections_widenings_and_generic_operations() {
         use crate::typed::{ExprKind, Target};
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "field : {value: Nat} -> Nat\nfield(record) -> record.value\n\
              wide : [A] -> [A, B]\nwide(x) -> x\n\
@@ -2611,14 +2561,14 @@ mod tests {
 
     #[test]
     fn never_is_an_ordinary_constructor_name() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load("Outcome : [Never]\nvalue : Outcome\nvalue = Never\n");
         crate::checked(program, &mut cx).unwrap();
     }
 
     #[test]
     fn polymorphic_functions_are_instantiated_at_each_call() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "id : a -> a\nid(x) -> x\nnatural : Nat\nnatural = id(1)\ninteger : Int\ninteger = id(-1)\n",
         );
@@ -2652,7 +2602,7 @@ mod tests {
 
     #[test]
     fn a_polymorphic_signature_cannot_be_implemented_by_one_concrete_type() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load("constant : a -> a\nconstant(_) -> 1\n");
         let failure = crate::checked(program, &mut cx).unwrap_err();
         assert!(failure.message.contains("numeral") || failure.message.contains("mismatch"));
@@ -2660,7 +2610,7 @@ mod tests {
 
     #[test]
     fn unsigned_definitions_are_generalized_between_components() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture
             .load("id(x) -> x\nnatural : Nat\nnatural = id(1)\ninteger : Int\ninteger = id(-1)\n");
         crate::checked(program, &mut cx).unwrap();
@@ -2670,7 +2620,7 @@ mod tests {
     /// value a program holds.
     #[test]
     fn a_function_is_not_bound() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) =
             fixture.load("id : a -> a\nid(x) -> x\nlocal : Int\nlocal = (\n  f = id\n  f(-1)\n)\n");
         let failure = crate::checked(program, &mut cx).unwrap_err();
@@ -2693,7 +2643,7 @@ mod tests {
             "keep(f) -> Some(f)",
         ];
         for builder in builders {
-            let fixture = Fixture::new();
+            let fixture = Fixture::new("check");
             let source = format!(
                 "increment : Nat -> Nat\nincrement(n) -> n + 1\n{builder}\nkept : Bool\nkept = (\n  held = keep(increment)\n  True\n)\n"
             );
@@ -2709,7 +2659,7 @@ mod tests {
 
     #[test]
     fn receiver_type_selects_a_method() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "increment : Nat -> Nat\nincrement(n) -> n.add(1)\ntruth : Bool -> Bool\ntruth(b) -> b.not()\n",
         );
@@ -2728,7 +2678,7 @@ mod tests {
     /// every type with a `not`.
     #[test]
     fn a_method_several_types_have_is_a_bound() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "Flip : [Off, On].(not : Flip -> Flip\nnot(Off) -> On\nnot(On) -> Off)\nflip(x) -> x.not()\n",
         );
@@ -2748,7 +2698,7 @@ mod tests {
     /// imported, and `say!` is generic over both.
     #[test]
     fn a_method_one_type_in_scope_has_is_a_bound() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "Fake : [Fake].(write_all! : (Fake, Nat) -> Nat\nwrite_all!(_, n) -> n)\nsay!(out, n) -> out.write_all!(n)\n",
         );
@@ -2765,7 +2715,7 @@ mod tests {
 
     #[test]
     fn methods_of_unexposed_types_are_not_candidates() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         fixture.write(
             "hidden.fn",
             "export {helper}\nSecret : [Hidden].(not : Secret -> Secret\nnot(Hidden) -> Hidden)\nhelper : Nat\nhelper = 0\n",
@@ -2791,7 +2741,7 @@ mod tests {
 
     #[test]
     fn repository_bootstrap_exposes_arithmetic_for_nat_int_and_u8() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let entry = fixture.write(
             "arithmetic.fn",
             "nat_ops : (Nat, Nat) -> Nat\n\
@@ -2823,7 +2773,7 @@ mod tests {
 
     #[test]
     fn pure_definitions_and_nested_expressions_cannot_hide_effects() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) =
             fixture.load("stop! : Nat -> Nat\nstop!(n) -> n\nbad : Nat\nbad = stop!(0)\n");
         let failure = crate::checked(program, &mut cx).unwrap_err();
@@ -2845,7 +2795,7 @@ mod tests {
     /// as it is in a block in any other operand or argument.
     #[test]
     fn an_effect_in_a_block_inside_an_expression_is_refused() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let stop = "stop! : Bool -> Bool\nstop!(b) -> b\nid : Bool -> Bool\nid(b) -> b\n";
         for body in [
             "ok = b & (\n    s = stop!(b)\n    s\n  )",
@@ -2871,7 +2821,7 @@ mod tests {
     /// own, an `if`'s branches included.
     #[test]
     fn an_effect_in_a_block_standing_alone_is_allowed() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let stop = "stop! : Bool -> Bool\nstop!(b) -> b\n";
         for body in [
             "ok = (\n    s = stop!(b)\n    s\n  )",
@@ -2887,7 +2837,7 @@ mod tests {
     /// it builds and what is wanted, rather than that there is no method.
     #[test]
     fn a_constructor_where_another_type_is_wanted_says_both() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load("bad : Nat\nbad = Zero.add(True)\n");
         let failure = crate::checked(program, &mut cx).unwrap_err();
         assert_eq!(failure.message, "mismatched types");
@@ -2899,7 +2849,7 @@ mod tests {
     /// derive what no record has.
     #[test]
     fn a_record_asked_its_cmp_is_told_to_order_by_a_key() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "less : ({score: Nat, id: Nat, name: Str}, {score: Nat, id: Nat, name: Str}) -> Order\nless(a, b) -> a.cmp(b)\n",
         );
@@ -2920,7 +2870,7 @@ mod tests {
     /// refused: it is told to write one.
     #[test]
     fn a_type_over_a_record_is_told_to_write_its_cmp() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load(
             "Item : {score: Nat, id: Nat}\nless : (Item, Item) -> Order\nless(a, b) -> a.cmp(b)\n",
         );
@@ -2951,7 +2901,7 @@ mod tests {
                 "write `cmp`'s clauses in `Shape`'s block",
             ),
         ] {
-            let fixture = Fixture::new();
+            let fixture = Fixture::new("check");
             let (program, mut cx) = fixture.load(source);
             let failure = crate::checked(program, &mut cx).unwrap_err();
             assert_eq!(failure.message, message);
@@ -2961,7 +2911,7 @@ mod tests {
 
     #[test]
     fn a_negative_nat_is_rejected() {
-        let fixture = Fixture::new();
+        let fixture = Fixture::new("check");
         let (program, mut cx) = fixture.load("bad : Nat\nbad = -1\n");
         let failure = crate::checked(program, &mut cx).unwrap_err();
         assert!(failure.message.contains("negative numeral"));

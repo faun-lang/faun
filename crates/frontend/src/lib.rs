@@ -72,6 +72,8 @@ mod parse;
 mod pattern_compile;
 pub mod platform;
 pub mod resolve;
+#[cfg(test)]
+mod scratch;
 mod second_class;
 mod sorted;
 pub mod source;

@@ -6,75 +6,20 @@
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
+mod support;
+
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-fn library() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/examples/libraries/png")
-}
+use support::{Built, exit_code, file_name as name, library, pipe};
 
-/// Both examples built once into a directory of its own, removed when
-/// dropped.
-struct Examples(PathBuf);
-
-impl Examples {
-    fn build() -> Self {
-        // Numbered, since `cargo test` runs this file's tests side by side
-        // in one process, and each builds into, and then removes, its own.
-        static MADE: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "faun-png-encode-{}-{}",
-            std::process::id(),
-            MADE.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        for name in ["topam", "topng"] {
-            let status = Command::new(env!("CARGO_BIN_EXE_faun"))
-                .arg("build")
-                .arg(format!("--output={}", dir.join(name).display()))
-                .arg(library().join(format!("examples/{name}.fn")))
-                .status()
-                .unwrap();
-            assert!(status.success(), "the {name} example builds");
-        }
-        Self(dir)
-    }
-
-    /// The status `name` exits with on `input`, and what it wrote.
-    fn run(&self, name: &str, args: &[&str], input: &[u8]) -> (i32, Vec<u8>) {
-        let output = pipe(Command::new(self.0.join(name)).args(args), input);
-        let status = output.status.code().unwrap_or_else(|| {
-            panic!("{name} ended by a signal: {:?}", output.status);
-        });
-        (status, output.stdout)
-    }
-}
-
-impl Drop for Examples {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-/// What `command` writes with `input` on its standard input.
-fn pipe(command: &mut Command, input: &[u8]) -> std::process::Output {
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let input = input.to_vec();
-    let writer = std::thread::spawn(move || {
-        // A program that refuses early may close its input first.
-        let _ = stdin.write_all(&input);
-    });
-    let output = child.wait_with_output().unwrap();
-    writer.join().unwrap();
-    output
+/// The status the example `name` exits with on `input`, and what it wrote.
+fn run(examples: &Built, name: &str, args: &[&str], input: &[u8]) -> (i32, Vec<u8>) {
+    let output = pipe(
+        examples.command(name).args(args).stderr(Stdio::null()),
+        input,
+    );
+    (exit_code(&output), output.stdout)
 }
 
 /// A PNG reader for what the encoder writes, 8-bit samples without
@@ -123,13 +68,9 @@ for path in sys.argv[1:]:
         prev = row
     sys.stdout.buffer.write(out)";
 
-fn name(path: &Path) -> &str {
-    path.file_name().unwrap().to_str().unwrap()
-}
-
 /// Every image `PngSuite` holds that is not corrupt.
 fn suite() -> Vec<PathBuf> {
-    let mut paths: Vec<_> = std::fs::read_dir(library().join("fixtures/pngsuite"))
+    let mut paths: Vec<_> = std::fs::read_dir(library("png").join("fixtures/pngsuite"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().is_some_and(|e| e == "png") && !name(path).starts_with('x'))
@@ -147,18 +88,18 @@ fn pixels(pam: &[u8]) -> &[u8] {
 
 #[test]
 fn every_image_encoded_reads_back_through_both_readers() {
-    let examples = Examples::build();
+    let examples = Built::new("png", &["topam", "topng"]);
     let written = examples.0.join("written");
     std::fs::create_dir_all(&written).unwrap();
     let mut files = Vec::new();
     let mut expected = Vec::new();
     for path in suite() {
-        let (status, pam) = examples.run("topam", &[], &std::fs::read(&path).unwrap());
+        let (status, pam) = run(&examples, "topam", &[], &std::fs::read(&path).unwrap());
         assert_eq!(status, 0, "{} decodes", name(&path));
         for flags in [&[][..], &["-0"], &["-1", "--unfiltered"], &["-9"]] {
-            let (status, png) = examples.run("topng", flags, &pam);
+            let (status, png) = run(&examples, "topng", flags, &pam);
             assert_eq!(status, 0, "{} {flags:?} encodes", name(&path));
-            let (status, back) = examples.run("topam", &[], &png);
+            let (status, back) = run(&examples, "topam", &[], &png);
             assert_eq!(status, 0, "{} {flags:?} reads back", name(&path));
             assert_eq!(back, pam, "{} {flags:?} reads back the same", name(&path));
             let file = written.join(format!("{}{}", files.len(), name(&path)));
@@ -182,14 +123,14 @@ fn every_image_encoded_reads_back_through_both_readers() {
 
 #[test]
 fn a_file_not_understood_is_refused() {
-    let examples = Examples::build();
+    let examples = Built::new("png", &["topam", "topng"]);
     for input in [
         &b""[..],
         b"P6\n1 1\n255\n\0\0\0",
         b"P7\nWIDTH 2\nHEIGHT 1\nDEPTH 4\nMAXVAL 255\nENDHDR\n\0\0\0\0",
         b"P7\nWIDTH 1\nHEIGHT 1\nDEPTH 4\nMAXVAL 65535\nENDHDR\n\0\0\0\0\0\0\0\0",
     ] {
-        assert_eq!(examples.run("topng", &[], input).0, 1, "{input:?}");
+        assert_eq!(run(&examples, "topng", &[], input).0, 1, "{input:?}");
     }
-    assert_eq!(examples.run("topng", &["-x"], b"").0, 2);
+    assert_eq!(run(&examples, "topng", &["-x"], b"").0, 2);
 }
