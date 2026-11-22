@@ -3,19 +3,28 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// How many directories this process has made, so two made in the same
+/// nanosecond differ.
+static MADE: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) struct Scratch(pub(crate) PathBuf);
 
 impl Scratch {
-    /// A directory of its own, named after `name`.
+    /// A directory of its own, named after `name`: the process and a count
+    /// keep tests run side by side, as nextest runs them, from sharing one
+    /// and removing it under each other.
     pub(crate) fn new(name: &str) -> Self {
-        let unique = SystemTime::now()
+        let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("faun-{name}-{unique}"));
-        fs::create_dir_all(&root).unwrap();
+        let process = std::process::id();
+        let made = MADE.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("faun-{name}-{process}-{made}-{nanos}"));
+        fs::create_dir(&root).unwrap();
         Self(root)
     }
 
