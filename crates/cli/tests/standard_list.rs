@@ -233,3 +233,45 @@ fn pieces_made_only_to_be_joined_are_never_held_as_a_list() {
     let rendered = barb.render();
     assert!(!rendered.contains("-> List<Str>"), "{rendered}");
 }
+
+/// A list taken apart once, its first element taken and the rest folded
+/// onto it, as `max` and `min` take it, is read as it is made: the match
+/// on it is a walk of its own, which fusion reads as any walk, so no list
+/// of the values is built, and the first is the fold's start.
+#[test]
+fn the_first_element_and_a_fold_of_the_rest_build_no_list() {
+    let package = Package::new(
+        "extremes",
+        "main!(host) -> host.run_stdin!(app)
+
+         app : {stdin: List(U8), *} -> Str
+         app(input) -> (
+           n = input.stdin.len()
+           most = List.range(n).map(|i| (i * 7) % 11).max().ok_or(99)
+           least = List.range(n).map(|i| (i * 5 + 3) % 13).min().ok_or(99)
+           \"${most} ${least} ${spelled(List.range(n).map(|i| i * i))}\"
+         )
+
+         spelled : List(Nat) -> Str
+         spelled([]) -> \"-\"
+         spelled([first, *rest]) -> rest.fold(\"${first}\", |text, x| \"${text}+${x}\")",
+    );
+    for (input, said) in [
+        ("", "99 99 -"),
+        ("a", "0 3 0"),
+        ("abcd", "10 0 0+1+4+9"),
+        ("abcdefgh", "10 0 0+1+4+9+16+25+36+49"),
+    ] {
+        assert_eq!(
+            support::run_file(&package.entry(), input.as_bytes()),
+            (0, format!("{said}\n")),
+            "{input:?}"
+        );
+    }
+    let mut barb =
+        faun_frontend::lower_to_barb(&package.entry(), &faun_driver::platform(&X86_64Linux))
+            .unwrap();
+    barb::optimize(&mut barb);
+    let rendered = barb.render();
+    assert!(!rendered.contains("-> List<Nat>"), "{rendered}");
+}

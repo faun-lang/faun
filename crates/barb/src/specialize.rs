@@ -38,7 +38,10 @@
 //!
 //! Copies come first, and the calls are read again after: a copy holding a
 //! value hands it on, so what it calls may now be handed one value
-//! everywhere. Each definition given a value is simplified again, with a budget
+//! everywhere, and a definition holding one hands it on in turn, so the
+//! calls are read again until nothing more is held: a value handed down a
+//! chain of definitions is held by each of them. Each definition given a
+//! value is simplified again, with a budget
 //! of its own, so what it asks of that value is answered too.
 //!
 //! Only known values are followed, only parameters every call of the
@@ -61,8 +64,20 @@ const LARGEST: usize = 4096;
 /// the values every caller hands alike, and simplify again what was given one.
 pub(crate) fn specialize(program: &mut Program) {
     copy_for_values(program);
-    let held = hold_shared(program);
-    super::normalize::resimplify(program, &held);
+    // A definition holding a value hands it on, so what it calls may be
+    // handed one value everywhere in turn: hold until nothing more is.
+    let mut held: HashSet<(FnId, usize)> = HashSet::default();
+    let mut changed = Vec::new();
+    loop {
+        let more = hold_shared(program, &mut held);
+        if more.is_empty() {
+            break;
+        }
+        changed.extend(more);
+    }
+    changed.sort_unstable();
+    changed.dedup();
+    super::normalize::resimplify(program, &changed);
 }
 
 /// Copy each definition callers hand different values for each of them,
@@ -108,7 +123,7 @@ fn copy_for_values(program: &mut Program) {
 
 /// Bind in each definition the values every call of it from outside hands
 /// alike: which definitions those are.
-fn hold_shared(program: &mut Program) -> Vec<FnId> {
+fn hold_shared(program: &mut Program, held: &mut HashSet<(FnId, usize)>) -> Vec<FnId> {
     let sites = Sites::of(program);
     let mut bodies = Vec::new();
     for (at, calls) in sites.calls.iter().enumerate() {
@@ -121,13 +136,22 @@ fn hold_shared(program: &mut Program) -> Vec<FnId> {
             .enumerate()
             .map(|(param, &passed)| {
                 let (first, rest) = calls.split_first()?;
-                let value = first.handed[param].filter(|_| passed)?;
+                let value =
+                    first.handed[param].filter(|_| passed && !held.contains(&(id, param)))?;
                 rest.iter()
                     .all(|call| call.handed[param] == Some(value))
                     .then_some(value)
             })
             .collect());
         if shared.known() {
+            held.extend(
+                shared
+                    .0
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, value)| value.is_some())
+                    .map(|(param, _)| (id, param)),
+            );
             bodies.push((id, holding(program, body, &shared)));
         }
     }
