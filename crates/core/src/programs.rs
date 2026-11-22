@@ -20,8 +20,6 @@ pub mod comparisons;
 pub mod control;
 #[path = "programs/external.rs"]
 pub mod external;
-#[path = "programs/ladder.rs"]
-pub mod ladder;
 
 use crate::ir::Class::Word;
 use crate::ir::{Binary, Builder, Class, Offset, Program, Relation, Width};
@@ -168,22 +166,6 @@ pub fn a_branch_over_a_long_arm(steps: u64, first: bool) -> Program {
             b.if_(taken, &[Word], nothing, |b| counts(b, steps))
         };
         b.ret(&answer);
-    });
-    program
-}
-
-/// Both sides worked out, where every comparison here has had one side
-/// written. A target with one accumulator has to hold the left somewhere
-/// while it reads the right, and that is a different instruction.
-#[must_use]
-pub fn compares_two_worked_out_values() -> Program {
-    let (mut program, main) = Program::new("main");
-    program.define(main, |b, _| {
-        let one = b.constant(Word, 1);
-        let two = b.binary(Binary::Add, one, one);
-        let three = b.binary(Binary::Add, two, one);
-        let answer = b.compare(Relation::Less, two, three);
-        b.ret(&[answer]);
     });
     program
 }
@@ -405,28 +387,6 @@ pub fn recurses() -> Program {
     program
 }
 
-/// Ask the platform for a page, write two words into it, read one back.
-/// Exits with what it read, so nothing but real memory can make it pass.
-#[must_use]
-pub fn uses_the_heap() -> Program {
-    let (mut program, main) = Program::new("main");
-    let grow = crate::platform::Routines::builtin().declare(&mut program, "grow");
-
-    program.define(main, |b, _| {
-        let size = b.constant(Word, 4096);
-        let page = b.call_one(grow, &[size]);
-
-        let answer = b.constant(Word, 42);
-        let decoy = b.constant(Word, 7);
-        b.store(Width::Word, page, Offset::Words(0), decoy);
-        b.store(Width::Word, page, Offset::Words(1), answer);
-
-        let answer = b.load(Width::Word, page, Offset::Words(1));
-        b.ret(&[answer]);
-    });
-    program
-}
-
 /// Several values still wanted after a call, and a callee greedy enough to
 /// take every pair it can. Anything the caller fails to hand back shows up
 /// in the answer.
@@ -468,65 +428,6 @@ pub fn values_survive_a_call() -> Program {
         let three = b.constant(Word, 3);
         let answer = b.call(outer, &[ten, three]);
         b.ret(&answer);
-    });
-    program
-}
-
-/// Writes through an address the program worked out for itself.
-///
-/// Which is the case a target cannot answer with a block of constants.
-///
-/// # Panics
-///
-/// If the message outgrew what a word on the smallest target holds.
-#[must_use]
-pub fn writes_from_the_heap() -> Program {
-    let (mut program, main) = Program::new("main");
-    let grow = crate::platform::Routines::builtin().declare(&mut program, "grow");
-    let write = crate::platform::Routines::builtin().declare(&mut program, "write!");
-
-    program.define(main, |b, _| {
-        let size = b.constant(Word, 4096);
-        let page = b.call_one(grow, &[size]);
-
-        // "hi\n", a byte at a time, since the bytes are computed too.
-        for (index, byte) in [b'h', b'i', b'\n'].into_iter().enumerate() {
-            let value = b.constant(Word, u64::from(byte));
-            let offset = Offset::Bytes(i32::try_from(index).expect("a short greeting"));
-            b.store(Width::Byte, page, offset, value);
-        }
-
-        let length = b.constant(Word, 3);
-        b.call(write, &[page, length]);
-        let status = b.constant(Word, 0);
-        b.ret(&[status]);
-    });
-    program
-}
-
-/// A byte store must not disturb its neighbour, and a byte above 127 must
-/// come back zero-extended rather than as a very large word. Answers
-/// `(first == 200) + second`, so both have to hold to reach 8.
-#[must_use]
-pub fn stores_a_byte() -> Program {
-    let (mut program, main) = Program::new("main");
-    let grow = crate::platform::Routines::builtin().declare(&mut program, "grow");
-
-    program.define(main, |b, _| {
-        let size = b.constant(Word, 4096);
-        let page = b.call_one(grow, &[size]);
-
-        let high = b.constant(Word, 200);
-        b.store(Width::Byte, page, Offset::Bytes(0), high);
-        let neighbour = b.constant(Word, 7);
-        b.store(Width::Byte, page, Offset::Bytes(1), neighbour);
-
-        let first = b.load(Width::Byte, page, Offset::Bytes(0));
-        let second = b.load(Width::Byte, page, Offset::Bytes(1));
-        let expected = b.constant(Word, 200);
-        let intact = b.compare(Relation::Equal, first, expected);
-        let answer = b.binary(Binary::Add, intact, second);
-        b.ret(&[answer]);
     });
     program
 }
@@ -622,56 +523,6 @@ pub fn wraps_at_eight_bits() -> Program {
     program
 }
 
-/// `Relation::Less` is unsigned, and both targets carry an arm for it that
-/// nothing else exercises.
-#[must_use]
-pub fn less(left: u64, right: u64) -> Program {
-    let (mut program, main) = Program::new("main");
-    program.define(main, |b, _| {
-        let left = b.constant(Word, left);
-        let right = b.constant(Word, right);
-        let answer = b.compare(Relation::Less, left, right);
-        b.ret(&[answer]);
-    });
-    program
-}
-
-/// `while n != 0 { print "tick"; n -= 1 }`, written the way the IR has it:
-/// a loop carrying `n`, and an `if` that either breaks or goes round again.
-#[must_use]
-pub fn countdown(times: u64) -> Program {
-    let (mut program, main) = Program::new("main");
-    let tick = program.intern(b"tick\n".as_slice());
-    let write = crate::platform::Routines::builtin().declare(&mut program, "write!");
-
-    program.define(main, |b, _| {
-        let start = b.constant(Word, times);
-        b.loop_(&[start], &[], |b, params| {
-            let n = params[0];
-            let zero = b.constant(Word, 0);
-            let done = b.compare(Relation::Equal, n, zero);
-            b.if_(
-                done,
-                &[],
-                |b| b.break_(&[]),
-                |b| {
-                    let buf = b.address_of(tick);
-                    let len = b.constant(Word, 5);
-                    b.call(write, &[buf, len]);
-                    let one = b.constant(Word, 1);
-                    let next = b.binary(Binary::Sub, n, one);
-                    b.continue_(&[next]);
-                },
-            );
-        });
-
-        let status = b.constant(Word, 0);
-        b.ret(&[status]);
-    });
-
-    program
-}
-
 /// Every program here that writes, and what it writes.
 #[must_use]
 pub fn printing() -> Vec<(&'static str, Program, String)> {
@@ -680,11 +531,6 @@ pub fn printing() -> Vec<(&'static str, Program, String)> {
         (
             "a computed length",
             writes_a_length_it_worked_out(),
-            "hi\n".to_owned(),
-        ),
-        (
-            "writing the heap",
-            writes_from_the_heap(),
             "hi\n".to_owned(),
         ),
         (

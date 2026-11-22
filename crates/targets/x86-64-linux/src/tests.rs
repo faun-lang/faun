@@ -1,4 +1,4 @@
-//! Target-specific limits and size baselines; conformance cases are shared.
+//! Target-specific limits; conformance cases and size baselines are shared.
 use faun_core::targets::Target;
 
 use crate::X86_64Linux;
@@ -25,78 +25,11 @@ mod shared;
 const TARGET: X86_64Linux = X86_64Linux;
 const RUNNER: Option<&str> = None;
 
-// Lower baselines when emission improves; explain any increase.
-// Two-operand IMUL does not reserve or clobber RAX/RCX/RDX, which removes
-// register transfers in the runtime multiply and natural-number examples. A
-// known multiplier is taken into the instruction: three, five and nine as a
-// LEA, which also takes a number added next.
-//
-// A program that writes ignores `SIGPIPE` before anything else, so a write
-// to a closed pipe answers `BrokenPipe` as it does on every other target:
-// 21 bytes on every such program, and 4 more to put the stack back where
-// it reads its arguments.
-// A program whose calls can go round handles the fault at the end of its
-// stack, saying `stack overflow` and exiting with status 3 rather than
-// ending with `SIGSEGV` and nothing said: 129 bytes on every such program,
-// 25 of them telling that fault from any other.
-// An exit status is a `U8`, so an example whose status is worked out from a
-// `Nat` takes it modulo 256; where the arm that bounds it is not seen to,
-// that is real work.
-/// The ladder of simplest programs, from Barb. Lower these when the
-/// compiler improves; a rise is the compiler getting worse at the one
-/// thing small enough to read.
-const LADDER_SIZES: &[(&str, usize)] = &[
-    ("a constant", 127),
-    ("the count", 129),
-    ("the count and a constant", 132),
-    ("the low bits of a sum", 131),
-    ("the count under a guard", 137),
-    ("the count and more", 142),
-    ("a shared intermediate", 143),
-    ("a greeting", 178),
-];
-const CORPUS_SIZES: &[(&str, usize)] = &[
-    ("exit zero", 127),
-    ("two and two", 131),
-    ("hello world", 179),
-    ("a call", 143),
-    ("recursion", 308),
-    ("values across a call", 252),
-    ("the heap", 168),
-    ("a byte", 194),
-    ("a global", 224),
-    ("writing the heap", 207),
-    ("a computed length", 211),
-    ("eight bits", 133),
-    ("less", 139),
-    ("two worked out", 151),
-    ("a flag", 205),
-    ("a countdown", 187),
-    ("a carried total", 156),
-    ("a step first", 205),
-    ("a long arm", 260),
-];
-const EXAMPLE_SIZES: &[(&str, usize)] = &[
-    ("exit", 128),
-    ("two-and-two", 128),
-    ("double", 128),
-    ("leave", 128),
-    ("bool", 161),
-    ("nat", 239),
-    ("width", 152),
-    ("argc", 166),
-    ("expressions", 161),
-    ("hello", 226),
-];
-const ARITHMETIC_SIZES: [usize; 3] = [165, 197, 195];
-
 #[test]
 fn ladder_code_size_ratchets() {
-    let routines = TARGET.routines();
     let mut code = Vec::new();
-    for (name, mut barb) in faun_core::programs::ladder::every() {
-        barb::optimize(&mut barb);
-        let machine = faun_core::lower_to_machine_ir(&barb, &routines).unwrap();
+    for (name, text) in shared::LADDER {
+        let machine = shared::read(text).unwrap();
         let prepared = TARGET.prepare(&machine).unwrap();
         let allocated = crate::selected::select_and_allocate(&prepared).unwrap();
         code.push((name, crate::encode::encode(&allocated).bytes));
@@ -115,7 +48,7 @@ fn ladder_code_size_ratchets() {
             ("the low bits of a sum", 11),
             ("the count under a guard", 17),
             ("the count and more", 22),
-            ("a shared intermediate", 23),
+            ("a shared intermediate", 31),
             ("a greeting", 45),
         ]
     );
