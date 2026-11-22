@@ -5,9 +5,9 @@ error: mismatched types
     |                       ------- ^^^^^^^^^ expected one type, found another
     |                       |
     |                       arguments to this method are incorrect
-   ::: std/list.fn:192:3
+   ::: std/list.fn:238:3
     |
-192 |   try_map : (List(a), a -> Result(b, e)) -> Result(List(b), e)
+238 |   try_map : (List(a), a -> Result(b, e)) -> Result(List(b), e)
     |   ------------------------------------------------------------ method defined here
     |
     = note: expected `U8 -> Result(_, _)`

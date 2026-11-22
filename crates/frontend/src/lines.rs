@@ -14,8 +14,8 @@
 
 use super::ast::{
     AliasDecl, BinaryOp, Binding, Body, Bound, Clause, Constraint, ConstraintAliasDecl, DataDecl,
-    DataRepresentation, ExportsDecl, Expr, ExprKind, HeaderDecl, ImportDecl, Item, MethodItem,
-    Name, NumeralKind, Pattern, SignatureDecl, Span, StringPart, Type, UnaryOp,
+    DataRepresentation, Example, Expect, ExportsDecl, Expr, ExprKind, HeaderDecl, ImportDecl, Item,
+    MethodItem, Name, NumeralKind, Pattern, SignatureDecl, Span, StringPart, Type, UnaryOp,
 };
 use super::diagnostic::Advised;
 use super::grammar::SyntaxError;
@@ -92,10 +92,12 @@ pub(crate) fn is_type_name(name: Name, source: &str) -> bool {
 /// belongs to nothing, a body that ends in a binding, or a pattern-only form
 /// left in an expression.
 pub(crate) fn items(lines: Vec<Line>, source: &str) -> Result<Vec<Item>, SyntaxError> {
-    let items = Grouping::new(source, false).group(lines)?;
+    let items = Grouping::new(source, None).group(lines)?;
     for item in &items {
         match item {
-            Item::Clause(clause) | Item::Expect(clause) => clause_expressions(clause, source)?,
+            Item::Clause(clause) | Item::Expect(Expect { clause, .. }) => {
+                clause_expressions(clause, source)?;
+            }
             Item::Data(data) => {
                 for method in &data.methods {
                     if let MethodItem::Clause(clause) = method {
@@ -112,18 +114,22 @@ pub(crate) fn items(lines: Vec<Line>, source: &str) -> Result<Vec<Item>, SyntaxE
 /// Items from lines, a line apiece.
 struct Grouping<'s> {
     source: &'s str,
-    /// Whether these are a method block's lines, which hold only
-    /// signatures and clauses.
-    methods: bool,
+    /// The type whose method block these lines are, which holds only
+    /// signatures, clauses and their examples.
+    owner: Option<Name>,
     items: Vec<Item>,
+    /// The definition the last item was, or an example of, and where that
+    /// item ends: what an `expect` directly beneath is an example of.
+    above: Option<(Name, u32)>,
 }
 
 impl<'s> Grouping<'s> {
-    const fn new(source: &'s str, methods: bool) -> Self {
+    const fn new(source: &'s str, owner: Option<Name>) -> Self {
         Self {
             source,
-            methods,
+            owner,
             items: Vec::new(),
+            above: None,
         }
     }
 
@@ -139,19 +145,7 @@ impl<'s> Grouping<'s> {
             Line::Header(header) => self.item(header.span, Item::Header(header)),
             Line::Import(import) => self.item(import.span, Item::Import(import)),
             Line::Exports(exports) => self.item(exports.span, Item::Exports(exports)),
-            Line::Expect(keyword, value) => {
-                let body = body_of(value);
-                self.item(
-                    keyword,
-                    Item::Expect(Clause {
-                        span: keyword.through(body.result.span),
-                        name: Name(keyword),
-                        patterns: Vec::new(),
-                        guard: None,
-                        body,
-                    }),
-                )
-            }
+            Line::Expect(keyword, value) => self.expect(keyword, value),
             Line::Clause { head, guard, body } => self.clause(head, guard, body),
             Line::Value(head, value) => self.value(&head, value),
             Line::Typed(head, typed) => self.typed(head, typed),
@@ -170,6 +164,33 @@ impl<'s> Grouping<'s> {
             }
             Line::Constraints(head, constraints) => self.constraint_alias(head, constraints),
         }
+    }
+
+    /// `expect value`, an example of the definition directly above where
+    /// there is one, as an `expect` in a method block must be.
+    fn expect(&mut self, keyword: Span, value: Expr) -> Result<(), SyntaxError> {
+        let body = body_of(value);
+        let example_of = self.example_of(keyword);
+        if self.owner.is_some() && example_of.is_none() {
+            return Err(SyntaxError::new(
+                keyword,
+                "an `expect` in a method block is an example of the method above it",
+            )
+            .help("write it directly beneath the method's clauses, with no blank line between, or after the block"));
+        }
+        self.item(
+            keyword,
+            Item::Expect(Expect {
+                clause: Clause {
+                    span: keyword.through(body.result.span),
+                    name: Name(keyword),
+                    patterns: Vec::new(),
+                    guard: None,
+                    body,
+                },
+                example_of,
+            }),
+        )
     }
 
     /// A clause: its head's name and patterns, its guard, and its body.
@@ -250,16 +271,51 @@ impl<'s> Grouping<'s> {
     }
 
     /// Add `item`, which a method block may not hold unless it is a
-    /// signature or a clause.
+    /// signature, a clause or an example.
     fn item(&mut self, span: Span, item: Item) -> Result<(), SyntaxError> {
-        if self.methods && !matches!(item, Item::Signature(_) | Item::Clause(_)) {
+        if self.owner.is_some()
+            && !matches!(item, Item::Signature(_) | Item::Clause(_) | Item::Expect(_))
+        {
             return Err(SyntaxError::new(
                 span,
-                "a method block holds signatures and clauses",
+                "a method block holds signatures, clauses and examples",
             ));
         }
+        self.above = match &item {
+            Item::Clause(clause) => Some((clause.name, clause.span.end)),
+            Item::Data(data) => Some((data.name, data.span.end)),
+            Item::Expect(Expect {
+                clause,
+                example_of: Some(example),
+            }) => Some((example.name, clause.span.end)),
+            _ => None,
+        };
         self.items.push(item);
         Ok(())
+    }
+
+    /// The definition an `expect` written at `keyword` is an example of:
+    /// the one whose last line, or the last line of an example of it, is
+    /// directly above, with no blank line between. A comment between, or
+    /// the end of a block, keeps them together.
+    fn example_of(&self, keyword: Span) -> Option<Example> {
+        let (name, end) = self.above?;
+        let between = Span {
+            start: end,
+            end: keyword.start,
+        }
+        .text(self.source);
+        let lines: Vec<&str> = between.split('\n').collect();
+        // The first is the rest of the line above, and the last what comes
+        // before `expect` on its own.
+        let inner = lines.get(1..lines.len() - 1)?;
+        inner
+            .iter()
+            .all(|line| !line.trim().is_empty())
+            .then_some(Example {
+                owner: self.owner,
+                name,
+            })
     }
 
     /// A clause's name and what it is applied to: `name(patterns)`.
@@ -369,18 +425,20 @@ impl<'s> Grouping<'s> {
                 "a type takes no `where` constraints",
             ));
         }
-        let methods = match typed.methods {
-            Some((lines, _)) => Grouping::new(self.source, true)
-                .group(lines)?
-                .into_iter()
-                .map(|item| match item {
-                    Item::Signature(signature) => MethodItem::Signature(signature),
-                    Item::Clause(clause) => MethodItem::Clause(clause),
-                    _ => unreachable!("a method block holds signatures and clauses"),
-                })
-                .collect(),
-            None => Vec::new(),
-        };
+        // A method's examples are the module's expectations, written in
+        // the block only to be beside it: they follow the type.
+        let mut examples = Vec::new();
+        let mut methods = Vec::new();
+        if let Some((lines, _)) = typed.methods {
+            for item in Grouping::new(self.source, Some(name)).group(lines)? {
+                match item {
+                    Item::Signature(signature) => methods.push(MethodItem::Signature(signature)),
+                    Item::Clause(clause) => methods.push(MethodItem::Clause(clause)),
+                    Item::Expect(expect) => examples.push(expect),
+                    _ => unreachable!("a method block holds signatures, clauses and examples"),
+                }
+            }
+        }
         let representation = representation(typed.result)?;
         self.item(
             span,
@@ -391,7 +449,9 @@ impl<'s> Grouping<'s> {
                 representation,
                 methods,
             }),
-        )
+        )?;
+        self.items.extend(examples.into_iter().map(Item::Expect));
+        Ok(())
     }
 }
 

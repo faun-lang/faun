@@ -174,6 +174,7 @@ fn resolve_module(
 ) -> Result<h::Module, Refusal> {
     let mut items = Vec::new();
     let mut expectations = Vec::new();
+    let mut examples = Vec::new();
     for item in &module.syntax.items {
         match item {
             s::Item::Data(data) => items.push(h::Item::Data(resolve_data(
@@ -203,7 +204,7 @@ fn resolve_module(
                 )?;
                 items.extend(clauses.into_iter().map(h::Item::Clause));
             }
-            s::Item::Expect(clause) => {
+            s::Item::Expect(s::Expect { clause, example_of }) => {
                 let name = symbols.intern(&format!(
                     "{}$$expect {}",
                     symbols.text(module.namespace),
@@ -237,6 +238,9 @@ fn resolve_module(
                     (symbols, sites),
                 )?));
                 expectations.push(name);
+                if let Some(example) = example_of {
+                    examples.push((name, symbols.intern(&example.text(source))));
+                }
             }
             s::Item::Alias(alias) => {
                 let local = symbols.intern(alias.name.text(source));
@@ -304,6 +308,7 @@ fn resolve_module(
         visible_methods,
         items,
         expectations,
+        examples,
     })
 }
 

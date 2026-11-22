@@ -378,7 +378,7 @@ fn ask(
 /// Where `failure` was written, and what it says: that, and what a
 /// comparison saw.
 fn said(failure: &faun_frontend::Failure<'_>) -> (String, String) {
-    let at = written(failure.location);
+    let at = written(&failure.expectation.location);
     let saw = match &failure.sides {
         Some((faun_frontend::Side::Shown(left), faun_frontend::Side::Shown(right))) => {
             format!("\n  left:  {left}\n  right: {right}")
@@ -394,18 +394,14 @@ fn said(failure: &faun_frontend::Failure<'_>) -> (String, String) {
 
 /// Which expectation ran out of `fuel`, the steps they share, and what
 /// each before it took: `spent` holds the latter, in order.
-fn ran_out(
-    expectations: &[faun_frontend::diagnostic::Location],
-    spent: &[u64],
-    fuel: u64,
-) -> String {
-    let Some(location) = expectations.get(spent.len()) else {
+fn ran_out(expectations: &[faun_frontend::Expectation], spent: &[u64], fuel: u64) -> String {
+    let Some(asked) = expectations.get(spent.len()) else {
         return format!("the expectations ran out of their {fuel} steps after the last one");
     };
     let mut said = format!(
         "{}: this expectation ran out of fuel, the {fuel} steps of the reference \
          interpreter a file's expectations share",
-        written(location)
+        written(&asked.location)
     );
     let most = spent.iter().enumerate().max_by_key(|&(_, &steps)| steps);
     if let Some((at, steps)) = most {
@@ -414,7 +410,7 @@ fn ran_out(
             said,
             "; the {} before it took {before}, the most {} with {steps}",
             spent.len(),
-            written(&expectations[at])
+            written(&expectations[at].location)
         );
     }
     said

@@ -1,0 +1,7 @@
+error: an `expect` in a method block is an example of the method above it
+ --> an_expect_in_a_method_block_is_an_example_of_the_method_above_it.fn:8:3
+  |
+8 |   expect Box(3).get() == 3
+  |   ^^^^^^
+  |
+  = help: write it directly beneath the method's clauses, with no blank line between, or after the block

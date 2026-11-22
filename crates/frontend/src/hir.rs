@@ -29,6 +29,9 @@ pub struct Module {
     /// each is among `items`, answering a `Bool`, with a name no source can
     /// write.
     pub expectations: Vec<Symbol>,
+    /// Each of `expectations` written as an example, and the definition it
+    /// is one of, as a caller names it: `Str.trim`.
+    pub examples: Vec<(Symbol, Symbol)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

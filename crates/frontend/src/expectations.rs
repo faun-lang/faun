@@ -37,10 +37,10 @@
 //! and what the compiler settles while compiling is settled before the
 //! program runs.
 
+use crate::Expectation;
 use crate::Symbol;
 use crate::ast::{BinaryOp, Span};
 use crate::context::Context;
-use crate::diagnostic::Location;
 use crate::hir as h;
 use crate::host::Main;
 use crate::modules::LoadedProgram;
@@ -70,15 +70,15 @@ pub(crate) fn main(loaded: &mut LoadedProgram) -> Main {
     }
 }
 
-/// `program` with `main` the test entry, and where each expectation it asks
-/// was written, in the order it numbers them.
+/// `program` with `main` the test entry, and each expectation it asks, in
+/// the order it numbers them.
 pub(crate) fn enter(
     mut program: h::Program,
     cx: &mut Context,
     main: &Main,
     reporting: Reporting,
-) -> (h::Program, Vec<Location>) {
-    let (asked, locations) = asked(&program, cx);
+) -> (h::Program, Vec<Expectation>) {
+    let (asked, expectations) = asked(&program, cx);
     let mut records = Vec::with_capacity(asked.len());
     for (at, &expectation) in asked.iter().enumerate() {
         let record = Record {
@@ -100,14 +100,14 @@ pub(crate) fn enter(
             .entry_signature(clause.span, main.symbol, spelling),
     );
     module.items.push(h::Item::Clause(clause));
-    (program, locations)
+    (program, expectations)
 }
 
 /// Every expectation in the package, in the order the test entry numbers
-/// them, and where each was written.
-fn asked(program: &h::Program, cx: &Context) -> (Vec<Symbol>, Vec<Location>) {
+/// them, and where each was written and what it is an example of.
+fn asked(program: &h::Program, cx: &Context) -> (Vec<Symbol>, Vec<Expectation>) {
     let mut asked = Vec::new();
-    let mut locations = Vec::new();
+    let mut expectations = Vec::new();
     for module in &program.modules {
         if !cx.package.contains(&module.source) {
             continue;
@@ -121,11 +121,19 @@ fn asked(program: &h::Program, cx: &Context) -> (Vec<Symbol>, Vec<Location>) {
                     _ => None,
                 })
                 .expect("an expectation is a clause of its module");
-            locations.push(cx.location(module.source, span));
+            let example_of = module
+                .examples
+                .iter()
+                .find(|(example, _)| *example == expectation)
+                .map(|&(_, definition)| cx.symbols.text(definition).to_owned());
+            expectations.push(Expectation {
+                location: cx.location(module.source, span),
+                example_of,
+            });
             asked.push(expectation);
         }
     }
-    (asked, locations)
+    (asked, expectations)
 }
 
 /// What one expectation's record says.

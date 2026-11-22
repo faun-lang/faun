@@ -94,6 +94,12 @@ written in more than one byte and `Err(OutOfBounds)` past the end, so a
 slice is always text. A numeral pattern of a word and a string pattern are each a test
 of equality, asked before the clause's guard.
 
+Each public method of `Str` and `List` but `hash_into` has examples,
+`expect`s written directly beneath it, which are its
+[examples](../../../notes/forms/modules.md#examples): read there, they show
+it used, and `just test-std` asks them with the library's other
+expectations.
+
 `List` follows Ori's standard list: `len`, `is_empty`, `append`, `concat`,
 `prepend`, `map`, `map2`, `flat_map`, `flatten`, `join`, `filter`, `count`,
 `any`, `all`, `fold`, `fold_until`, `try_fold`, `fold_right`, `trail`, `reverse`, `first`, `last`,
