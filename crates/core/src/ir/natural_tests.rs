@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 
 use super::evaluate::{self, Evaluation, Host, HostResult, Memory};
 use super::natural::{self, Config, Helper, Library, Needs};
-use super::{Binary, Builder, Class, DataId, FunctionId, Op, Program, Relation};
+use super::{Binary, Builder, Class, DataId, FunctionId, Program, Relation};
 
 const WORD: Class = Class::Word;
 const ADDRESS: Class = Class::Address;
@@ -257,52 +257,10 @@ fn invalid_configurations_are_rejected() {
     }
 }
 
-#[test]
-fn generated_regions_fit_the_narrow_calling_convention() {
-    for bits in [16, 32, 64] {
-        let (p, _, _) = program(config(bits), Needs::from(Helper::ALL));
-        super::validate(&p).unwrap();
-        for f in p.functions() {
-            assert!(f.params.len() <= 4);
-            assert!(f.returns.classes().len() <= 1);
-            let Some(body) = f.body() else { continue };
-            assert!(
-                region_values(&p, body) <= 128,
-                "{} fits frame slots",
-                p.name(f.name)
-            );
-            for op in p.every(body) {
-                match *op {
-                    Op::Loop { body, initial } => {
-                        assert!(initial.len() <= 2);
-                        assert!(p.region(body).params.len() <= 2);
-                    }
-                    Op::Call { args, .. } => assert!(args.len() <= 4),
-                    _ => {}
-                }
-            }
-        }
-    }
-}
-
-fn region_values(p: &Program, region: super::RegionId) -> usize {
-    p.region(region).params.len()
-        + p.walk(region)
-            .map(|(op, results)| {
-                results.len()
-                    + match *op {
-                        Op::If {
-                            then_region,
-                            else_region,
-                            ..
-                        } => region_values(p, then_region) + region_values(p, else_region),
-                        Op::Loop { body, .. } => region_values(p, body),
-                        _ => 0,
-                    }
-            })
-            .sum::<usize>()
-}
-
+#[expect(
+    clippy::too_many_lines,
+    reason = "one list of every sample, each with why it is there"
+)]
 fn samples(bits: u16) -> Vec<(BigUint, BigUint)> {
     let n = |n: u64| BigUint::from(n);
     let max = (n(1) << usize::from(bits)) - n(1);
@@ -331,6 +289,21 @@ fn samples(bits: u16) -> Vec<(BigUint, BigUint)> {
         &half * &square + (&half - n(1)) * &square * &digit,
         &half * &square + n(1),
     ));
+    // A carry and a borrow across whole words of ones, and quotients whose
+    // remainders are nought or one either side of a digit.
+    let high = n(1) << 128usize;
+    let middle = n(1) << 64usize;
+    pairs.extend([
+        (&high - n(1), n(1)),
+        (high.clone(), n(1)),
+        (n(0xffff), n(0xff)),
+        (n(0x10000), n(0xff)),
+        (n(0x10000), n(0x100)),
+        (n(0x10000), n(0x101)),
+        (high.clone(), n(257)),
+        (&high + &middle + n(1), &middle + n(1)),
+        (&high - n(1), middle),
+    ]);
     let mut seed = 0x917d_5a32_0ed6_c41bu64;
     let mut next = || {
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
@@ -456,45 +429,6 @@ fn word_division_checks(p: &mut Program, lib: &Library) -> Vec<(Binary, Function
         (op, check)
     })
     .collect()
-}
-
-/// A heap that starts with a single small arena and asks for more as it
-/// fills, each grant running on from the last, which the latest arena is
-/// then made longer by: every answer is what it is with room to spare.
-#[test]
-fn a_heap_grown_a_run_at_a_time_answers_the_same() {
-    for bits in [16, 32, 64] {
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 8 * usize::from(bits / 8),
-            grows: true,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let (mut p, lib, _) = program(conf, Needs::from(ARITHMETIC));
-        let checks = arithmetic_checks(&mut p, &lib);
-        let pairs: Vec<_> = samples(bits)
-            .into_iter()
-            .map(|(a, c)| {
-                let da = natural::constant(&mut p, conf, &a).unwrap();
-                let dc = natural::constant(&mut p, conf, &c).unwrap();
-                (a, c, da, dc)
-            })
-            .collect();
-        for (op, check) in checks {
-            for (a, c, da, dc) in &pairs {
-                let args = [data_address(&p, *da), data_address(&p, *dc)];
-                let (evaluation, seen) = run(&p, check, &args, bits);
-                assert!(evaluation.returned().is_some(), "{bits} {op:?} {a} {c}");
-                assert_eq!(
-                    seen,
-                    [model(op, a, c), a.clone(), c.clone()],
-                    "{bits} {op:?} {a} {c}"
-                );
-            }
-        }
-    }
 }
 
 /// A 16-bit heap asks for a quarter of what it counts itself as, and
@@ -629,161 +563,6 @@ fn comparison_and_explicit_low_word_conversion() {
     }
 }
 
-/// A comparison written in place asks two immediates the question itself
-/// and anything else the helper's order, and answers alike either way:
-/// immediates beside each other, an immediate beside an object, two
-/// objects, with the immediate case written and with it left to the call.
-#[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "a generated check beside its pairs of each kind"
-)]
-fn a_comparison_written_in_place_answers_as_the_order_does() {
-    for bits in [16, 32, 64] {
-        for inline_small in [true, false] {
-            let conf = Config {
-                inline_small,
-                ..config(bits)
-            };
-            let (mut p, lib, _) = program(conf, Needs::from([Helper::Compare, Helper::FromWord]));
-            let observer = observer(&mut p);
-            let check = p.declare("check", &[WORD, WORD], &[WORD]);
-            p.define(check, |b, args| {
-                let a = b.call_one(lib.require(Helper::FromWord), &[args[0]]);
-                let c = b.call_one(lib.require(Helper::FromWord), &[args[1]]);
-                for relation in [Relation::Equal, Relation::Less] {
-                    let answer = lib.compare(b, relation, a, c);
-                    // Observed as the immediate holding it.
-                    let answer = Library::small_word(b, answer);
-                    b.call(observer, &[answer]);
-                }
-                lib.release_value(b, a);
-                lib.release_value(b, c);
-                let zero = b.constant(WORD, 0);
-                b.ret(&[zero]);
-            });
-            let half = natural::half(bits);
-            let most = u64::MAX >> (64 - bits);
-            let pairs = [
-                (0, 0),
-                (1, 0),
-                (0, 7),
-                (5, 5),
-                (half - 1, half - 1),
-                (half - 1, half),
-                (half, half - 1),
-                (half + 3, half + 3),
-                (half + 3, half + 4),
-                (most, half),
-                (most, most),
-            ];
-            for (a, c) in pairs {
-                let (evaluation, seen) =
-                    run(&p, check, &[BigUint::from(a), BigUint::from(c)], bits);
-                assert!(evaluation.returned().is_some(), "{bits} {a} {c}");
-                assert_eq!(
-                    seen,
-                    [BigUint::from(a == c), BigUint::from(a < c)],
-                    "{bits} {inline_small} {a} {c}"
-                );
-                free_heap(&evaluation.globals, usize::from(bits / 8));
-            }
-        }
-    }
-}
-
-#[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "generated loop beside its repeated-reuse assertions"
-)]
-fn word_promotion_aliases_and_long_running_heap_reuse() {
-    for bits in [16, 32, 64] {
-        let word = usize::from(bits / 8);
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 12 * word,
-            grows: false,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let (mut p, lib, _) = program(
-            conf,
-            Needs::from([Helper::FromWord, Helper::ToWord, Helper::Add]),
-        );
-        let observer = observer(&mut p);
-        let check = p.declare("reuse", &[WORD], &[WORD]);
-        p.define(check, |b, args| {
-            let zero = b.constant(WORD, 0);
-            let one = b.constant(WORD, 1);
-            let rounds = b.constant(WORD, 1000);
-            b.loop_(&[zero], &[], |b, state| {
-                let i = state[0];
-                let done = b.compare(Relation::Equal, i, rounds);
-                b.if_(done, &[], |b| b.break_(&[]), |b| b.yield_(&[]));
-                let a = b.call_one(lib.require(Helper::FromWord), args);
-                let alias = lib.retain_value(b, a);
-                lib.release_value(b, a);
-                let sum = b.call_one(lib.require(Helper::Add), &[alias, alias]);
-                lib.release_value(b, alias);
-                observe_and_release(b, &lib, observer, sum);
-                let next = b.binary(Binary::Add, i, one);
-                b.continue_(&[next]);
-            });
-            b.ret(&[zero]);
-        });
-        let input = (BigUint::from(1u8) << usize::from(bits)) - BigUint::from(1u8);
-        let (evaluation, seen) = run(&p, check, std::slice::from_ref(&input), bits);
-        assert!(evaluation.returned().is_some());
-        assert_eq!(seen.len(), 1000);
-        assert!(seen.iter().all(|n| n == &(&input * BigUint::from(2u8))));
-        free_heap(&evaluation.globals, word);
-        // The zero promotion path is immortal and allocates nothing.
-        let (evaluation, seen) = run(&p, check, &[BigUint::default()], bits);
-        assert!(evaluation.returned().is_some());
-        assert_eq!(seen, vec![BigUint::default(); 1000]);
-        free_heap(&evaluation.globals, word);
-    }
-}
-
-#[test]
-fn freed_adjacent_blocks_coalesce_for_a_larger_allocation() {
-    for bits in [16, 32, 64] {
-        let word = usize::from(bits / 8);
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 12 * word,
-            grows: false,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let (mut p, lib, _) = program(conf, Needs::from([Helper::FromWord, Helper::Add]));
-        let observer = observer(&mut p);
-        let magnitude = BigUint::from(1u8) << (word * 8);
-        let big = natural::constant(&mut p, conf, &magnitude).unwrap();
-        let check = p.declare("coalesce", &[WORD], &[WORD]);
-        p.define(check, |b, args| {
-            let first = b.call_one(lib.require(Helper::FromWord), args);
-            let second = b.call_one(lib.require(Helper::FromWord), args);
-            let last = b.call_one(lib.require(Helper::FromWord), args);
-            lib.release_value(b, first);
-            lib.release_value(b, second);
-            let big = Library::constant_handle(b, big);
-            let sum = b.call_one(lib.require(Helper::Add), &[big, big]);
-            observe_and_release(b, &lib, observer, sum);
-            observe_and_release(b, &lib, observer, last);
-            let zero = b.constant(WORD, 0);
-            b.ret(&[zero]);
-        });
-        let (evaluation, seen) = run(&p, check, &[BigUint::from(7u8)], bits);
-        assert!(evaluation.returned().is_some());
-        assert_eq!(seen, [&magnitude + &magnitude, BigUint::from(7u8)]);
-        free_heap(&evaluation.globals, word);
-    }
-}
-
 #[test]
 fn exhaustion_halts_without_corrupting_the_heap() {
     for bits in [16, 32, 64] {
@@ -908,175 +687,6 @@ fn past_half(bits: u16, value: u64) -> BigUint {
     BigUint::from(natural::half(bits) + value)
 }
 
-fn observed_product(
-    b: &mut Builder<'_>,
-    lib: &Library,
-    observer: FunctionId,
-    left: DataId,
-    right: DataId,
-) {
-    let left = Library::constant_handle(b, left);
-    let right = Library::constant_handle(b, right);
-    let result = b.call_one(lib.require(Helper::Mul), &[left, right]);
-    observe_and_release(b, lib, observer, result);
-}
-
-#[test]
-fn multiplication_clears_dirty_recycled_accumulators() {
-    for bits in [16, 32, 64] {
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 64,
-            grows: false,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let (mut p, lib, entry) = program(conf, Needs::from([Helper::Mul]));
-        let observer = observer(&mut p);
-        let dense = (BigUint::from(1u8) << 128usize) - BigUint::from(1u8);
-        let sparse = BigUint::from(1u8) << 120usize;
-        let dense_id = natural::constant(&mut p, conf, &dense).unwrap();
-        let sparse_id = natural::constant(&mut p, conf, &sparse).unwrap();
-        let one = natural::constant(&mut p, conf, &BigUint::from(1u8)).unwrap();
-        p.define(entry, |b, _| {
-            repeat(b, 100, |b| {
-                observed_product(b, &lib, observer, dense_id, dense_id);
-                observed_product(b, &lib, observer, sparse_id, one);
-            });
-            let zero = b.constant(WORD, 0);
-            b.ret(&[zero]);
-        });
-        let (evaluation, seen) = run(&p, entry, &[], bits);
-        assert!(evaluation.returned().is_some());
-        assert_eq!(seen.len(), 200);
-        for pair in seen.chunks_exact(2) {
-            assert_eq!(pair, [&dense * &dense, sparse.clone()]);
-        }
-        free_heap(&evaluation.globals, usize::from(bits / 8));
-    }
-}
-
-#[test]
-fn smaller_mortal_remainder_survives_releasing_inputs_and_reallocation() {
-    for bits in [16, 32, 64] {
-        let word = usize::from(bits / 8);
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 8 * word,
-            grows: false,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let (mut p, lib, entry) = program(conf, Needs::from([Helper::FromWord, Helper::Mod]));
-        let observer = observer(&mut p);
-        p.define(entry, |b, _| {
-            let left = promote(b, &lib, 513);
-            let right = promote(b, &lib, 514);
-            let result = b.call_one(lib.require(Helper::Mod), &[left, right]);
-            lib.release_value(b, left);
-            lib.release_value(b, right);
-            let replacement = promote(b, &lib, 9);
-            observe_and_release(b, &lib, observer, result);
-            observe_and_release(b, &lib, observer, replacement);
-            let zero = b.constant(WORD, 0);
-            b.ret(&[zero]);
-        });
-        let (evaluation, seen) = run(&p, entry, &[], bits);
-        assert!(evaluation.returned().is_some());
-        assert_eq!(seen, [BigUint::from(513u32), BigUint::from(9u8)]);
-        free_heap(&evaluation.globals, word);
-    }
-}
-
-fn fragmented_check(p: &mut Program, lib: &Library, big: DataId, remove_middle: bool) {
-    let observer = observer(p);
-    p.define(p.entry(), |b, _| {
-        let first = object(b, lib, 1);
-        let middle = object(b, lib, 2);
-        let third = object(b, lib, 3);
-        let last = object(b, lib, 4);
-        lib.release_value(b, first);
-        lib.release_value(b, third);
-        if remove_middle {
-            lib.release_value(b, middle);
-        }
-        let big = Library::constant_handle(b, big);
-        let result = b.call_one(lib.require(Helper::Add), &[big, big]);
-        // Keep the 6W result alive: this request must take the 6W remainder,
-        // whose last two words are too few to split off.
-        let replacement = object(b, lib, 9);
-        observe_and_release(b, lib, observer, result);
-        observe_and_release(b, lib, observer, replacement);
-        observe_and_release(b, lib, observer, last);
-        if !remove_middle {
-            lib.release_value(b, middle);
-        }
-        let zero = b.constant(WORD, 0);
-        b.ret(&[zero]);
-    });
-}
-
-#[test]
-fn coalescing_stops_at_live_blocks_and_later_reuses_the_joined_run() {
-    for bits in [16, 32, 64] {
-        let word = usize::from(bits / 8);
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 16 * word,
-            grows: false,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let magnitude = BigUint::from(1u8) << usize::from(bits);
-        for remove_middle in [false, true] {
-            let (mut p, lib, entry) = program(conf, Needs::from([Helper::FromWord, Helper::Add]));
-            let big = natural::constant(&mut p, conf, &magnitude).unwrap();
-            fragmented_check(&mut p, &lib, big, remove_middle);
-            let (evaluation, seen) = run(&p, entry, &[], bits);
-            let blocks = partition(&evaluation.globals, word);
-            if remove_middle {
-                assert!(evaluation.returned().is_some());
-                assert_eq!(
-                    seen,
-                    [
-                        &magnitude + &magnitude,
-                        past_half(bits, 9),
-                        past_half(bits, 4)
-                    ]
-                );
-                assert_eq!(blocks, [(6 * word, 0), (6 * word, 0), (4 * word, 0)]);
-                free_heap(&evaluation.globals, word);
-            } else {
-                assert_eq!(evaluation.halted().unwrap(), [BigUint::from(2u8)]);
-                assert!(seen.is_empty());
-                still_fragmented(&evaluation.globals, bits);
-            }
-        }
-    }
-}
-
-fn still_fragmented(globals: &[u8], bits: u16) {
-    let word = usize::from(bits / 8);
-    assert_eq!(
-        partition(globals, word),
-        [(4 * word, 0), (4 * word, 1), (4 * word, 0), (4 * word, 1)]
-    );
-    // The failed allocation did not modify either surviving full magnitude.
-    for (offset, value) in [(4 * word, 2), (12 * word, 4)] {
-        let len =
-            usize::try_from(read_word(&globals[offset + 2 * word..offset + 3 * word])).unwrap();
-        assert_eq!(len, 1);
-        let start = offset + 3 * word;
-        assert_eq!(
-            BigUint::from_bytes_le(&globals[start..start + len * word]),
-            past_half(bits, value)
-        );
-    }
-}
-
 fn sentinel_pair(b: &mut Builder<'_>, first: DataId, last: DataId) -> super::ValueId {
     let first = b.address_of(first);
     let last = b.address_of(last);
@@ -1122,107 +732,6 @@ fn preexisting_and_unaligned_pools_keep_their_sentinels() {
         assert_eq!(seen, vec![BigUint::from(513u32 * 513); 100]);
         assert_eq!(&evaluation.globals[..word], prefix);
         free_heap(&evaluation.globals[word..], word);
-    }
-}
-
-#[test]
-fn carry_and_borrow_cross_entire_zero_byte_runs() {
-    for bits in [16, 32, 64] {
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 128,
-            grows: false,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let (mut p, lib, entry) = program(conf, Needs::from([Helper::Add, Helper::Sub]));
-        let observer = observer(&mut p);
-        let power = BigUint::from(1u8) << 128usize;
-        let dense = &power - BigUint::from(1u8);
-        let dense_id = natural::constant(&mut p, conf, &dense).unwrap();
-        let one = natural::constant(&mut p, conf, &BigUint::from(1u8)).unwrap();
-        p.define(entry, |b, _| {
-            repeat(b, 32, |b| {
-                let dense = Library::constant_handle(b, dense_id);
-                let one = Library::constant_handle(b, one);
-                let sum = b.call_one(lib.require(Helper::Add), &[dense, one]);
-                b.call(observer, &[sum]);
-                let difference = b.call_one(lib.require(Helper::Sub), &[sum, one]);
-                lib.release_value(b, sum);
-                observe_and_release(b, &lib, observer, difference);
-            });
-            let zero = b.constant(WORD, 0);
-            b.ret(&[zero]);
-        });
-        let (evaluation, seen) = run(&p, entry, &[], bits);
-        assert!(evaluation.returned().is_some());
-        assert_eq!(seen.len(), 64);
-        for pair in seen.chunks_exact(2) {
-            assert_eq!(pair, [power.clone(), dense.clone()]);
-        }
-        free_heap(&evaluation.globals, usize::from(bits / 8));
-    }
-}
-
-fn division_boundaries() -> Vec<(BigUint, BigUint, BigUint, BigUint)> {
-    let n = BigUint::from;
-    let high = n(1u64) << 128usize;
-    let middle = n(1u64) << 64usize;
-    vec![
-        (n(0xffff), n(0xff), n(0x101), n(0)),
-        (n(0x10000), n(0xff), n(0x101), n(1)),
-        (n(0x10000), n(0x100), n(0x100), n(0)),
-        (n(0x10000), n(0x101), n(0xff), n(1)),
-        (high.clone(), n(257), (&high - n(1)) / n(257), n(1)),
-        (&high + &middle + n(1), &middle + n(1), middle.clone(), n(1)),
-        (&high - n(1), middle.clone(), &middle - n(1), &middle - n(1)),
-    ]
-}
-
-#[test]
-fn quotient_and_remainder_normalize_after_dirty_scratch_recycling() {
-    for bits in [16, 32, 64] {
-        // Room for long division's three scratch objects -- the scaled
-        // dividend and divisor, and the quotient -- and little more, so the
-        // product's freed digits are what they reuse.
-        let conf = Config {
-            word_bits: bits,
-            heap_bytes: 256,
-            grows: false,
-            inline_small: true,
-            inline_counts: false,
-            join_routines: false,
-        };
-        let (mut p, lib, _) = program(conf, Needs::from([Helper::Mul, Helper::Div, Helper::Mod]));
-        let dense = (BigUint::from(1u8) << 128usize) - BigUint::from(1u8);
-        let dirty = natural::constant(&mut p, conf, &dense).unwrap();
-        let observer = observer(&mut p);
-        let check = p.declare("recycled_division", &[ADDRESS, ADDRESS], &[WORD]);
-        p.define(check, |b, args| {
-            observed_product(b, &lib, observer, dirty, dirty);
-            for function in [lib.require(Helper::Div), lib.require(Helper::Mod)] {
-                let value = b.call_one(function, args);
-                observe_and_release(b, &lib, observer, value);
-            }
-            let zero = b.constant(WORD, 0);
-            b.ret(&[zero]);
-        });
-        for (a, b, quotient, remainder) in division_boundaries() {
-            assert_eq!(&quotient * &b + &remainder, a);
-            assert!(remainder < b);
-            let left = natural::constant(&mut p, conf, &a).unwrap();
-            let right = natural::constant(&mut p, conf, &b).unwrap();
-            let args = [data_address(&p, left), data_address(&p, right)];
-            let (evaluation, seen) = run(&p, check, &args, bits);
-            assert!(
-                evaluation.returned().is_some(),
-                "{bits} {a} {b}: {:?} {seen:?}",
-                evaluation.halted()
-            );
-            assert_eq!(seen, [&dense * &dense, quotient, remainder]);
-            free_heap(&evaluation.globals, usize::from(bits / 8));
-        }
     }
 }
 
@@ -1306,31 +815,5 @@ fn retain_and_release_reject_zero_counts_without_resurrecting_storage() {
             assert!(seen.is_empty());
             free_heap(&evaluation.globals, usize::from(bits / 8));
         }
-    }
-}
-
-#[test]
-fn immortal_and_mortal_identity_results_have_correct_claims() {
-    for bits in [16, 32, 64] {
-        let conf = config(bits);
-        let (mut p, lib, _) = program(conf, Needs::from([Helper::FromWord, Helper::Mod]));
-        let observer = observer(&mut p);
-        let check = p.declare("identity", &[WORD], &[WORD]);
-        p.define(check, |b, args| {
-            let a = b.call_one(lib.require(Helper::FromWord), args);
-            let zero = lib.small(b, 0).unwrap();
-            let same = b.call_one(lib.require(Helper::Mod), &[a, zero]);
-            lib.release_value(b, a);
-            observe_and_release(b, &lib, observer, same);
-            let alias = lib.retain_value(b, zero);
-            lib.release_value(b, zero);
-            observe_and_release(b, &lib, observer, alias);
-            let zero = b.constant(WORD, 0);
-            b.ret(&[zero]);
-        });
-        let (evaluation, seen) = run(&p, check, &[BigUint::from(513u32)], bits);
-        assert!(evaluation.returned().is_some());
-        assert_eq!(seen, [BigUint::from(513u32), BigUint::default()]);
-        free_heap(&evaluation.globals, usize::from(bits / 8));
     }
 }

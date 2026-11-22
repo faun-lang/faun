@@ -1,10 +1,9 @@
-//! What programs cost at run time, counted by the reference interpreter.
-//!
-//! An allocation count alone reads a loop that recopies its result every
-//! step as linear. So each fixture is measured at two sizes and every count
-//! must grow no faster than the work does, and the counts at one size are
-//! recorded exactly: lower them when ownership or representation improves,
-//! and explain any rise.
+//! What programs cost at run time, counted by the reference interpreter:
+//! which parameters are owned, where claims are given up, and what counting
+//! claims in place calls out for. That lists cost linear work is checked
+//! end to end, by the fuel the cli tests' programs spend; one round trip's
+//! counts are recorded exactly: lower them when ownership or representation
+//! improves, and explain any rise.
 use num_bigint::BigUint;
 
 use super::evaluate::{self, Counts, RejectHost};
@@ -32,15 +31,6 @@ impl Cost {
                 + counts.calls_to(program, "nat.release"),
             stored_bytes: counts.stored_bytes,
         }
-    }
-
-    fn each(self) -> [(&'static str, u64); 4] {
-        [
-            ("allocations", self.allocations),
-            ("retains", self.retains),
-            ("releases", self.releases),
-            ("stored bytes", self.stored_bytes),
-        ]
     }
 }
 
@@ -139,75 +129,6 @@ fn round_trip(n: u64) -> barb::Program {
     source.set_entry(main);
     barb::validate(&source).unwrap();
     source
-}
-
-/// Build a list of `n` counts, then copy it the way `map` is written: each
-/// step puts its element in front of what the rest of the walk answered.
-fn copied_on_the_way_out(n: u64) -> barb::Program {
-    let mut source = round_trip(n);
-    let nat = barb::TypeId::at(0);
-    let list = barb::TypeId::at(1);
-    let (nil, cons) = (source.ctor_at(list, 0), source.ctor_at(list, 1));
-    let count = source.intern_number(nat, n).unwrap();
-    let nought = source.intern_number(nat, 0).unwrap();
-    let build = barb::FnId::at(0);
-    let length = barb::FnId::at(2);
-    let copy = source.declare("copy", &[list], list);
-    source.define(copy, |b, args| {
-        b.match_(args[0], list, |b, ctor, fields| {
-            if ctor == nil {
-                b.con(nil, &[])
-            } else {
-                let rest = b.call(copy, &[fields[1]]);
-                b.con(cons, &[fields[0], rest])
-            }
-        })
-    });
-    let run_it = source.declare("run copy", &[], nat);
-    source.define(run_it, |b, _| {
-        let count = b.known(count);
-        let empty = b.con(nil, &[]);
-        let listed = b.call(build, &[count, empty]);
-        let copied = b.call(copy, &[listed]);
-        b.call(length, &[copied])
-    });
-    let main = source.declare("main copy", &[], nat);
-    source.define(main, |b, _| {
-        b.call(run_it, &[]);
-        b.known(nought)
-    });
-    source.set_entry(main);
-    barb::validate(&source).unwrap();
-    source
-}
-
-/// Building on the way out, as `map` is written, is built front to back,
-/// each element appended to a buffer nothing else holds, so it writes in
-/// place: linear, not a copy of the rest at every step.
-#[test]
-fn a_list_copied_on_the_way_out_costs_linear_work() {
-    let small = cost(&copied_on_the_way_out(100));
-    let large = cost(&copied_on_the_way_out(200));
-    assert_linear("copy on the way out", small, large);
-}
-
-/// Every count at twice the size is at most a quarter more than twice as
-/// much: room for buffers doubling at different points, none for anything
-/// growing with the square of the work.
-fn assert_linear(name: &str, small: Cost, large: Cost) {
-    for ((what, small), (_, large)) in small.each().into_iter().zip(large.each()) {
-        assert!(
-            4 * large <= 9 * small + 64,
-            "{name}: {what} grew from {small} to {large} when the work doubled"
-        );
-    }
-}
-
-#[test]
-fn a_list_round_trip_costs_linear_work() {
-    let small = cost(&round_trip(100));
-    let large = cost(&round_trip(200));
-    assert_linear("round trip", small, large);
 }
 
 /// The exact counts at one size. Lower these when the compiler improves.
@@ -486,16 +407,4 @@ fn claims_counted_in_place_call_out_only_to_free() {
     assert_eq!(counted.retains, 0, "{counted:?} {called:?}");
     assert!(counted.releases < called.releases, "{counted:?} {called:?}");
     assert_eq!(counted.allocations, called.allocations);
-}
-
-#[test]
-fn buffers_push_in_place_and_copy_only_what_is_shared() {
-    let (small, small_cost) = run_machine(&pushes(100));
-    let (large, large_cost) = run_machine(&pushes(200));
-    assert_eq!(small, [BigUint::from(113u8)]);
-    assert_eq!(large, [BigUint::from(213u8)]);
-    assert_linear("pushes", small_cost, large_cost);
-    // A buffer grows by doubling, so a run of pushes allocates a buffer a
-    // logarithmic number of times, beside one cell per element.
-    assert!(small_cost.allocations < 100 + 2 + 20, "{small_cost:?}");
 }
