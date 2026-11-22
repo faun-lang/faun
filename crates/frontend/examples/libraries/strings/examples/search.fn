@@ -1,0 +1,35 @@
+# The string algorithms as a benchmark: a text of `count` letters from a
+# small alphabet, every place a pattern begins in it found, and the edit
+# distance and a longest common subsequence of two of its runs a
+# thousandth of its length, answering how many places, the distance and
+# the subsequence's length.
+
+package {
+  uses: {
+    strings: "../src/strings"
+  }
+}
+
+import strings {find_all, edit_distance, common_subsequence}
+
+# `count` letters from `a` to `d`, each the top two bits of its place times
+# a 64-bit odd constant, Fibonacci hashing's.
+letters : Nat -> List(U8)
+letters(count) -> List.range(count).map(|index| U8.of_nat('a' + ((U64.of_nat(index) * 0x9e3779b97f4a7c15) >> 62).to_nat()))
+
+Tally = {found: Nat, distance: Nat, common: Nat}
+
+app : {args: List(Str)} -> Result(Tally, [Malformed])
+app({args}) -> (
+  count = Nat.from_str(args.get(1).ok_or("1000000"))?
+  text = letters(count)
+  found = find_all(text, "cadbac".to_utf8()).len()
+  run = (count / 1000).max(10)
+  first = text.take(run)
+  second = text.drop(run * 3).take(run)
+  Ok({found, distance: edit_distance(first, second), common: common_subsequence(first, second).len()})
+)
+
+main!(host) -> host.run!(app)
+
+expect app({args: ["search", "1000"]}).map_ok(|{found, *}| found > 0) == Ok(True)
