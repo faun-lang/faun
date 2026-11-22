@@ -51,6 +51,20 @@ pub(crate) struct Earlier {
     pub(crate) typed: typed::Program,
 }
 
+impl Earlier {
+    /// Without the definitions named in `forgotten`: the library's
+    /// expectations, which are checked with it but which no program checked
+    /// after it can name or ask. A test of the library itself, `just
+    /// test-std`, checks it from its text in one step, and asks them there.
+    fn forget(&mut self, forgotten: &HashSet<Symbol>) {
+        self.typed
+            .functions
+            .retain(|function| !forgotten.contains(&function.name));
+        self.pairings.retain(|name| !forgotten.contains(name));
+        self.environment.forget(forgotten);
+    }
+}
+
 /// The standard package, loaded and checked alone, and the loader that
 /// goes on to load the host and the program after it.
 #[derive(Debug, Serialize, Deserialize)]
@@ -76,6 +90,10 @@ impl Library {
             (symbols, &mut earlier.sites),
         )?;
         earlier.modules = modules.len();
+        let expectations: HashSet<Symbol> = resolved
+            .iter()
+            .flat_map(|module| module.expectations.iter().copied())
+            .collect();
         let module_sources = modules.iter().map(|module| module.source).collect();
         let package = modules.iter().map(|module| module.id).collect();
         let mut cx = Context {
@@ -94,6 +112,7 @@ impl Library {
             &mut earlier.pairings,
         );
         crate::checked_after(program, &mut cx, &mut earlier)?;
+        earlier.forget(&expectations);
         loader.forget_syntax();
         loader.sources = cx.sources;
         loader.symbols = cx.symbols;
@@ -175,6 +194,19 @@ mod tests {
         for (member, name) in &checked.members {
             assert_eq!(whole.members[member], *name);
         }
+    }
+
+    /// The library's expectations are checked with it, but no program
+    /// checked after it can ask one, so what it leaves holds none.
+    #[test]
+    fn the_library_checked_alone_leaves_out_its_expectations() {
+        let library = Library::check(Loader::standard(crate::standard_path()).unwrap()).unwrap();
+        let symbols = &library.loader.symbols;
+        let expectations = (library.earlier.typed.functions.iter())
+            .filter(|function| symbols.text(function.name).contains("$$expect "))
+            .count();
+        assert_eq!(expectations, 0);
+        assert!(!library.earlier.typed.functions.is_empty());
     }
 
     /// The built-in library checked alone, from its text, as a snapshot.
