@@ -124,6 +124,25 @@ the `get` of `head` goes before its `put`, and the `put` writes in place.
 Barb's cleanup does this; reads are pure, so the order they run in is not
 observable.
 
+An element read out of a list and written back changed, as a radix sort
+deals a value into its bucket,
+`buckets.put(at, buckets.get(at).ok_or([]).append(value))`, is held twice
+when it is changed: by what it was read into, and by the list, which is
+written only after. So the append copied the whole bucket every value,
+quadratic in the values. Barb's cleanup replaces the element with an empty
+one once nothing reads the run `buckets.drop(at)` any more, and writes the
+changed element over that: `put(put(xs, i, []), i, e)` is `put(xs, i, e)`.
+Where nothing else holds `buckets`, the first `put` writes in place and
+gives up the list's claim to the element, so the element is held once and
+grows in place, and the second writes over the empty one in place. Where
+something does, the first `put` copies `buckets`, as the one `put` would
+have, and the element, still held by the list kept, is copied by the append,
+as before. This is done for an element that is a sequence or wraps one,
+which is all that grows in place, where the `put` is the list's last use
+and writes the place the read did, after the read or in an arm of a match
+on what it read, `if buckets.get(at) is Ok(bucket) then buckets.put(at,
+bucket.append(value)) else buckets`.
+
 Where it is known before the program runs that a buffer is held by nothing
 else, as for one a loop rewrites every round, the count is not asked at
 all; this is done for buffers whose elements hold no counts. Above that,
@@ -256,6 +275,14 @@ updated, which a loop that binds a name again does.
   [specializing by ownership](../ownership-specialization.md).
 
 ## History
+
+- **2026-11-21:** an element read out of a list and written back changed,
+  `xs.put(i, xs.get(i).ok_or([]).append(v))`, is replaced with an empty one
+  first, so it is changed in place. Dealing 80,000 values into 16 buckets
+  took 9.85 billion instructions, and takes 48 million; the select
+  library's radix sort of 80,000 values 399 million and 152 million; and
+  the graph library's components of a 400 by 400 grid 5.4 billion and 0.7
+  billion.
 
 - **2026-11-18:** a 16-bit heap asks for its first arena by what it is
   asked and grows by a quarter, in whole words, rather than taking 1 KiB
