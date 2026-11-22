@@ -924,13 +924,15 @@ impl Parser<'_> {
     /// to tags a caller's row holds besides.
     fn variants(&mut self) -> Parsed<Type> {
         let open = self.bump();
+        let mut written: Option<Span> = None;
         let (constructors, trailing) = self.separated(
             false,
             |kind| kind == Kind::TypeIdent,
             "a type name",
             |parser| {
                 let head = parser.bump();
-                let (fields, _) = parser.type_arguments(head.span())?;
+                let (fields, end) = parser.type_arguments(head.span())?;
+                written = Some(written.unwrap_or_else(|| head.span()).through(end));
                 Ok(ConstructorDecl {
                     name: name(head),
                     fields,
@@ -944,12 +946,45 @@ impl Parser<'_> {
         if open_row {
             self.eat(Kind::Comma);
         }
+        if let Some(error) = self.misplaced_star(open_row, written) {
+            return Err(error);
+        }
         let close = self.expect(Kind::RBracket, "`]`")?;
         Ok(Type::Variants {
             span: open.span().through(close.span()),
             constructors,
             open: open_row,
         })
+    }
+
+    /// What is wrong with a `*` where a tag row's `]` belongs: a second
+    /// rest after `open_row`'s, or a rest with no comma before it, and how
+    /// to write the row whose tags are `written`.
+    fn misplaced_star(&self, open_row: bool, written: Option<Span>) -> Option<SyntaxError> {
+        let star = self.tokens[self.at];
+        let is_star = match star.kind {
+            Kind::Star => true,
+            Kind::Apart => star.text(self.source) == "*",
+            _ => false,
+        };
+        if !is_star {
+            return None;
+        }
+        let message = if open_row {
+            "a tag row holds one `*`, written last"
+        } else {
+            "a tag row's `*` follows its tags after a comma"
+        };
+        let help = written.map_or_else(
+            || "for any tags, write `[*]`".to_owned(),
+            |tags| {
+                format!(
+                    "for these tags or any others, write `[{}, *]`",
+                    tags.text(self.source)
+                )
+            },
+        );
+        Some(SyntaxError::new(star.span(), message).help(help))
     }
 
     /// `{x: A}`, or `{x: A, *}`, open to more fields.
