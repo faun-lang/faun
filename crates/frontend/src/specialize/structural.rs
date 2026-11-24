@@ -9,7 +9,7 @@
 
 use super::{
     Body, Clause, Connective, Definition, Expr, ExprKind, Function, FunctionKey, Pattern,
-    Specializer, Type, error,
+    Specializer, Type, TypeKind, error,
 };
 use crate::diagnostic::Refusal;
 use crate::hir as h;
@@ -37,22 +37,22 @@ enum Kind {
 
 impl Shape {
     /// The ways a value of `ty` is built: one for each tag of a row.
-    fn of(ty: &Type) -> Vec<Self> {
-        match ty {
-            Type::Variants(tags) => tags
+    fn of(ty: Type) -> Vec<Self> {
+        match ty.kind() {
+            TypeKind::Variants(tags) => tags
                 .iter()
                 .map(|(label, fields)| Self {
                     kind: Kind::Tag(*label),
                     components: fields.clone(),
                 })
                 .collect(),
-            Type::Tuple(members) => vec![Self {
+            TypeKind::Tuple(members) => vec![Self {
                 kind: Kind::Tuple,
                 components: members.clone(),
             }],
-            Type::Record(fields) => vec![Self {
+            TypeKind::Record(fields) => vec![Self {
                 kind: Kind::Record(fields.iter().map(|(name, _)| *name).collect()),
-                components: fields.iter().map(|(_, ty)| ty.clone()).collect(),
+                components: fields.iter().map(|(_, ty)| *ty).collect(),
             }],
             _ => unreachable!("only records, tuples and rows have structural members"),
         }
@@ -79,15 +79,17 @@ impl Specializer<'_> {
     /// own `equals` or `to_str`.
     pub(super) fn is_structural(&self, name: Symbol, parameters: &[Type]) -> bool {
         let name = Some(name);
-        match parameters.first() {
-            Some(Type::Record(_) | Type::Tuple(_)) => [
+        match parameters.first().map(|ty| ty.kind()) {
+            Some(TypeKind::Record(_) | TypeKind::Tuple(_)) => [
                 self.prelude.equals,
                 self.prelude.cmp,
                 self.prelude.to_str,
                 self.prelude.hash_into,
             ]
             .contains(&name),
-            Some(Type::Variants(_)) => [self.prelude.equals, self.prelude.to_str].contains(&name),
+            Some(TypeKind::Variants(_)) => {
+                [self.prelude.equals, self.prelude.to_str].contains(&name)
+            }
             _ => false,
         }
     }
@@ -100,8 +102,8 @@ impl Specializer<'_> {
     ) -> Result<Function, Refusal> {
         let member = Some(key.name);
         let receiver = &key.signature.parameters[0];
-        let answer = key.signature.result.as_ref();
-        let shapes = Shape::of(receiver);
+        let answer = key.signature.result;
+        let shapes = Shape::of(*receiver);
         let mut clauses = Vec::with_capacity(shapes.len() + 1);
         if member == self.prelude.to_str {
             for shape in &shapes {
@@ -116,7 +118,7 @@ impl Specializer<'_> {
                 clauses.push(self.componentwise(key.name, at, answer, shape)?);
             }
             // Two different tags, where there are two to differ.
-            if matches!(receiver, Type::Variants(tags) if tags.len() != 1) {
+            if matches!(receiver.kind(), TypeKind::Variants(tags) if tags.len() != 1) {
                 let unequal = expr(
                     at,
                     answer,
@@ -148,7 +150,7 @@ impl Specializer<'_> {
             Kind::Record(names) => names.iter().map(Some).collect(),
             Kind::Tag(_) | Kind::Tuple => vec![None; shape.components.len()],
         };
-        let str_ = Type::Named(self.prelude.str_, Vec::new());
+        let str_ = Type::named(self.prelude.str_, Vec::new());
         let count = components(shape)?;
         let mut pieces = Vec::new();
         let mut before = open;
@@ -158,17 +160,17 @@ impl Specializer<'_> {
                 before.push_str(": ");
             }
             pieces.push(self.text(at, &before)?);
-            let field = local(at, index, component);
-            pieces.push(self.component(member, at, component, &[], &str_, vec![field])?);
+            let field = local(at, index, *component);
+            pieces.push(self.component(member, at, *component, &[], str_, vec![field])?);
             ", ".clone_into(&mut before);
         }
         let closing = if count == 0 { empty } else { close.to_owned() };
         pieces.push(self.text(at, &closing)?);
         let concat = self.method_key(
             self.prelude.str_concat,
-            &str_,
+            str_,
             std::slice::from_ref(&str_),
-            &str_,
+            str_,
         )?;
         let mut pieces = pieces.into_iter();
         let mut result = pieces
@@ -178,7 +180,7 @@ impl Specializer<'_> {
             self.request(concat.clone());
             result = expr(
                 at,
-                &str_,
+                str_,
                 ExprKind::DirectCall(concat.clone(), vec![result, next]),
             );
         }
@@ -193,18 +195,18 @@ impl Specializer<'_> {
         &mut self,
         member: Symbol,
         at: At,
-        answer: &Type,
+        answer: Type,
         shape: &Shape,
     ) -> Result<Clause, Refusal> {
         let count = components(shape)?;
         let mut compared = Vec::with_capacity(shape.components.len());
         for (index, component) in (0..count).zip(&shape.components) {
             let sides = vec![
-                local(at, index, component),
-                local(at, count + index, component),
+                local(at, index, *component),
+                local(at, count + index, *component),
             ];
             let others = std::slice::from_ref(component);
-            compared.push(self.component(member, at, component, others, answer, sides)?);
+            compared.push(self.component(member, at, *component, others, answer, sides)?);
         }
         let (join, unit) = if Some(member) == self.prelude.cmp {
             (Some(self.prelude.order_or), self.prelude.order_eq)
@@ -212,7 +214,7 @@ impl Specializer<'_> {
             (None, self.prelude.bool_true)
         };
         let join = join
-            .map(|join| self.method_key(join, answer, std::slice::from_ref(answer), answer))
+            .map(|join| self.method_key(join, answer, std::slice::from_ref(&answer), answer))
             .transpose()?;
         let mut result = expr(at, answer, ExprKind::Construct(unit, Vec::new()));
         if let Some(last) = compared.pop() {
@@ -238,15 +240,15 @@ impl Specializer<'_> {
         &mut self,
         member: Symbol,
         at: At,
-        hasher: &Type,
+        hasher: Type,
         shape: &Shape,
     ) -> Result<Clause, Refusal> {
         let count = components(shape)?;
         let mut result = local(at, count, hasher);
         for (index, component) in (0..count).zip(&shape.components) {
-            let arguments = vec![local(at, index, component), result];
-            let others = std::slice::from_ref(hasher);
-            result = self.component(member, at, component, others, hasher, arguments)?;
+            let arguments = vec![local(at, index, *component), result];
+            let others = std::slice::from_ref(&hasher);
+            result = self.component(member, at, *component, others, hasher, arguments)?;
         }
         let patterns = vec![shape.pattern(0), Pattern::Bind(h::LocalId(count))];
         Ok(clause(patterns, result))
@@ -255,8 +257,8 @@ impl Specializer<'_> {
     /// A string literal of `text`.
     fn text(&mut self, (module, span): At, text: &str) -> Result<Expr, Refusal> {
         let literal = crate::blessed::string(text.as_bytes(), self.prelude);
-        let str_ = Type::Named(self.prelude.str_, Vec::new());
-        self.literal(module, span, &literal, &str_)
+        let str_ = Type::named(self.prelude.str_, Vec::new());
+        self.literal(module, span, &literal, str_)
     }
 
     /// A call of `component`'s own `member`, taking `others` after it and
@@ -265,9 +267,9 @@ impl Specializer<'_> {
         &mut self,
         member: Symbol,
         at: At,
-        component: &Type,
+        component: Type,
         others: &[Type],
-        answer: &Type,
+        answer: Type,
         arguments: Vec<Expr>,
     ) -> Result<Expr, Refusal> {
         let target = self.implementation(component, member)?;
@@ -282,15 +284,15 @@ fn components(shape: &Shape) -> Result<u32, Refusal> {
     u32::try_from(shape.components.len()).map_err(|_| error("a shape has too many components"))
 }
 
-fn local(at: At, index: u32, ty: &Type) -> Expr {
+const fn local(at: At, index: u32, ty: Type) -> Expr {
     expr(at, ty, ExprKind::Local(h::LocalId(index)))
 }
 
-fn expr((module, span): At, ty: &Type, kind: ExprKind) -> Expr {
+const fn expr((module, span): At, ty: Type, kind: ExprKind) -> Expr {
     Expr {
         module,
         span,
-        ty: ty.clone(),
+        ty,
         kind,
     }
 }

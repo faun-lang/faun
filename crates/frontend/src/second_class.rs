@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use crate::ModuleId;
 use crate::context::Context;
 use crate::diagnostic::{Advised, Diagnostic, Refusal};
-use crate::specialize::{Clause, Definition, Expr, ExprKind, FunctionKey, Program, Type};
+use crate::specialize::{Clause, Definition, Expr, ExprKind, FunctionKey, Program, TypeKind};
 
 /// Refuse the first function value held anywhere but a call's argument.
 pub(crate) fn check(program: &Program, cx: &Context) -> Result<(), Diagnostic> {
@@ -111,7 +111,7 @@ fn value(expression: &Expr, passed: bool) -> Result<(), Refusal> {
 /// A function, which may only go straight into a call, and never one with
 /// no parameters, which is a value.
 fn placed(expression: &Expr, passed: bool) -> Result<(), Refusal> {
-    let Type::Function(signature) = &expression.ty else {
+    let TypeKind::Function(signature) = expression.ty.kind() else {
         return Ok(());
     };
     if signature.parameters.is_empty() {

@@ -11,7 +11,7 @@
 
 use super::Facts;
 use crate::Symbol;
-use crate::specialize::{Pattern, Split, Type};
+use crate::specialize::{Pattern, Split, Type, TypeKind};
 
 /// A pattern as narrowing reads it, a list's as its constructors.
 #[derive(Clone, Debug)]
@@ -29,7 +29,7 @@ enum Shape {
 
 impl Facts<'_> {
     /// Whether some value of `ty` that `pattern` matches holds a resource.
-    pub(super) fn matched_carries(&self, pattern: &Pattern, ty: &Type) -> bool {
+    pub(super) fn matched_carries(&self, pattern: &Pattern, ty: Type) -> bool {
         self.shape_carries(&self.shape(pattern), ty)
     }
 
@@ -38,13 +38,13 @@ impl Facts<'_> {
     pub(super) fn unmatched_carries<'p>(
         &self,
         rows: impl IntoIterator<Item = &'p Pattern>,
-        ty: &Type,
+        ty: Type,
     ) -> bool {
         let rows = rows
             .into_iter()
             .map(|pattern| vec![self.shape(pattern)])
             .collect();
-        self.escapes(rows, std::slice::from_ref(ty), Some(0))
+        self.escapes(rows, std::slice::from_ref(&ty), Some(0))
     }
 
     fn shape(&self, pattern: &Pattern) -> Shape {
@@ -97,8 +97,8 @@ impl Facts<'_> {
     }
 
     /// Whether some value of `ty` that `shape` matches holds a resource.
-    fn shape_carries(&self, shape: &Shape, ty: &Type) -> bool {
-        match (shape, ty) {
+    fn shape_carries(&self, shape: &Shape, ty: Type) -> bool {
+        match (shape, ty.kind()) {
             (Shape::Constructor(name, shapes), _) if !self.is_resource(ty) => {
                 self.fields(*name, ty).map_or_else(
                     || self.carries(ty),
@@ -106,20 +106,22 @@ impl Facts<'_> {
                         shapes
                             .iter()
                             .zip(&fields)
-                            .any(|(shape, field)| self.shape_carries(shape, field))
+                            .any(|(shape, field)| self.shape_carries(shape, *field))
                     },
                 )
             }
-            (Shape::Tuple(shapes), Type::Tuple(members)) => shapes
+            (Shape::Tuple(shapes), TypeKind::Tuple(members)) => shapes
                 .iter()
                 .zip(members)
-                .any(|(shape, member)| self.shape_carries(shape, member)),
-            (Shape::Record(named), Type::Record(fields)) => fields.iter().any(|(name, field)| {
-                named.iter().find(|(each, _)| each == name).map_or_else(
-                    || self.carries(field),
-                    |(_, shape)| self.shape_carries(shape, field),
-                )
-            }),
+                .any(|(shape, member)| self.shape_carries(shape, *member)),
+            (Shape::Record(named), TypeKind::Record(fields)) => {
+                fields.iter().any(|(name, field)| {
+                    named.iter().find(|(each, _)| each == name).map_or_else(
+                        || self.carries(*field),
+                        |(_, shape)| self.shape_carries(shape, *field),
+                    )
+                })
+            }
             _ => self.carries(ty),
         }
     }
@@ -131,10 +133,10 @@ impl Facts<'_> {
         let Some((ty, _)) = columns.split_first() else {
             return rows.is_empty();
         };
-        if need == Some(0) && !self.carries(ty) {
+        if need == Some(0) && !self.carries(*ty) {
             return false;
         }
-        let parts = self.forms(ty, &rows);
+        let parts = self.forms(*ty, &rows);
         let Some(parts) = parts else {
             return self.escapes_whole(rows, columns, need);
         };
@@ -144,7 +146,7 @@ impl Facts<'_> {
                 .filter_map(|row| {
                     Some(
                         [
-                            opened(&row[0], constructor, ty, fields.len())?,
+                            opened(&row[0], constructor, *ty, fields.len())?,
                             row[1..].to_vec(),
                         ]
                         .concat(),
@@ -164,12 +166,12 @@ impl Facts<'_> {
     /// How a value of `ty` is built, where `rows` tell its ways apart: a
     /// tuple's or a record's one way, by its fields, or each constructor
     /// by its own. `None` where nothing in the rows takes it apart.
-    fn forms(&self, ty: &Type, rows: &[Vec<Shape>]) -> Option<Vec<(Option<Symbol>, Vec<Type>)>> {
-        match ty {
-            Type::Tuple(members) => Some(vec![(None, members.clone())]),
-            Type::Record(fields) => Some(vec![(
+    fn forms(&self, ty: Type, rows: &[Vec<Shape>]) -> Option<Vec<(Option<Symbol>, Vec<Type>)>> {
+        match ty.kind() {
+            TypeKind::Tuple(members) => Some(vec![(None, members.clone())]),
+            TypeKind::Record(fields) => Some(vec![(
                 None,
-                fields.iter().map(|(_, field)| field.clone()).collect(),
+                fields.iter().map(|(_, field)| *field).collect(),
             )]),
             _ if rows
                 .iter()
@@ -202,19 +204,14 @@ impl Facts<'_> {
 /// The fields `head` matches of a value of `ty` built by `constructor`,
 /// or by its one shape where it is `None`; `None` where `head` may not
 /// match it.
-fn opened(
-    head: &Shape,
-    constructor: Option<Symbol>,
-    ty: &Type,
-    arity: usize,
-) -> Option<Vec<Shape>> {
-    match (head, constructor, ty) {
+fn opened(head: &Shape, constructor: Option<Symbol>, ty: Type, arity: usize) -> Option<Vec<Shape>> {
+    match (head, constructor, ty.kind()) {
         (Shape::Any, _, _) => Some(vec![Shape::Any; arity]),
         (Shape::Constructor(name, fields), Some(each), _) => {
             (*name == each).then(|| fields.clone())
         }
         (Shape::Tuple(members), None, _) => Some(members.clone()),
-        (Shape::Record(named), None, Type::Record(fields)) => Some(
+        (Shape::Record(named), None, TypeKind::Record(fields)) => Some(
             fields
                 .iter()
                 .map(|(name, _)| {

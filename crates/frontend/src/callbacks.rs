@@ -33,7 +33,7 @@ use crate::first_order as d;
 use crate::hir::{LocalId, SiteId};
 use crate::specialize::{
     Body, Clause, Definition, Expr, ExprKind, Function, FunctionKey, Instance, Pattern, Program,
-    Signature, Type,
+    Signature, Type, TypeKind,
 };
 
 /// Replace every function value in `program` with the callbacks it stands
@@ -185,7 +185,7 @@ struct Handed {
 
 impl Handed {
     fn types(&self) -> Vec<Type> {
-        self.arguments.iter().map(|each| each.ty.clone()).collect()
+        self.arguments.iter().map(|each| each.ty).collect()
     }
 }
 
@@ -304,7 +304,7 @@ impl<'a> Callbacks<'a> {
             let mut handed = callbacks.iter();
             let mut patterns = Vec::with_capacity(clause.patterns.len());
             for (pattern, ty) in clause.patterns.iter().zip(parameters) {
-                if matches!(ty, Type::Function(..)) {
+                if matches!(ty.kind(), TypeKind::Function(..)) {
                     let callback = handed
                         .next()
                         .ok_or_else(|| internal("a callback for each function parameter"))?;
@@ -357,7 +357,7 @@ impl<'a> Callbacks<'a> {
         let mut handed = callbacks.iter();
         let mut parameters = Vec::new();
         for (local, ty) in &captures {
-            if matches!(ty, Type::Function(..)) {
+            if matches!(ty.kind(), TypeKind::Function(..)) {
                 let callback = handed
                     .next()
                     .ok_or_else(|| internal("a callback for each function capture"))?;
@@ -371,11 +371,11 @@ impl<'a> Callbacks<'a> {
                 parameters.push(Pattern::Bind(*local));
             }
         }
-        let Type::Function(signature) = ty else {
+        let TypeKind::Function(signature) = ty.kind() else {
             return Err(internal("a lambda of a function type"));
         };
         for (pattern, ty) in patterns.iter().zip(&signature.parameters) {
-            if matches!(ty, Type::Function(..)) {
+            if matches!(ty.kind(), TypeKind::Function(..)) {
                 let callback = handed
                     .next()
                     .ok_or_else(|| internal("a callback for each function parameter"))?;
@@ -507,13 +507,13 @@ impl<'a> Callbacks<'a> {
             ExprKind::DirectCall(key, arguments) => self.call(frame, key, arguments)?,
             ExprKind::Invoke(head, arguments, _) => {
                 let (callback, carried) = callback(frame, head)?;
-                self.invoke(frame, callback, carried, arguments, &expression.ty)?
+                self.invoke(frame, callback, carried, arguments, expression.ty)?
             }
         };
         Ok(d::Expr {
             module: expression.module,
             span: expression.span,
-            ty: expression.ty.clone(),
+            ty: expression.ty,
             kind,
         })
     }
@@ -535,7 +535,7 @@ impl<'a> Callbacks<'a> {
         let handed = self.hand(frame, arguments)?;
         let signature = Signature {
             parameters: handed.types(),
-            result: key.signature.result.clone(),
+            result: key.signature.result,
         };
         let made = self.request(Source::Written(key.clone()), handed.callbacks, signature);
         Ok(d::ExprKind::DirectCall(made, handed.arguments))
@@ -548,7 +548,7 @@ impl<'a> Callbacks<'a> {
         callback: Callback,
         carried: Vec<d::Expr>,
         arguments: &[Expr],
-        answer: &Type,
+        answer: Type,
     ) -> Result<d::ExprKind, Refusal> {
         match callback {
             Callback::Function(key) => self.call(frame, &key, arguments),
@@ -558,11 +558,11 @@ impl<'a> Callbacks<'a> {
             )),
             Callback::Lambda(lambda) => {
                 let handed = self.hand(frame, arguments)?;
-                let mut types: Vec<Type> = carried.iter().map(|each| each.ty.clone()).collect();
+                let mut types: Vec<Type> = carried.iter().map(|each| each.ty).collect();
                 types.extend(handed.types());
                 let signature = Signature {
                     parameters: types,
-                    result: Box::new(answer.clone()),
+                    result: answer,
                 };
                 let mut callbacks = lambda.callbacks;
                 callbacks.extend(handed.callbacks);
@@ -586,7 +586,7 @@ impl<'a> Callbacks<'a> {
             arguments: Vec::with_capacity(arguments.len()),
         };
         for argument in arguments {
-            if matches!(argument.ty, Type::Function(..)) {
+            if matches!(argument.ty.kind(), TypeKind::Function(..)) {
                 let (callback, carried) = callback(frame, argument)?;
                 handed.callbacks.push(callback);
                 handed.arguments.extend(carried);
@@ -603,13 +603,13 @@ fn callback(frame: &Frame, expression: &Expr) -> Result<(Callback, Vec<d::Expr>)
     let local = |(local, ty): &(LocalId, Type)| d::Expr {
         module: expression.module,
         span: expression.span,
-        ty: ty.clone(),
+        ty: *ty,
         kind: d::ExprKind::Local(*local),
     };
     match &expression.kind {
         ExprKind::Function(key, _) => Ok((Callback::Function(key.clone()), Vec::new())),
         ExprKind::ConstructorFunction(constructor, _) => Ok((
-            Callback::Constructor(*constructor, expression.ty.clone()),
+            Callback::Constructor(*constructor, expression.ty),
             Vec::new(),
         )),
         ExprKind::Local(held) => {
@@ -666,7 +666,7 @@ fn carried(callback: &Callback, lambdas: &Lambdas) -> Vec<Type> {
     let mut callbacks = lambda.callbacks.iter();
     let mut types = Vec::new();
     for (_, ty) in captures(site.patterns, site.body) {
-        if matches!(ty, Type::Function(..)) {
+        if matches!(ty.kind(), TypeKind::Function(..)) {
             if let Some(callback) = callbacks.next() {
                 types.extend(carried(callback, lambdas));
             }
@@ -681,7 +681,7 @@ fn takes_function(key: &FunctionKey) -> bool {
     key.signature
         .parameters
         .iter()
-        .any(|parameter| matches!(parameter, Type::Function(_)))
+        .any(|parameter| matches!(parameter.kind(), TypeKind::Function(_)))
 }
 
 /// The highest local `clause` names anywhere, reading or binding it.
@@ -727,7 +727,7 @@ fn captures(patterns: &[Pattern], body: &Expr) -> Vec<(LocalId, Type)> {
     let mut read = BTreeMap::new();
     body.for_each_within(&mut |expression| {
         if let ExprKind::Local(local) = expression.kind {
-            read.entry(local).or_insert_with(|| expression.ty.clone());
+            read.entry(local).or_insert_with(|| expression.ty);
         }
         expression.for_each_bound(|local| {
             bound.insert(local);
@@ -750,7 +750,7 @@ mod tests {
             name,
             signature: Signature {
                 parameters: vec![Type::empty()],
-                result: Box::new(Type::empty()),
+                result: Type::empty(),
             },
             instance: Instance::Written,
         };
