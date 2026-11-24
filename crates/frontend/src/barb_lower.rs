@@ -17,7 +17,7 @@ use crate::first_order::{Expr, ExprKind};
 use crate::hir::LocalId;
 use crate::pattern_compile::{self as p, Decision, Unpack, Value};
 use crate::platform::Platform;
-use crate::specialize::{self, Connective, FunctionKey, Type};
+use crate::specialize::{self, Connective, FunctionKey, Type, TypeKind};
 use crate::{ModuleId, Symbol};
 
 /// Specialize what `entry`, a monomorphic parameterless function, reaches
@@ -169,9 +169,9 @@ impl<'a> Lowerer<'a> {
     fn discover_in(&mut self, functions: &[p::Function]) -> Result<(), Refusal> {
         for function in functions {
             let parameters = &function.key.signature.parameters;
-            let result = function.key.signature.result.as_ref();
+            let result = function.key.signature.result;
             for parameter in parameters {
-                self.collect_type(parameter)?;
+                self.collect_type(*parameter)?;
             }
             self.collect_type(result)?;
             if let p::Definition::Body(decision) = &function.definition {
@@ -181,30 +181,31 @@ impl<'a> Lowerer<'a> {
         // Each declared type found is taken apart once, for what its
         // fields hold, which may be more declared types.
         while let Some(ty) = self.unexpanded.pop() {
-            let Type::Named(name, _) = &ty else {
+            let TypeKind::Named(name, _) = ty.kind() else {
                 continue;
             };
             let constructors = ty.constructors(&self.program.data, &self.cx.symbols)?;
             for (_, fields) in &constructors {
                 for field in fields {
-                    self.collect_type(field)?;
+                    self.collect_type(*field)?;
                 }
             }
             if self.program.data[name].wrapper.is_some()
                 && let [(_, fields)] = constructors.as_slice()
-                && let [field @ Type::Record(_)] = fields.as_slice()
+                && let [field] = fields.as_slice()
+                && matches!(field.kind(), TypeKind::Record(_))
             {
-                self.record_wrappers.insert(ty, field.clone());
+                self.record_wrappers.insert(ty, *field);
             }
         }
         Ok(())
     }
 
-    fn collect_decision(&mut self, decision: &Decision, answer: &Type) -> Result<(), Refusal> {
+    fn collect_decision(&mut self, decision: &Decision, answer: Type) -> Result<(), Refusal> {
         match decision {
             Decision::Body { body, .. } => self.collect_body(body, answer)?,
             Decision::Match { owner, arms, .. } => {
-                self.collect_type(owner)?;
+                self.collect_type(*owner)?;
                 for arm in arms {
                     self.collect_decision(&arm.decision, answer)?;
                 }
@@ -212,7 +213,7 @@ impl<'a> Lowerer<'a> {
             Decision::Record {
                 owner, decision, ..
             } => {
-                self.collect_type(owner)?;
+                self.collect_type(*owner)?;
                 self.collect_decision(decision, answer)?;
             }
             Decision::Let {
@@ -234,23 +235,23 @@ impl<'a> Lowerer<'a> {
             Decision::Numeral {
                 equal, otherwise, ..
             } => {
-                self.collect_type(&Type::Named(self.prelude.bool_, Vec::new()))?;
+                self.collect_type(Type::named(self.prelude.bool_, Vec::new()))?;
                 self.collect_decision(equal, answer)?;
                 self.collect_decision(otherwise, answer)?;
             }
             Decision::Split { decision, .. } => {
-                self.collect_type(&Type::Named(self.prelude.nat, Vec::new()))?;
+                self.collect_type(Type::named(self.prelude.nat, Vec::new()))?;
                 self.collect_decision(decision, answer)?;
             }
             Decision::Unreachable { ty, .. } => {
-                self.collect_type(&Type::empty())?;
-                self.unreachables.insert(ty.clone());
+                self.collect_type(Type::empty())?;
+                self.unreachables.insert(*ty);
             }
         }
         Ok(())
     }
 
-    fn collect_body(&mut self, body: &p::Body, answer: &Type) -> Result<(), Refusal> {
+    fn collect_body(&mut self, body: &p::Body, answer: Type) -> Result<(), Refusal> {
         for binding in &body.bindings {
             match &binding.value {
                 p::Bound::Value(value) => self.collect_expr(value, answer)?,
@@ -268,8 +269,8 @@ impl<'a> Lowerer<'a> {
         self.collect_expr(&body.result, answer)
     }
 
-    fn collect_expr(&mut self, expression: &Expr, answer: &Type) -> Result<(), Refusal> {
-        self.collect_type(&expression.ty)?;
+    fn collect_expr(&mut self, expression: &Expr, answer: Type) -> Result<(), Refusal> {
+        self.collect_type(expression.ty)?;
         match &expression.kind {
             ExprKind::Function(_, never)
             | ExprKind::ConstructorFunction(_, never)
@@ -310,16 +311,17 @@ impl<'a> Lowerer<'a> {
             // An `Err` answered early is widened into what is answered.
             ExprKind::Try(value) => {
                 self.collect_expr(value, answer)?;
-                if let (Type::Named(_, taken), Type::Named(_, answered)) = (&value.ty, answer)
+                if let (TypeKind::Named(_, taken), TypeKind::Named(_, answered)) =
+                    (value.ty.kind(), answer.kind())
                     && let ([_, from], [_, to]) = (taken.as_slice(), answered.as_slice())
                 {
                     self.collect_type(answer)?;
-                    self.collect_widening(from, to)?;
+                    self.collect_widening(*from, *to)?;
                 }
             }
             ExprKind::Widen(value) => {
                 self.collect_expr(value, answer)?;
-                self.collect_widening(&value.ty, &expression.ty)?;
+                self.collect_widening(value.ty, expression.ty)?;
             }
         }
         Ok(())
@@ -327,8 +329,8 @@ impl<'a> Lowerer<'a> {
 
     /// Note that values of `from` are widened to `to`, and so are whatever
     /// of their fields differ between the two.
-    fn collect_widening(&mut self, from: &Type, to: &Type) -> Result<(), Refusal> {
-        if from == to || !self.widenings.insert((from.clone(), to.clone())) {
+    fn collect_widening(&mut self, from: Type, to: Type) -> Result<(), Refusal> {
+        if from == to || !self.widenings.insert((from, to)) {
             return Ok(());
         }
         self.collect_type(from)?;
@@ -338,7 +340,7 @@ impl<'a> Lowerer<'a> {
             .into_iter()
             .flat_map(|(_, pairs)| pairs)
         {
-            self.collect_widening(&source, &target)?;
+            self.collect_widening(source, target)?;
         }
         Ok(())
     }
@@ -346,7 +348,7 @@ impl<'a> Lowerer<'a> {
     /// Each constructor of `from` with its fields' types there and in `to`,
     /// which holds every one of them. A record is one constructor, named
     /// by nothing.
-    fn widening_fields(&self, from: &Type, to: &Type) -> Result<Widening, Refusal> {
+    fn widening_fields(&self, from: Type, to: Type) -> Result<Widening, Refusal> {
         if let (Some(source), Some(target)) = (from.members(), to.members()) {
             return Ok(vec![(None, source.into_iter().zip(target).collect())]);
         }
@@ -362,44 +364,44 @@ impl<'a> Lowerer<'a> {
                     })?;
                 Ok((
                     Some(constructor),
-                    fields.into_iter().zip(widened.iter().cloned()).collect(),
+                    fields.into_iter().zip(widened.iter().copied()).collect(),
                 ))
             })
             .collect()
     }
 
-    fn collect_type(&mut self, ty: &Type) -> Result<(), Refusal> {
-        if !self.types.insert(ty.clone()) {
+    fn collect_type(&mut self, ty: Type) -> Result<(), Refusal> {
+        if !self.types.insert(ty) {
             return Ok(());
         }
-        match ty {
-            Type::Named(name, _) => {
+        match ty.kind() {
+            TypeKind::Named(name, _) => {
                 if !self.program.data.contains_key(name) {
                     return Err(error(format!(
                         "type `{}` has no data declaration",
                         self.cx.symbols.text(*name)
                     )));
                 }
-                self.unexpanded.push(ty.clone());
+                self.unexpanded.push(ty);
             }
-            Type::Function(..) => {
+            TypeKind::Function(..) => {
                 return Err(error(
                     "a function is never a value once its callbacks are specialized",
                 ));
             }
-            Type::Variants(tags) => {
+            TypeKind::Variants(tags) => {
                 for field in tags.iter().flat_map(|(_, fields)| fields) {
-                    self.collect_type(field)?;
+                    self.collect_type(*field)?;
                 }
             }
-            Type::Record(fields) => {
+            TypeKind::Record(fields) => {
                 for (_, field) in fields {
-                    self.collect_type(field)?;
+                    self.collect_type(*field)?;
                 }
             }
-            Type::Tuple(members) => {
+            TypeKind::Tuple(members) => {
                 for member in members {
-                    self.collect_type(member)?;
+                    self.collect_type(*member)?;
                 }
             }
         }
@@ -408,25 +410,28 @@ impl<'a> Lowerer<'a> {
 
     fn declare_types(&mut self) {
         for ty in &self.types {
-            let name = type_name(ty, &self.cx.symbols);
-            let id = if matches!(ty, Type::Variants(_) | Type::Record(_) | Type::Tuple(_)) {
+            let name = type_name(*ty, &self.cx.symbols);
+            let id = if matches!(
+                ty.kind(),
+                TypeKind::Variants(_) | TypeKind::Record(_) | TypeKind::Tuple(_)
+            ) {
                 self.output.declare_inline_type(&name)
             } else {
                 self.output.declare_type(&name)
             };
-            self.type_ids.insert(ty.clone(), id);
+            self.type_ids.insert(*ty, id);
         }
     }
 
     fn define_types(&mut self) -> Result<(), Refusal> {
-        let types: Vec<_> = self.types.iter().cloned().collect();
+        let types: Vec<_> = self.types.iter().copied().collect();
         for ty in types {
             let id = self.type_ids[&ty];
-            match &ty {
-                Type::Named(_, _) if self.record_wrappers.contains_key(&ty) => {
-                    self.define_record_wrapper(&ty, id);
+            match ty.kind() {
+                TypeKind::Named(_, _) if self.record_wrappers.contains_key(&ty) => {
+                    self.define_record_wrapper(ty, id);
                 }
-                Type::Named(_, _) | Type::Variants(_) => {
+                TypeKind::Named(_, _) | TypeKind::Variants(_) => {
                     let constructors = ty.constructors(&self.program.data, &self.cx.symbols)?;
                     let held: Vec<_> = constructors
                         .iter()
@@ -448,28 +453,28 @@ impl<'a> Lowerer<'a> {
                     for (tag, (name, _)) in constructors.iter().enumerate() {
                         let tag = u32::try_from(tag).expect("a sane constructor count");
                         self.constructor_ids
-                            .insert((*name, ty.clone()), self.output.ctor_at(id, tag));
+                            .insert((*name, ty), self.output.ctor_at(id, tag));
                     }
                 }
-                Type::Record(fields) => {
+                TypeKind::Record(fields) => {
                     let fields = self.named_fields(fields);
                     self.output
                         .define_fields(id, &[("Record", fields.as_slice())]);
                     self.record_constructor_ids
-                        .insert(ty.clone(), self.output.ctor_at(id, 0));
+                        .insert(ty, self.output.ctor_at(id, 0));
                 }
-                Type::Tuple(members) => {
+                TypeKind::Tuple(members) => {
                     let members: Vec<_> =
                         members.iter().map(|member| self.type_ids[member]).collect();
                     self.output
                         .define_type(id, &[("Tuple", members.as_slice())]);
                     self.record_constructor_ids
-                        .insert(ty.clone(), self.output.ctor_at(id, 0));
+                        .insert(ty, self.output.ctor_at(id, 0));
                 }
-                Type::Function(..) => unreachable!("collection refuses a function type"),
+                TypeKind::Function(..) => unreachable!("collection refuses a function type"),
             }
         }
-        let nat = Type::Named(self.prelude.nat, Vec::new());
+        let nat = Type::named(self.prelude.nat, Vec::new());
         if let Some(&nat) = self.type_ids.get(&nat) {
             self.output
                 .intern_number(nat, 0)
@@ -489,14 +494,14 @@ impl<'a> Lowerer<'a> {
     /// A nominal wrapper around a record holds the record's fields itself,
     /// each named as the program spells it. `Host`'s are the startup values
     /// its target produces, which the target recognizes by those names.
-    fn define_record_wrapper(&mut self, ty: &Type, id: TypeId) {
-        let Type::Named(name, _) = ty else {
+    fn define_record_wrapper(&mut self, ty: Type, id: TypeId) {
+        let TypeKind::Named(name, _) = ty.kind() else {
             unreachable!("a record wrapper is a named type")
         };
-        let Type::Record(fields) = self.record_wrappers[ty].clone() else {
+        let TypeKind::Record(fields) = self.record_wrappers[&ty].kind() else {
             unreachable!("record wrappers map to record types")
         };
-        let held = self.named_fields(&fields);
+        let held = self.named_fields(fields);
         let wrapper = self.program.data[name]
             .wrapper
             .as_ref()
@@ -506,13 +511,13 @@ impl<'a> Lowerer<'a> {
         self.output
             .define_fields(id, &[(spelled.as_str(), held.as_slice())]);
         self.constructor_ids
-            .insert((wrapper, ty.clone()), self.output.ctor_at(id, 0));
+            .insert((wrapper, ty), self.output.ctor_at(id, 0));
     }
 
     fn declare_functions(&mut self) {
         for function in &self.program.functions {
             let parameters = &function.key.signature.parameters;
-            let result = function.key.signature.result.as_ref();
+            let result = function.key.signature.result;
             let parameters: Vec<_> = parameters
                 .iter()
                 .enumerate()
@@ -522,7 +527,7 @@ impl<'a> Lowerer<'a> {
                 .iter()
                 .map(|(name, ty)| (name.as_str(), *ty))
                 .collect();
-            let result = self.type_ids[result];
+            let result = self.type_ids[&result];
             let name = function_name(&function.key, &self.cx.symbols);
             let id = self.output.declare_named(&name, &borrowed, result);
             if let p::Definition::External(provider) = function.definition {
@@ -535,7 +540,7 @@ impl<'a> Lowerer<'a> {
             let id = self
                 .output
                 .declare("widen", &[self.type_ids[from]], self.type_ids[to]);
-            self.widen_ids.insert((from.clone(), to.clone()), id);
+            self.widen_ids.insert((*from, *to), id);
         }
         for list in &self.unreachables {
             let id = self.output.declare(
@@ -543,7 +548,7 @@ impl<'a> Lowerer<'a> {
                 &[self.type_ids[list]],
                 self.type_ids[&Type::empty()],
             );
-            self.unreachable_ids.insert(list.clone(), id);
+            self.unreachable_ids.insert(*list, id);
         }
     }
 
@@ -561,10 +566,10 @@ impl<'a> Lowerer<'a> {
     /// Each widening rebuilds a value in the wider type: the constructor it
     /// was built with, each field widened in turn where its type differs.
     fn define_widenings(&mut self) -> Result<(), Refusal> {
-        let widenings: Vec<_> = self.widenings.iter().cloned().collect();
+        let widenings: Vec<_> = self.widenings.iter().copied().collect();
         for (from, to) in widenings {
-            let plan = self.widening_fields(&from, &to)?;
-            let id = self.widen_ids[&(from.clone(), to.clone())];
+            let plan = self.widening_fields(from, to)?;
+            let id = self.widen_ids[&(from, to)];
             let context = EmitContext {
                 type_ids: &self.type_ids,
                 constructor_ids: &self.constructor_ids,
@@ -586,24 +591,24 @@ impl<'a> Lowerer<'a> {
                             .iter()
                             .find(|(constructor, _)| {
                                 constructor.is_none_or(|constructor| {
-                                    context.constructor_ids[&(constructor, from.clone())] == built
+                                    context.constructor_ids[&(constructor, from)] == built
                                 })
                             })
                             .expect("the plan has every constructor of its source");
                         let fields = match constructor {
-                            Some(_) => context.arm_fields(builder, &from, fields),
+                            Some(_) => context.arm_fields(builder, from, fields),
                             None => fields.to_vec(),
                         };
                         let widened: Vec<_> = fields
                             .iter()
                             .zip(pairs)
                             .map(|(field, (source, target))| {
-                                context.widen(builder, *field, source, target)
+                                context.widen(builder, *field, *source, *target)
                             })
                             .collect();
                         match constructor {
                             Some(constructor) => {
-                                context.construct(builder, *constructor, &to, &widened)
+                                context.construct(builder, *constructor, to, &widened)
                             }
                             None => builder.con(context.record_constructor_ids[&to], &widened),
                         }
@@ -653,10 +658,10 @@ impl<'a> Lowerer<'a> {
     /// Declare and write the comparisons a numeral's test is written with,
     /// each in the shape Barb recognizes as that comparison.
     fn define_numerals(&mut self) -> Numerals {
-        let nat_ty = Type::Named(self.prelude.nat, Vec::new());
-        let bool_ty = Type::Named(self.prelude.bool_, Vec::new());
+        let nat_ty = Type::named(self.prelude.nat, Vec::new());
+        let bool_ty = Type::named(self.prelude.bool_, Vec::new());
         let (nat, bool_) = (self.type_ids[&nat_ty], self.type_ids[&bool_ty]);
-        let yes = self.constructor_ids[&(self.prelude.bool_true, bool_ty.clone())];
+        let yes = self.constructor_ids[&(self.prelude.bool_true, bool_ty)];
         let no = self.constructor_ids[&(self.prelude.bool_false, bool_ty)];
         // Nought is nought, and a successor is one if what they succeed is.
         let equals = self.output.declare("numeral.equals", &[nat, nat], bool_);
@@ -731,11 +736,11 @@ struct EmitContext<'a> {
 
 impl EmitContext<'_> {
     /// `value`, of type `from`, as a value of the wider `to`.
-    fn widen(&self, builder: &mut Builder<'_>, value: Atom, from: &Type, to: &Type) -> Atom {
+    fn widen(&self, builder: &mut Builder<'_>, value: Atom, from: Type, to: Type) -> Atom {
         if from == to {
             return value;
         }
-        builder.call(self.widen_ids[&(from.clone(), to.clone())], &[value])
+        builder.call(self.widen_ids[&(from, to)], &[value])
     }
 
     /// Build a value of `ty` with `constructor` from `fields`. A record
@@ -745,11 +750,11 @@ impl EmitContext<'_> {
         &self,
         builder: &mut Builder<'_>,
         constructor: Symbol,
-        ty: &Type,
+        ty: Type,
         fields: &[Atom],
     ) -> Atom {
-        let id = self.constructor_ids[&(constructor, ty.clone())];
-        let Some(record) = self.record_wrappers.get(ty) else {
+        let id = self.constructor_ids[&(constructor, ty)];
+        let Some(record) = self.record_wrappers.get(&ty) else {
             return builder.con(id, fields);
         };
         let [record_value] = fields else {
@@ -762,8 +767,8 @@ impl EmitContext<'_> {
 
     /// What an arm of `owner` binds: its fields, except that a record
     /// wrapper's arm binds the one record its fields make.
-    fn arm_fields(&self, builder: &mut Builder<'_>, owner: &Type, fields: &[Atom]) -> Vec<Atom> {
-        self.record_wrappers.get(owner).map_or_else(
+    fn arm_fields(&self, builder: &mut Builder<'_>, owner: Type, fields: &[Atom]) -> Vec<Atom> {
+        self.record_wrappers.get(&owner).map_or_else(
             || fields.to_vec(),
             |record| vec![builder.con(self.record_constructor_ids[record], fields)],
         )
@@ -792,11 +797,9 @@ fn emit_decision(
             builder.match_(values[subject], owner_id, |builder, constructor, fields| {
                 let arm = arms
                     .iter()
-                    .find(|arm| {
-                        context.constructor_ids[&(arm.constructor, owner.clone())] == constructor
-                    })
+                    .find(|arm| context.constructor_ids[&(arm.constructor, *owner)] == constructor)
                     .expect("the plan has one arm per constructor");
-                let fields = context.arm_fields(builder, owner, fields);
+                let fields = context.arm_fields(builder, *owner, fields);
                 let mut nested = values.clone();
                 for (value, atom) in arm.fields.iter().zip(fields) {
                     nested.insert(*value, atom);
@@ -844,9 +847,9 @@ fn emit_decision(
             let mut within = outer.clone();
             within.extend(locals.iter().map(|(local, value)| (*local, values[value])));
             let condition = emit_body(context, builder, condition, within);
-            let bool_ty = Type::Named(context.prelude.bool_, Vec::new());
+            let bool_ty = Type::named(context.prelude.bool_, Vec::new());
             let bool_id = context.type_ids[&bool_ty];
-            let false_id = context.constructor_ids[&(*false_constructor, bool_ty.clone())];
+            let false_id = context.constructor_ids[&(*false_constructor, bool_ty)];
             let true_id = context.constructor_ids[&(*true_constructor, bool_ty)];
             builder.match_(condition, bool_id, |builder, constructor, _| {
                 if constructor == false_id {
@@ -891,7 +894,7 @@ fn emit_decision(
             back,
             decision,
         } => {
-            let nat_ty = Type::Named(context.prelude.nat, Vec::new());
+            let nat_ty = Type::named(context.prelude.nat, Vec::new());
             let count = builder
                 .natural(
                     context.type_ids[&nat_ty],
@@ -1079,7 +1082,7 @@ fn numeral(
     builder: &mut Builder<'_>,
     number: &num_bigint::BigUint,
 ) -> Atom {
-    let nat_ty = Type::Named(context.prelude.nat, Vec::new());
+    let nat_ty = Type::named(context.prelude.nat, Vec::new());
     let known = builder
         .natural(context.type_ids[&nat_ty], number)
         .expect("Nat has a natural's shape");
@@ -1114,8 +1117,8 @@ fn branch(
     test: Atom,
     mut arm: impl FnMut(&mut Builder<'_>, bool) -> Atom,
 ) -> Atom {
-    let bool_ty = Type::Named(context.prelude.bool_, Vec::new());
-    let true_id = context.constructor_ids[&(context.prelude.bool_true, bool_ty.clone())];
+    let bool_ty = Type::named(context.prelude.bool_, Vec::new());
+    let true_id = context.constructor_ids[&(context.prelude.bool_true, bool_ty)];
     builder.match_(
         test,
         context.type_ids[&bool_ty],
@@ -1172,11 +1175,12 @@ fn emit_bindings(
         return emit_bindings(context, builder, rest, result, locals);
     };
     let value = emit_expr(context, builder, taken, &locals);
-    let (Type::Named(_, taken_types), Type::Named(_, answered_types)) = (&taken.ty, context.answer)
+    let (TypeKind::Named(_, taken_types), TypeKind::Named(_, answered_types)) =
+        (taken.ty.kind(), context.answer.kind())
     else {
         unreachable!("`?` takes and answers results")
     };
-    let ok = context.constructor_ids[&(context.prelude.result_ok, taken.ty.clone())];
+    let ok = context.constructor_ids[&(context.prelude.result_ok, taken.ty)];
     builder.match_(
         value,
         context.type_ids[&taken.ty],
@@ -1186,11 +1190,11 @@ fn emit_bindings(
                 bind(&mut locals, fields[0]);
                 emit_bindings(context, builder, rest, result, locals)
             } else {
-                let error = context.widen(builder, fields[0], &taken_types[1], &answered_types[1]);
+                let error = context.widen(builder, fields[0], taken_types[1], answered_types[1]);
                 context.construct(
                     builder,
                     context.prelude.result_err,
-                    context.answer,
+                    *context.answer,
                     &[error],
                 )
             }
@@ -1217,7 +1221,7 @@ fn emit_bound(
         }
         p::Bound::If { condition, yes, no } => {
             let asked = emit_expr(context, builder, condition, locals);
-            let true_ = context.constructor_ids[&(context.prelude.bool_true, condition.ty.clone())];
+            let true_ = context.constructor_ids[&(context.prelude.bool_true, condition.ty)];
             builder.match_(
                 asked,
                 context.type_ids[&condition.ty],
@@ -1253,7 +1257,7 @@ fn destructure(
         }
         Unpack::Fields { owner, fields } => {
             builder.match_(value, context.type_ids[owner], |builder, _, held| {
-                let held = context.arm_fields(builder, owner, held);
+                let held = context.arm_fields(builder, *owner, held);
                 destructure_each(context, builder, &held, fields, locals.clone(), then)
             })
         }
@@ -1299,7 +1303,7 @@ fn emit_expr(
         }
         ExprKind::Local(local) => locals[local],
         ExprKind::Natural(magnitude) => {
-            let nat = context.type_ids[&Type::Named(context.prelude.nat, Vec::new())];
+            let nat = context.type_ids[&Type::named(context.prelude.nat, Vec::new())];
             let constant = builder
                 .natural(nat, magnitude)
                 .expect("the Nat shape was validated before emission");
@@ -1317,7 +1321,7 @@ fn emit_expr(
                 .iter()
                 .map(|field| emit_expr(context, builder, field, locals))
                 .collect::<Vec<_>>();
-            context.construct(builder, *constructor, &expression.ty, &fields)
+            context.construct(builder, *constructor, expression.ty, &fields)
         }
         // Worked out in the order written, then placed in the order the
         // record's type keeps its fields.
@@ -1326,7 +1330,7 @@ fn emit_expr(
                 .iter()
                 .map(|(name, field)| (*name, emit_expr(context, builder, field, locals)))
                 .collect::<Vec<_>>();
-            let Type::Record(layout) = &expression.ty else {
+            let TypeKind::Record(layout) = expression.ty.kind() else {
                 unreachable!("a record expression builds a record")
             };
             let fields: Vec<_> = layout
@@ -1355,7 +1359,7 @@ fn emit_expr(
                 .iter()
                 .map(|(name, field)| (*name, emit_expr(context, builder, field, locals)))
                 .collect();
-            let Type::Record(layout) = &expression.ty else {
+            let TypeKind::Record(layout) = expression.ty.kind() else {
                 unreachable!("an update builds a record")
             };
             let constructor = context.record_constructor_ids[&expression.ty];
@@ -1379,7 +1383,7 @@ fn emit_expr(
         }
         ExprKind::Project(receiver, field) => {
             let atom = emit_expr(context, builder, receiver, locals);
-            emit_projection(context, builder, atom, &receiver.ty, *field)
+            emit_projection(context, builder, atom, receiver.ty, *field)
         }
         // `left & right` answers the left where it is `False`, and `left |
         // right` where it is `True`; only otherwise is the right worked out.
@@ -1388,7 +1392,7 @@ fn emit_expr(
                 Connective::And => context.prelude.bool_false,
                 Connective::Or => context.prelude.bool_true,
             };
-            let decided = context.constructor_ids[&(decided, left.ty.clone())];
+            let decided = context.constructor_ids[&(decided, left.ty)];
             let left_value = emit_expr(context, builder, left, locals);
             builder.match_(
                 left_value,
@@ -1411,7 +1415,7 @@ fn emit_expr(
         }
         ExprKind::Widen(value) => {
             let atom = emit_expr(context, builder, value, locals);
-            context.widen(builder, atom, &value.ty, &expression.ty)
+            context.widen(builder, atom, value.ty, expression.ty)
         }
         ExprKind::Try(_) => unreachable!("every `?` is bound on its own before emission"),
         // Pattern compiling put each `return` where the function answers.
@@ -1423,54 +1427,56 @@ fn emit_projection(
     context: &EmitContext<'_>,
     builder: &mut Builder<'_>,
     receiver: Atom,
-    receiver_ty: &Type,
+    receiver_ty: Type,
     field: Symbol,
 ) -> Atom {
-    if let Type::Record(fields) = receiver_ty {
+    if let TypeKind::Record(fields) = receiver_ty.kind() {
         let index = fields
             .iter()
             .position(|(name, _)| *name == field)
             .expect("checked projection names a record field");
-        return builder.match_(receiver, context.type_ids[receiver_ty], |_, _, values| {
+        return builder.match_(receiver, context.type_ids[&receiver_ty], |_, _, values| {
             values[index]
         });
     }
     // A record wrapper holds its record's fields itself.
-    let Type::Record(fields) = &context.record_wrappers[receiver_ty] else {
+    let TypeKind::Record(fields) = context.record_wrappers[&receiver_ty].kind() else {
         unreachable!("record wrappers map to record types")
     };
     let index = fields
         .iter()
         .position(|(name, _)| *name == field)
         .expect("checked projection names a record field");
-    builder.match_(receiver, context.type_ids[receiver_ty], |_, _, values| {
+    builder.match_(receiver, context.type_ids[&receiver_ty], |_, _, values| {
         values[index]
     })
 }
 
-fn type_name(ty: &Type, symbols: &crate::Symbols) -> String {
-    match ty {
-        Type::Named(name, arguments) if arguments.is_empty() => symbols.spelling(*name).to_string(),
-        Type::Named(name, arguments) => format!(
+fn type_name(ty: Type, symbols: &crate::Symbols) -> String {
+    match ty.kind() {
+        TypeKind::Named(name, arguments) if arguments.is_empty() => {
+            symbols.spelling(*name).to_string()
+        }
+        TypeKind::Named(name, arguments) => format!(
             "{}<{}>",
             symbols.spelling(*name),
             arguments
                 .iter()
-                .map(|argument| type_name(argument, symbols))
+                .map(|argument| type_name(*argument, symbols))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Type::Function(signature) => format!(
+        TypeKind::Function(signature) => format!(
             "({}) -> {}",
             signature
                 .parameters
                 .iter()
-                .map(|parameter| type_name(parameter, symbols))
+                .map(|parameter| type_name(*parameter, symbols))
                 .collect::<Vec<_>>()
                 .join(", "),
-            type_name(&signature.result, symbols)
+            type_name(signature.result, symbols)
         ),
-        Type::Variants(tags) => format!(
+        TypeKind::Variants(tags) => format!(
             "[{}]",
             tags.iter()
                 .map(|(label, fields)| if fields.is_empty() {
@@ -1481,7 +1487,7 @@ fn type_name(ty: &Type, symbols: &crate::Symbols) -> String {
                         symbols.text(*label),
                         fields
                             .iter()
-                            .map(|field| type_name(field, symbols))
+                            .map(|field| type_name(*field, symbols))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )
@@ -1489,22 +1495,22 @@ fn type_name(ty: &Type, symbols: &crate::Symbols) -> String {
                 .collect::<Vec<_>>()
                 .join(" ")
         ),
-        Type::Tuple(members) => format!(
+        TypeKind::Tuple(members) => format!(
             "({})",
             members
                 .iter()
-                .map(|member| type_name(member, symbols))
+                .map(|member| type_name(*member, symbols))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Type::Record(fields) => format!(
+        TypeKind::Record(fields) => format!(
             "{{{}}}",
             fields
                 .iter()
                 .map(|(name, ty)| format!(
                     "{}: {}",
                     symbols.spelling(*name),
-                    type_name(ty, symbols)
+                    type_name(*ty, symbols)
                 ))
                 .collect::<Vec<_>>()
                 .join(", ")

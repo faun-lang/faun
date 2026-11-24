@@ -44,7 +44,7 @@ use crate::diagnostic::Diagnostic;
 use crate::first_order::{self as d, ExprKind};
 use crate::hir::LocalId;
 use crate::platform::Platform;
-use crate::specialize::{Connective, FunctionKey, Pattern, Type, surface_type};
+use crate::specialize::{Connective, FunctionKey, Pattern, Type, TypeKind, surface_type};
 use crate::{ModuleId, Symbol, Symbols};
 
 mod shapes;
@@ -263,7 +263,7 @@ impl<'a> Facts<'a> {
                     .signature
                     .parameters
                     .iter()
-                    .any(|p| self.carries(p));
+                    .any(|p| self.carries(*p));
                 if matches!(function.definition, d::Definition::External(_)) || !takes_any {
                     known[at].clone()
                 } else {
@@ -333,7 +333,7 @@ impl<'a> Facts<'a> {
             .signature
             .parameters
             .get(parameter)
-            .and_then(|ty| self.resource_in(ty));
+            .and_then(|ty| self.resource_in(*ty));
         let resource = self.called(resource, "resource");
         let label = if taken.is_some() {
             "used up here".to_owned()
@@ -357,8 +357,8 @@ impl<'a> Facts<'a> {
         }
     }
 
-    fn is_resource(&self, ty: &Type) -> bool {
-        matches!(ty, Type::Named(name, _) if self.resources.contains(name))
+    fn is_resource(&self, ty: Type) -> bool {
+        matches!(ty.kind(), TypeKind::Named(name, _) if self.resources.contains(name))
     }
 
     /// Whether a value of `ty` holds a resource anywhere in it: whether any
@@ -366,11 +366,11 @@ impl<'a> Facts<'a> {
     /// types, so a type reaching itself is answered by what else it reaches,
     /// whichever is asked first. A search finding none has seen everything
     /// each type it passed reaches, so each of those holds none either.
-    fn carries(&self, ty: &Type) -> bool {
-        if let Some(&known) = self.carries.borrow().get(ty) {
+    fn carries(&self, ty: Type) -> bool {
+        if let Some(&known) = self.carries.borrow().get(&ty) {
             return known;
         }
-        let mut waiting = vec![ty.clone()];
+        let mut waiting = vec![ty];
         let mut seen = HashSet::default();
         let mut found = false;
         while let Some(next) = waiting.pop() {
@@ -381,26 +381,26 @@ impl<'a> Facts<'a> {
                 }
                 continue;
             }
-            if !seen.insert(next.clone()) {
+            if !seen.insert(next) {
                 continue;
             }
-            match &next {
-                Type::Named(name, _) if self.resources.contains(name) => {
+            match next.kind() {
+                TypeKind::Named(name, _) if self.resources.contains(name) => {
                     found = true;
                     break;
                 }
-                Type::Named(..) => waiting.extend(self.fields_of_every(&next)),
-                Type::Function(..) => {}
-                Type::Variants(tags) => {
-                    waiting.extend(tags.iter().flat_map(|(_, fields)| fields.iter().cloned()));
+                TypeKind::Named(..) => waiting.extend(self.fields_of_every(next)),
+                TypeKind::Function(..) => {}
+                TypeKind::Variants(tags) => {
+                    waiting.extend(tags.iter().flat_map(|(_, fields)| fields.iter().copied()));
                 }
-                Type::Record(fields) => waiting.extend(fields.iter().map(|(_, f)| f.clone())),
-                Type::Tuple(members) => waiting.extend(members.iter().cloned()),
+                TypeKind::Record(fields) => waiting.extend(fields.iter().map(|(_, f)| *f)),
+                TypeKind::Tuple(members) => waiting.extend(members.iter().copied()),
             }
         }
         let mut known = self.carries.borrow_mut();
         if found {
-            known.insert(ty.clone(), true);
+            known.insert(ty, true);
         } else {
             known.extend(seen.into_iter().map(|each| (each, false)));
         }
@@ -408,8 +408,8 @@ impl<'a> Facts<'a> {
     }
 
     /// Every field of every constructor of a named type, at its arguments.
-    fn fields_of_every(&self, ty: &Type) -> Vec<Type> {
-        let Type::Named(name, _) = ty else {
+    fn fields_of_every(&self, ty: Type) -> Vec<Type> {
+        let TypeKind::Named(name, _) = ty.kind() else {
             return Vec::new();
         };
         let Some(data) = self.program.data.get(name) else {
@@ -426,31 +426,31 @@ impl<'a> Facts<'a> {
     /// What each pattern within `pattern` is matched against, of a value of
     /// `ty`: a constructor's fields, a tuple's members, or a list's
     /// elements and the rest of it.
-    fn parts<'p>(&self, pattern: &'p Pattern, ty: &Type) -> Vec<(&'p Pattern, Type)> {
-        match (pattern, ty) {
+    fn parts<'p>(&self, pattern: &'p Pattern, ty: Type) -> Vec<(&'p Pattern, Type)> {
+        match (pattern, ty.kind()) {
             (Pattern::Constructor(constructor, patterns), _) => patterns
                 .iter()
                 .zip(self.fields(*constructor, ty).unwrap_or_default())
                 .collect(),
-            (Pattern::Product(patterns), Type::Tuple(members)) => {
-                patterns.iter().zip(members.iter().cloned()).collect()
+            (Pattern::Product(patterns), TypeKind::Tuple(members)) => {
+                patterns.iter().zip(members.iter().copied()).collect()
             }
-            (Pattern::List(elements, rest), Type::Named(_, arguments)) => {
-                let element = arguments.first().cloned();
+            (Pattern::List(elements, rest), TypeKind::Named(_, arguments)) => {
+                let element = arguments.first().copied();
                 elements
                     .iter()
-                    .filter_map(|pattern| Some((pattern, element.clone()?)))
-                    .chain(rest.as_deref().map(|rest| (rest, ty.clone())))
+                    .filter_map(|pattern| Some((pattern, element?)))
+                    .chain(rest.as_deref().map(|rest| (rest, ty)))
                     .collect()
             }
-            (Pattern::Split(split), Type::Named(_, arguments)) => {
-                let element = arguments.first().cloned();
-                std::iter::once((&split.front, ty.clone()))
+            (Pattern::Split(split), TypeKind::Named(_, arguments)) => {
+                let element = arguments.first().copied();
+                std::iter::once((&split.front, ty))
                     .chain(
                         split
                             .last
                             .iter()
-                            .filter_map(|pattern| Some((pattern, element.clone()?))),
+                            .filter_map(|pattern| Some((pattern, element?))),
                     )
                     .collect()
             }
@@ -460,13 +460,16 @@ impl<'a> Facts<'a> {
 
     /// The fields of a record, or of a type wrapping one, which a value of
     /// `ty` has fields of.
-    fn record_fields(&self, ty: &Type) -> Option<Vec<(Symbol, Type)>> {
-        match ty {
-            Type::Record(fields) => Some(fields.clone()),
-            Type::Named(name, _) if !self.resources.contains(name) => {
+    fn record_fields(&self, ty: Type) -> Option<Vec<(Symbol, Type)>> {
+        match ty.kind() {
+            TypeKind::Record(fields) => Some(fields.clone()),
+            TypeKind::Named(name, _) if !self.resources.contains(name) => {
                 let wrapper = self.program.data.get(name)?.wrapper.as_ref()?;
                 match self.fields(wrapper.constructor, ty)?.as_slice() {
-                    [Type::Record(fields)] => Some(fields.clone()),
+                    [field] => match field.kind() {
+                        TypeKind::Record(fields) => Some(fields.clone()),
+                        _ => None,
+                    },
                     _ => None,
                 }
             }
@@ -476,19 +479,19 @@ impl<'a> Facts<'a> {
 
     /// Whether a field of a value of `ty` other than `field` holds a
     /// resource.
-    fn others_carry(&self, ty: &Type, field: Symbol) -> bool {
+    fn others_carry(&self, ty: Type, field: Symbol) -> bool {
         self.record_fields(ty).is_some_and(|fields| {
             fields
                 .iter()
-                .any(|(each, ty)| *each != field && self.carries(ty))
+                .any(|(each, ty)| *each != field && self.carries(*ty))
         })
     }
 
     /// Every constructor of `ty`, where it is taken apart by constructors.
-    fn constructors_of(&self, ty: &Type) -> Option<Vec<Symbol>> {
-        match ty {
-            Type::Variants(tags) => Some(tags.iter().map(|(tag, _)| *tag).collect()),
-            Type::Named(name, _) if !self.resources.contains(name) => {
+    fn constructors_of(&self, ty: Type) -> Option<Vec<Symbol>> {
+        match ty.kind() {
+            TypeKind::Variants(tags) => Some(tags.iter().map(|(tag, _)| *tag).collect()),
+            TypeKind::Named(name, _) if !self.resources.contains(name) => {
                 let data = self.program.data.get(name)?;
                 Some(
                     data.constructors
@@ -503,20 +506,20 @@ impl<'a> Facts<'a> {
     }
 
     /// The fields of `constructor`, of type `ty`, at that type's arguments.
-    fn fields(&self, constructor: Symbol, ty: &Type) -> Option<Vec<Type>> {
-        match ty {
-            Type::Variants(tags) => tags
+    fn fields(&self, constructor: Symbol, ty: Type) -> Option<Vec<Type>> {
+        match ty.kind() {
+            TypeKind::Variants(tags) => tags
                 .iter()
                 .find(|(tag, _)| *tag == constructor)
                 .map(|(_, fields)| fields.clone()),
-            Type::Named(name, arguments) => {
+            TypeKind::Named(name, arguments) => {
                 let (owner, fields) = self.constructors.get(&constructor)?;
                 let data = self.program.data.get(name).filter(|_| owner == name)?;
                 let variables: HashMap<_, _> = data
                     .parameters
                     .iter()
                     .copied()
-                    .zip(arguments.iter().cloned())
+                    .zip(arguments.iter().copied())
                     .collect();
                 fields
                     .iter()
@@ -546,20 +549,22 @@ impl<'a> Facts<'a> {
     }
 
     /// The first resource type a value of `ty` holds.
-    fn resource_in(&self, ty: &Type) -> Option<Symbol> {
-        let mut waiting = vec![ty.clone()];
+    fn resource_in(&self, ty: Type) -> Option<Symbol> {
+        let mut waiting = vec![ty];
         let mut seen = HashSet::default();
         while let Some(ty) = waiting.pop() {
-            if !self.carries(&ty) || !seen.insert(ty.clone()) {
+            if !self.carries(ty) || !seen.insert(ty) {
                 continue;
             }
-            match &ty {
-                Type::Named(name, _) if self.resources.contains(name) => return Some(*name),
-                Type::Named(..) => waiting.extend(self.fields_of_every(&ty)),
-                Type::Variants(tags) => waiting.extend(tags.iter().flat_map(|(_, f)| f.clone())),
-                Type::Record(fields) => waiting.extend(fields.iter().map(|(_, f)| f.clone())),
-                Type::Tuple(members) => waiting.extend(members.iter().cloned()),
-                Type::Function(..) => {}
+            match ty.kind() {
+                TypeKind::Named(name, _) if self.resources.contains(name) => return Some(*name),
+                TypeKind::Named(..) => waiting.extend(self.fields_of_every(ty)),
+                TypeKind::Variants(tags) => {
+                    waiting.extend(tags.iter().flat_map(|(_, f)| f.iter().copied()));
+                }
+                TypeKind::Record(fields) => waiting.extend(fields.iter().map(|(_, f)| *f)),
+                TypeKind::Tuple(members) => waiting.extend(members.iter().copied()),
+                TypeKind::Function(..) => {}
             }
         }
         None
@@ -782,7 +787,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// looks at or its tests take apart, and its body.
     fn clause(&mut self, clause: &d::Clause, parameters: &[Type]) {
         for (parameter, (pattern, ty)) in clause.patterns.iter().zip(parameters).enumerate() {
-            self.bind(pattern, ty, &[Origin::Parameter(parameter)]);
+            self.bind(pattern, *ty, &[Origin::Parameter(parameter)]);
         }
         if let Some(guard) = &clause.guard {
             self.guarded(guard);
@@ -811,7 +816,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// does not name is held all the same, by nothing, which is how a
     /// parameter's part is kept and a made one dropped. A resource taken
     /// apart, which only the module declaring it can, is looked at.
-    fn bind(&mut self, pattern: &Pattern, ty: &Type, origins: &[Origin]) {
+    fn bind(&mut self, pattern: &Pattern, ty: Type, origins: &[Origin]) {
         if origins.is_empty() || !self.facts.carries(ty) {
             return;
         }
@@ -837,13 +842,13 @@ impl<'f, 'a> Walk<'f, 'a> {
             Pattern::Constructor(_, _) if self.facts.is_resource(ty) => self.hold(origins),
             Pattern::Wild => self.hold(origins),
             Pattern::Record(patterns) => {
-                if let Type::Record(fields) = ty {
+                if let TypeKind::Record(fields) = ty.kind() {
                     self.bind_record(patterns, fields, origins);
                 }
             }
             _ => {
                 for (pattern, part) in self.facts.parts(pattern, ty) {
-                    self.bind(pattern, &part, origins);
+                    self.bind(pattern, part, origins);
                 }
             }
         }
@@ -859,13 +864,13 @@ impl<'f, 'a> Walk<'f, 'a> {
     ) {
         for (name, pattern) in patterns {
             if let Some((_, field)) = fields.iter().find(|(each, _)| each == name) {
-                self.bind(pattern, field, origins);
+                self.bind(pattern, *field, origins);
             }
         }
         let named = |each: &Symbol| patterns.iter().any(|(name, _)| name == each);
         if fields
             .iter()
-            .any(|(name, field)| !named(name) && self.facts.carries(field))
+            .any(|(name, field)| !named(name) && self.facts.carries(*field))
         {
             self.hold(origins);
         }
@@ -874,19 +879,19 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// What a name holds of a value of `ty` holding `origins`: a record's
     /// fields holding a resource each held on its own, and anything else
     /// whole.
-    fn named(&mut self, origins: &[Origin], ty: &Type) -> usize {
+    fn named(&mut self, origins: &[Origin], ty: Type) -> usize {
         self.named_within(origins, ty, &mut Vec::new())
     }
 
     /// [`Self::named`], within the records `within` holds: a record found
     /// inside itself, which no value is, is held whole there.
-    fn named_within(&mut self, origins: &[Origin], ty: &Type, within: &mut Vec<Type>) -> usize {
+    fn named_within(&mut self, origins: &[Origin], ty: Type, within: &mut Vec<Type>) -> usize {
         self.held.push(Held {
             origins: origins.to_vec(),
             state: State::Held,
         });
         let held = self.held.len() - 1;
-        if within.contains(ty) {
+        if within.contains(&ty) {
             return held;
         }
         let Some(fields) = self.facts.record_fields(ty) else {
@@ -894,16 +899,16 @@ impl<'f, 'a> Walk<'f, 'a> {
         };
         let fields: Vec<(Symbol, Type)> = fields
             .into_iter()
-            .filter(|(_, field)| self.facts.carries(field))
+            .filter(|(_, field)| self.facts.carries(*field))
             .collect();
         if fields.is_empty() {
             return held;
         }
         self.held[held].state = State::Empty;
-        within.push(ty.clone());
+        within.push(ty);
         let parts = fields
             .into_iter()
-            .map(|(name, field)| (name, self.named_within(origins, &field, within)))
+            .map(|(name, field)| (name, self.named_within(origins, field, within)))
             .collect();
         within.pop();
         self.fields.insert(held, parts);
@@ -953,9 +958,9 @@ impl<'f, 'a> Walk<'f, 'a> {
             ExprKind::Natural(_) | ExprKind::Bytes(_) => Vec::new(),
             ExprKind::Construct(_, fields) | ExprKind::Tuple(fields) => {
                 let mut origins = self.values(fields.iter());
-                if self.facts.is_resource(&expr.ty) {
+                if self.facts.is_resource(expr.ty) {
                     let made = Made {
-                        resource: self.facts.resource_in(&expr.ty),
+                        resource: self.facts.resource_in(expr.ty),
                         by: Maker::Built,
                     };
                     origins.push(Origin::Made(place(expr), made));
@@ -967,7 +972,7 @@ impl<'f, 'a> Walk<'f, 'a> {
                 std::iter::once(base.as_ref()).chain(fields.iter().map(|(_, field)| field)),
             ),
             // A field holding no resource is read freely off a name.
-            ExprKind::Project(receiver, _) if !self.facts.carries(&expr.ty) => {
+            ExprKind::Project(receiver, _) if !self.facts.carries(expr.ty) => {
                 if !is_local(receiver) {
                     self.lend(receiver);
                 }
@@ -978,7 +983,7 @@ impl<'f, 'a> Walk<'f, 'a> {
             // other fields hold is dropped with it.
             ExprKind::Project(receiver, field) => {
                 let origins = self.value(receiver);
-                if self.facts.others_carry(&receiver.ty, *field) {
+                if self.facts.others_carry(receiver.ty, *field) {
                     self.hold(&origins);
                 }
                 origins
@@ -1030,7 +1035,7 @@ impl<'f, 'a> Walk<'f, 'a> {
                 continue;
             }
             let origins = self.value(&binding.value);
-            self.bind(&binding.pattern, &binding.value.ty, &origins);
+            self.bind(&binding.pattern, binding.value.ty, &origins);
         }
         self.value(&block.result)
     }
@@ -1042,23 +1047,20 @@ impl<'f, 'a> Walk<'f, 'a> {
         let ExprKind::Record(fields) = &expr.kind else {
             return None;
         };
-        if !fields
-            .iter()
-            .any(|(_, field)| self.facts.carries(&field.ty))
-        {
+        if !fields.iter().any(|(_, field)| self.facts.carries(field.ty)) {
             return None;
         }
         let mut parts = Vec::new();
         let mut origins: Vec<Origin> = Vec::new();
         for (name, field) in fields {
-            if !self.facts.carries(&field.ty) {
+            if !self.facts.carries(field.ty) {
                 let made = self.value(field);
                 self.hold(&made);
                 continue;
             }
             let held = self.built(field).unwrap_or_else(|| {
                 let made = self.value(field);
-                self.named(&made, &field.ty)
+                self.named(&made, field.ty)
             });
             for origin in &self.held[held].origins {
                 if !origins.contains(origin) {
@@ -1100,7 +1102,7 @@ impl<'f, 'a> Walk<'f, 'a> {
                     .signature
                     .parameters
                     .get(*parameter)
-                    .and_then(|ty| self.facts.resource_in(ty)),
+                    .and_then(|ty| self.facts.resource_in(*ty)),
             })
     }
 
@@ -1184,7 +1186,7 @@ impl<'f, 'a> Walk<'f, 'a> {
         let unmatched = unguarded.map(|(pattern, _)| pattern);
         let leaves = self.leaves(whole);
         if leaves.iter().all(|leaf| fails[*leaf] == State::Held)
-            && !self.facts.unmatched_carries(unmatched, &value.ty)
+            && !self.facts.unmatched_carries(unmatched, value.ty)
         {
             for leaf in leaves {
                 fails[leaf] = State::Empty;
@@ -1202,7 +1204,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// What a test or arms look at, held: the held thing a local names, or
     /// what the value works out, held by nothing named.
     fn subject(&mut self, value: &d::Expr) -> Option<usize> {
-        if !self.facts.carries(&value.ty) {
+        if !self.facts.carries(value.ty) {
             self.lend(value);
             return None;
         }
@@ -1227,15 +1229,15 @@ impl<'f, 'a> Walk<'f, 'a> {
             .iter()
             .all(|leaf| self.held[*leaf].state == State::Held)
         {
-            if let Some(pattern) = patterns.iter().find(|p| self.names_resource(p, ty)) {
+            if let Some(pattern) = patterns.iter().find(|p| self.names_resource(p, *ty)) {
                 for leaf in leaves {
                     took.push((leaf, State::Held));
                     self.held[leaf].state = State::Gone(place(value));
                 }
                 self.taken_apart.insert(place(value));
                 let origins = self.held[whole].origins.clone();
-                self.bind(pattern, ty, &origins);
-            } else if !patterns.iter().any(|p| self.facts.matched_carries(p, ty)) {
+                self.bind(pattern, *ty, &origins);
+            } else if !patterns.iter().any(|p| self.facts.matched_carries(p, *ty)) {
                 for leaf in leaves {
                     self.held[leaf].state = State::Empty;
                 }
@@ -1256,27 +1258,27 @@ impl<'f, 'a> Walk<'f, 'a> {
 
     /// Whether `pattern` binds a name to a part of a value of `ty` that
     /// holds a resource.
-    fn names_resource(&self, pattern: &Pattern, ty: &Type) -> bool {
+    fn names_resource(&self, pattern: &Pattern, ty: Type) -> bool {
         match pattern {
             Pattern::Bind(_) => self.facts.carries(ty),
             Pattern::As(_, pattern) => self.facts.carries(ty) || self.names_resource(pattern, ty),
             Pattern::Constructor(..) if self.facts.is_resource(ty) => false,
             Pattern::Record(patterns) => {
-                let Type::Record(fields) = ty else {
+                let TypeKind::Record(fields) = ty.kind() else {
                     return false;
                 };
                 patterns.iter().any(|(name, pattern)| {
                     fields
                         .iter()
                         .find(|(each, _)| each == name)
-                        .is_some_and(|(_, field)| self.names_resource(pattern, field))
+                        .is_some_and(|(_, field)| self.names_resource(pattern, *field))
                 })
             }
             _ => self
                 .facts
                 .parts(pattern, ty)
                 .iter()
-                .any(|(pattern, part)| self.names_resource(pattern, part)),
+                .any(|(pattern, part)| self.names_resource(pattern, *part)),
         }
     }
 
@@ -1495,9 +1497,9 @@ impl<'f, 'a> Walk<'f, 'a> {
             }
         }
         self.hand_locals(arguments, contract);
-        if self.facts.carries(&expr.ty) {
+        if self.facts.carries(expr.ty) {
             let made = Made {
-                resource: self.facts.resource_in(&expr.ty),
+                resource: self.facts.resource_in(expr.ty),
                 by: Maker::Call(callee.name),
             };
             vec![Origin::Made(place(expr), made)]
@@ -1533,7 +1535,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     /// takes it.
     fn hand_locals(&mut self, arguments: &[d::Expr], contract: impl Fn(usize) -> Contract) {
         for (at, argument) in arguments.iter().enumerate() {
-            if !is_local(argument) || !self.facts.carries(&argument.ty) {
+            if !is_local(argument) || !self.facts.carries(argument.ty) {
                 continue;
             }
             match contract(at) {
@@ -1647,7 +1649,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     fn used_twice(&self, expr: &d::Expr, gone: Place) -> Refusal {
         let resource = self
             .facts
-            .called(self.facts.resource_in(&expr.ty), "resource");
+            .called(self.facts.resource_in(expr.ty), "resource");
         let partly = self
             .local(expr)
             .is_some_and(|held| self.fields.contains_key(&held));
@@ -1682,7 +1684,7 @@ impl<'f, 'a> Walk<'f, 'a> {
     fn local(&self, expr: &d::Expr) -> Option<usize> {
         match &expr.kind {
             ExprKind::Local(local) => self.locals.get(local).copied(),
-            ExprKind::Project(receiver, field) if self.facts.carries(&expr.ty) => {
+            ExprKind::Project(receiver, field) if self.facts.carries(expr.ty) => {
                 let whole = self.local(receiver)?;
                 let Some(fields) = self.fields.get(&whole) else {
                     return Some(whole);
