@@ -862,7 +862,8 @@ impl<'a> Lowering<'a> {
     }
 
     /// For each function but the entry, which never returns, the registers
-    /// a call leaves alone that its allocation puts anything in.
+    /// a call leaves alone that its allocation puts anything in, in the
+    /// order [`CALLEE_SAVED`] lists them.
     fn kept_for_callers(&self, entry: FunctionId) -> Vec<Vec<Reg>> {
         let mut saved: Vec<Vec<Reg>> = vec![Vec::new(); self.allocation.spill_slots.len()];
         for segment in &self.allocation.segments {
@@ -874,6 +875,9 @@ impl<'a> Lowering<'a> {
             {
                 saved[owner.index()].push(reg);
             }
+        }
+        for registers in &mut saved {
+            registers.sort_by_key(|reg| CALLEE_SAVED.iter().position(|saved| saved == reg));
         }
         saved
     }
