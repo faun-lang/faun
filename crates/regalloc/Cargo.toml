@@ -1,0 +1,13 @@
+[package]
+name = "faun-regalloc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Register allocation and parallel copies for a Faun target with a file of registers"
+
+[dependencies]
+faun-barb.workspace = true
+rustc-hash = "2.1.3"
+
+[lints]
+workspace = true

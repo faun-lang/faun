@@ -5,6 +5,7 @@ members = [
   "crates/core",
   "crates/driver",
   "crates/frontend",
+  "crates/regalloc",
   "crates/targets/*",
 ]
 default-members = ["crates/cli"]
@@ -22,6 +23,7 @@ faun-core = { path = "crates/core", version = "0.1.0" }
 faun-driver = { path = "crates/driver", version = "0.1.0" }
 faun-frontend = { path = "crates/frontend", version = "0.1.0" }
 faun-mos6502-sim65 = { path = "crates/targets/mos6502-sim65", version = "0.1.0" }
+faun-regalloc = { path = "crates/regalloc", version = "0.1.0" }
 faun-wasm32-wasi = { path = "crates/targets/wasm32-wasi", version = "0.1.0" }
 faun-x86-64-linux = { path = "crates/targets/x86-64-linux", version = "0.1.0" }
 

@@ -6,7 +6,6 @@
 //! held, while [`platform`] describes what a target answers for. A target is
 //! a separate crate implementing [`targets::Target`].
 
-pub mod codegen;
 pub mod ir;
 pub mod platform;
 pub mod programs;

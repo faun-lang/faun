@@ -321,6 +321,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "faun-regalloc"
+version = "0.1.0"
+dependencies = [
+ "faun-barb",
+ "rustc-hash",
+]
+
+[[package]]
 name = "faun-wasm32-wasi"
 version = "0.1.0"
 dependencies = [
@@ -338,6 +346,7 @@ dependencies = [
  "faun-core",
  "faun-driver",
  "faun-frontend",
+ "faun-regalloc",
  "rustc-hash",
 ]
 
