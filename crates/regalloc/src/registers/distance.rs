@@ -49,7 +49,7 @@ impl Distances {
             });
             read.sort_unstable();
             read.dedup();
-            out[at] = vec![NEVER; liveness.at[layout.terminator.index()].len()];
+            out[at] = vec![NEVER; liveness.live(layout.terminator).len()];
             ends[at] = layout.terminator;
         }
         let walk = walk(code);
@@ -117,11 +117,11 @@ impl Distances {
         leaving: u32,
     ) -> bool {
         let at = from.index();
-        let end = &liveness.at[self.ends[at].index()];
+        let end = liveness.live(self.ends[at]);
         let entry = liveness.blocks[target.index()].entry;
         let params = &code.block_params[code.blocks[target].params.range()];
         let mut changed = false;
-        for value in liveness.at[entry.index()].iter() {
+        for value in liveness.live(entry).iter() {
             if params.contains(&value) {
                 continue;
             }
@@ -158,7 +158,8 @@ impl Distances {
             return read_at - point.0;
         }
         let end = self.ends[at];
-        liveness.at[end.index()]
+        liveness
+            .live(end)
             .position(value)
             .map_or(NEVER, |position| {
                 self.out[at][position].saturating_add(end.0 - point.0)

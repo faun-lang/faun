@@ -219,18 +219,18 @@ impl<'a> Lowering<'a> {
         };
         self.report_stack_overflow();
         self.ignore_broken_pipes();
+        // The function each block starts, where it starts one.
+        let mut starts = vec![None; self.selected.blocks.len()];
+        for function in self.selected.functions.iter().rev() {
+            starts[function.entry.index()] = Some(*function);
+        }
         for (at, layout) in self.liveness.blocks.iter().enumerate() {
             let block = self.selected.blocks[layout.block];
             let next = self.liveness.blocks.get(at + 1).map(|layout| layout.block);
             self.asm.bind(self.block_labels[layout.block.index()]);
             self.known.fill(None);
             self.pending_condition = None;
-            if let Some(function) = self
-                .selected
-                .functions
-                .iter()
-                .find(|function| function.entry == layout.block)
-            {
+            if let Some(function) = starts[layout.block.index()] {
                 let label = self.block_labels[layout.block.index()];
                 self.asm.starts(
                     faun_core::ir::FunctionId::at(function.source.index()),
@@ -513,9 +513,11 @@ impl<'a> Lowering<'a> {
     }
 
     fn emit_late_transitions(&mut self, points: &InstPoints, before: bool) -> Result<(), String> {
-        let copies: Vec<_> = self
-            .allocation
-            .transitions_at(points.late)
+        let transitions = self.allocation.transitions_at(points.late);
+        if transitions.is_empty() {
+            return Ok(());
+        }
+        let copies: Vec<_> = transitions
             .iter()
             .filter(|transition| transition_before_instruction(**transition) == before)
             .map(|transition| ParallelCopy::between(place(transition.from), place(transition.to)))
@@ -527,9 +529,11 @@ impl<'a> Lowering<'a> {
     }
 
     fn emit_transitions(&mut self, point: Point) -> Result<(), String> {
-        let copies: Vec<_> = self
-            .allocation
-            .transitions_at(point)
+        let transitions = self.allocation.transitions_at(point);
+        if transitions.is_empty() {
+            return Ok(());
+        }
+        let copies: Vec<_> = transitions
             .iter()
             .map(|transition| ParallelCopy::between(place(transition.from), place(transition.to)))
             .collect();
@@ -539,14 +543,9 @@ impl<'a> Lowering<'a> {
         Ok(())
     }
 
-    /// The block holding `point`: blocks take consecutive runs of points in
-    /// order, so it is the last block beginning at or before it.
+    /// The block holding `point`.
     fn block_at(&self, point: Point) -> BlockId {
-        let after = self
-            .liveness
-            .blocks
-            .partition_point(|layout| layout.entry.index() <= point.index());
-        self.liveness.blocks[after - 1].block
+        self.liveness.block_at(point)
     }
 
     fn owner_at(&self, point: Point) -> FunctionId {
@@ -894,8 +893,11 @@ impl<'a> Lowering<'a> {
 
     /// Write each value made at `point` that ever waits in memory there.
     fn emit_stores(&mut self, point: Point) {
-        let owner = self.owner_at(point);
         let stores: Vec<_> = self.allocation.stores_at(point).collect();
+        if stores.is_empty() {
+            return;
+        }
+        let owner = self.owner_at(point);
         for (reg, SpillSlot(slot)) in stores {
             self.asm
                 .store_slot(reg, self.local_slot(owner, FrameSlot::at(slot)));
