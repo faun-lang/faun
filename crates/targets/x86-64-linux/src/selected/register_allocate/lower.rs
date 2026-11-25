@@ -10,9 +10,10 @@ use crate::machine::{
 };
 use crate::parallel_copy::{self, Copy as ParallelCopy, CopySource, Move as CopyMove, Place};
 use crate::selected::{BlockId, Immediate, InstId, Opcode, Selected, Terminator, VReg};
-use faun_core::codegen::registers::SpillSlot;
-use faun_core::ir::{DataId, FunctionId, Offset, Width};
+use faun_core::ir::{DataId, Offset, Width};
 use faun_core::targets::Favour;
+use faun_regalloc::FunctionId;
+use faun_regalloc::registers::SpillSlot;
 
 const SYS_READ: u64 = 0;
 const SYS_WRITE: u64 = 1;
@@ -231,7 +232,10 @@ impl<'a> Lowering<'a> {
                 .find(|function| function.entry == layout.block)
             {
                 let label = self.block_labels[layout.block.index()];
-                self.asm.starts(function.source, label);
+                self.asm.starts(
+                    faun_core::ir::FunctionId::at(function.source.index()),
+                    label,
+                );
                 self.enter_function(function.source, entry);
                 if self.opened[layout.block.index()] {
                     self.open_frame(function.source);

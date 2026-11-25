@@ -8,6 +8,7 @@ description = "The x86-64-linux target for Faun"
 [dependencies]
 faun-barb.workspace = true
 faun-core.workspace = true
+faun-regalloc.workspace = true
 rustc-hash = "2.1.3"
 
 [dev-dependencies]

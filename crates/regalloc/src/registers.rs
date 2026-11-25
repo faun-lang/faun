@@ -24,8 +24,7 @@ use distance::Distances;
 use super::parallel_copy::{
     self, Copy as ParallelCopy, CopySource, Move as CopyMove, Place, TransitionCost,
 };
-use super::{FrameSlot, RegSet, Register};
-use crate::ir::FunctionId;
+use super::{FrameSlot, FunctionId, RegSet, Register};
 use barb::index::{BitSet, Pool, Range, SparseSet, index};
 
 index!(pub VReg, BlockId, InstId);

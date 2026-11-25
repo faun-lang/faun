@@ -1,4 +1,4 @@
-//! Pieces of code generation a target may take up, each a small library.
+//! Pieces of code generation a target with a file of registers takes up.
 //!
 //! What a machine with a file of registers shares with others like it is
 //! kept here, so a new target of that kind brings a description of itself
@@ -14,6 +14,12 @@
 
 pub mod parallel_copy;
 pub mod registers;
+
+use barb::index::index;
+
+// A function the code holds: which blocks belong together, and so share
+// a frame. A target numbers its functions as it likes.
+index!(pub FunctionId);
 
 /// A register of a target's file, which it names as it likes and numbers
 /// below 64 for sets of them.

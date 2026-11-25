@@ -1,5 +1,5 @@
 //! Register allocation for selected x86 code: the shared allocator of
-//! [`faun_core::codegen::registers`], over this target's registers, then
+//! [`faun_regalloc::registers`], over this target's registers, then
 //! lowering what it says to symbolic instructions.
 
 mod lower;
@@ -7,9 +7,9 @@ mod lower;
 use super::{Inst, OperandSpec, Reg, RegSet, Selected};
 use crate::machine::Allocated;
 use barb::index::Range;
-use faun_core::codegen;
-use faun_core::codegen::registers::{self, Code};
-use faun_core::ir::FunctionId;
+use faun_regalloc as codegen;
+use faun_regalloc::FunctionId;
+use faun_regalloc::registers::{self, Code};
 use lower::COPY_SCRATCH;
 
 pub(super) use registers::{BlockPoints, InstPoints, Liveness, Point, place};

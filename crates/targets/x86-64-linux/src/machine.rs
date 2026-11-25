@@ -171,7 +171,7 @@ pub(crate) use faun_core::targets::code::Label;
 
 /// A function-local frame slot, eight bytes here. Its byte offset is
 /// assigned only when the instruction is encoded.
-pub(crate) use faun_core::codegen::FrameSlot;
+pub(crate) use faun_regalloc::FrameSlot;
 
 /// Where a frame slot lies, eight bytes a slot.
 pub(crate) trait SlotOffset {
@@ -191,7 +191,7 @@ impl SlotOffset for FrameSlot {
     }
 }
 
-impl faun_core::codegen::Register for Reg {
+impl faun_regalloc::Register for Reg {
     fn number(self) -> u8 {
         u8::from(self)
     }

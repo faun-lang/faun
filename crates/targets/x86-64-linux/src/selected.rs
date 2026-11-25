@@ -17,8 +17,9 @@ use faun_core::ir::{
     Terminator as SourceTerminator, ValueId, Width,
 };
 
-use faun_core::codegen::registers;
-pub(crate) use faun_core::codegen::registers::{BlockId, InstId, Role, Timing, VReg};
+use faun_regalloc::FunctionId as Owner;
+use faun_regalloc::registers;
+pub(crate) use faun_regalloc::registers::{BlockId, InstId, Role, Timing, VReg};
 
 /// Where an operand of one of these instructions must be.
 pub(crate) type Constraint = registers::Constraint<Reg>;
@@ -420,9 +421,9 @@ struct Inst {
     immediate: Immediate,
 }
 
-const GPRS: faun_core::codegen::RegSet = faun_core::codegen::RegSet(0xFFFF);
-const XMMS: faun_core::codegen::RegSet = faun_core::codegen::RegSet(0xFFFF_0000);
-const SCALARS: faun_core::codegen::RegSet = faun_core::codegen::RegSet(0xFFFF_FFFF);
+const GPRS: faun_regalloc::RegSet = faun_regalloc::RegSet(0xFFFF);
+const XMMS: faun_regalloc::RegSet = faun_regalloc::RegSet(0xFFFF_0000);
+const SCALARS: faun_regalloc::RegSet = faun_regalloc::RegSet(0xFFFF_FFFF);
 
 impl Inst {
     fn operand_spec(self, at: usize) -> Option<OperandSpec> {
@@ -468,7 +469,7 @@ impl Inst {
         })
     }
 
-    fn allowed(self, result: bool, use_at: usize) -> faun_core::codegen::RegSet {
+    fn allowed(self, result: bool, use_at: usize) -> faun_regalloc::RegSet {
         match self.opcode {
             Opcode::FloatNotAbove if !result => XMMS,
             Opcode::Float => XMMS,
@@ -542,9 +543,19 @@ fn return_operand_spec(terminator: Terminator, at: usize) -> Option<OperandSpec>
     }
 }
 
+/// The allocator's name for the source's function `id`: the same number.
+fn allocated(id: FunctionId) -> Owner {
+    Owner::at(id.index())
+}
+
+/// The source's function the allocator's `owner` names.
+fn source_function(owner: Owner) -> FunctionId {
+    FunctionId::at(owner.index())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Function {
-    source: FunctionId,
+    source: Owner,
     entry: BlockId,
     stack_params: usize,
     stack_results: usize,
@@ -552,7 +563,7 @@ struct Function {
 
 #[derive(Clone, Debug)]
 struct Definition {
-    owner: FunctionId,
+    owner: Owner,
     block: BlockId,
     position: Option<usize>,
     description: String,
@@ -764,9 +775,9 @@ impl Selected {
                         let callee = self
                             .functions
                             .iter()
-                            .find(|f| f.source == function)
+                            .find(|f| f.source == allocated(function))
                             .ok_or("x86 stack call has no callee")?;
-                        if function == self.functions[0].source {
+                        if allocated(function) == self.functions[0].source {
                             return Err("x86 cannot call the logical entry".to_owned());
                         }
                         if arguments != callee.stack_params {
@@ -813,7 +824,7 @@ impl Selected {
         inst: Inst,
         definitions: &mut [Option<Definition>],
         id: InstId,
-        owner: FunctionId,
+        owner: Owner,
         block: BlockId,
         position: usize,
     ) -> Result<(), String> {
@@ -969,7 +980,7 @@ impl Selected {
         Ok(())
     }
 
-    fn verify_terminator(&self, owner: FunctionId, terminator: Terminator) -> Result<(), String> {
+    fn verify_terminator(&self, owner: Owner, terminator: Terminator) -> Result<(), String> {
         match terminator {
             Terminator::Jump { target, args } => self.verify_edge(owner, target, args),
             Terminator::Branch {
@@ -1000,7 +1011,7 @@ impl Selected {
         }
     }
 
-    fn verify_edge(&self, owner: FunctionId, target: BlockId, args: Range) -> Result<(), String> {
+    fn verify_edge(&self, owner: Owner, target: BlockId, args: Range) -> Result<(), String> {
         Self::verify_range(args, self.operands.len(), "edge argument")?;
         let target = self
             .blocks
@@ -1133,7 +1144,7 @@ impl Selected {
     )]
     fn verify_uses(
         &self,
-        owner: FunctionId,
+        owner: Owner,
         terminator: Terminator,
         definitions: &[Option<Definition>],
         block: BlockId,
@@ -1397,7 +1408,7 @@ fn verify_immediate(inst: Inst, id: InstId) -> Result<(), String> {
 
 #[derive(Debug)]
 struct BlockDraft {
-    owner: FunctionId,
+    owner: Owner,
     params: Vec<VReg>,
     param_specs: Vec<OperandSpec>,
     instructions: Vec<InstId>,
@@ -1435,7 +1446,7 @@ pub(crate) fn select_and_allocate_favouring(
     frame_pointers: bool,
 ) -> Result<crate::machine::Allocated, String> {
     let selected = select(source)?;
-    register_allocate::allocate(&selected, source.entry(), favour, frame_pointers)
+    register_allocate::allocate(&selected, allocated(source.entry()), favour, frame_pointers)
 }
 
 #[expect(
@@ -1472,15 +1483,15 @@ pub(crate) fn select(source: &Program) -> Result<Selected, String> {
             continue;
         };
         let params = source.values(source.region(body).params);
-        let entry = selector.function_entry(source_id, source_id == entry, params)?;
+        let entry = selector.function_entry(allocated(source_id), source_id == entry, params)?;
         selector.functions.push(Function {
-            source: source_id,
+            source: allocated(source_id),
             entry,
             stack_params: params.len().saturating_sub(ARG_COUNT),
             stack_results: function.returns.classes().len().saturating_sub(1),
         });
         selector.region(
-            source_id,
+            allocated(source_id),
             body,
             entry,
             Flow {
@@ -1496,7 +1507,7 @@ pub(crate) fn select(source: &Program) -> Result<Selected, String> {
 impl Selector<'_> {
     fn function_entry(
         &mut self,
-        owner: FunctionId,
+        owner: Owner,
         program_entry: bool,
         params: &[ValueId],
     ) -> Result<BlockId, String> {
@@ -1570,7 +1581,7 @@ impl Selector<'_> {
         Ok(selected)
     }
 
-    fn block(&mut self, owner: FunctionId, params: &[ValueId]) -> BlockId {
+    fn block(&mut self, owner: Owner, params: &[ValueId]) -> BlockId {
         self.blocks.push(BlockDraft {
             owner,
             params: params.iter().copied().map(vreg).collect(),
@@ -1588,7 +1599,7 @@ impl Selector<'_> {
         })
     }
 
-    fn result_block(&mut self, owner: FunctionId, results: &[ValueId]) -> BlockId {
+    fn result_block(&mut self, owner: Owner, results: &[ValueId]) -> BlockId {
         self.block(owner, results)
     }
 
@@ -1648,7 +1659,7 @@ impl Selector<'_> {
     )]
     fn region(
         &mut self,
-        owner: FunctionId,
+        owner: Owner,
         region: RegionId,
         mut block: BlockId,
         flow: Flow,
@@ -1990,7 +2001,7 @@ impl Selector<'_> {
                 let owner = self.blocks[block].owner;
                 let arguments = self
                     .source
-                    .function(owner)
+                    .function(source_function(owner))
                     .params
                     .len()
                     .saturating_sub(ARG_COUNT);
@@ -2004,7 +2015,7 @@ impl Selector<'_> {
                     );
                 }
                 let values = self.edge_args(&values[..values.len().min(1)]);
-                let register = if owner == self.source.entry() {
+                let register = if source_function(owner) == self.source.entry() {
                     Reg::Rdi
                 } else {
                     Reg::Rax
@@ -2222,7 +2233,7 @@ mod tests {
             .iter_mut()
             .find(|inst| inst.opcode == Opcode::Call)
             .unwrap();
-        call.immediate = Immediate::Function(entry);
+        call.immediate = Immediate::Function(source_function(entry));
         assert!(selected.verify().unwrap_err().contains("logical entry"));
     }
 
