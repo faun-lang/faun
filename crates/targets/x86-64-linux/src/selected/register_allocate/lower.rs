@@ -483,25 +483,17 @@ impl<'a> Lowering<'a> {
 
     fn emit_instruction_setup(&mut self, points: &InstPoints) -> Result<(), String> {
         let inst = self.selected.instructions[points.instruction];
-        let before = Point::at(
-            points
-                .early
-                .index()
-                .checked_sub(1)
-                .ok_or_else(|| "x86 instruction has no incoming point".to_owned())?,
-        )?;
         let mut copies: Vec<_> = self
             .allocation
             .transitions_at(points.early)
             .iter()
             .map(|transition| ParallelCopy::between(place(transition.from), place(transition.to)))
             .collect();
-        for (&value, &destination) in self.selected.operands[inst.operands.range()]
-            .iter()
-            .zip(&self.allocation.operand_locations[points.instruction.index()])
-        {
-            let copy =
-                ParallelCopy::between(place(self.location(before, value)?), place(destination));
+        for at in inst.operands.range() {
+            let copy = ParallelCopy::between(
+                place(self.allocation.sources[at]),
+                place(self.allocation.operands[at]),
+            );
             if !copies.contains(&copy) {
                 copies.push(copy);
             }
@@ -807,27 +799,14 @@ impl<'a> Lowering<'a> {
             .map_or(0, |layout| layout.terminator.index() + 1);
         // How many values touching the frame are live from each point on,
         // and then whether any is, at each point.
-        let mut touched = vec![0i64; points + 1];
-        for segment in &self.allocation.segments {
-            let frame = match segment.location {
-                Location::Spill(_) => true,
-                Location::Register(reg) => CALLEE_SAVED.contains(&reg),
-            };
-            if frame {
-                touched[segment.start.index()] += 1;
-                touched[segment.end.index().min(points)] -= 1;
-            }
-        }
-        let mut live = 0;
         let mut before = vec![0u32; points + 1];
         for at in 0..points {
-            live += touched[at];
-            let stored = self
-                .allocation
-                .stores_at(Point::at(at).expect("a point"))
-                .next()
-                .is_some();
-            before[at + 1] = before[at] + u32::from(live > 0 || stored);
+            let point = Point::at(at).expect("a point");
+            let occupied = self.allocation.occupied(point);
+            let live = self.allocation.spills_at(point)
+                || CALLEE_SAVED.iter().any(|&reg| occupied.contains(reg));
+            let stored = self.allocation.stores_at(point).next().is_some();
+            before[at + 1] = before[at] + u32::from(live || stored);
         }
         before
     }
@@ -865,21 +844,26 @@ impl<'a> Lowering<'a> {
     /// a call leaves alone that its allocation puts anything in, in the
     /// order [`CALLEE_SAVED`] lists them.
     fn kept_for_callers(&self, entry: FunctionId) -> Vec<Vec<Reg>> {
-        let mut saved: Vec<Vec<Reg>> = vec![Vec::new(); self.allocation.spill_slots.len()];
-        for segment in &self.allocation.segments {
-            let Location::Register(reg) = segment.location else {
-                continue;
-            };
-            let owner = self.owner_at(segment.start);
-            if owner != entry && CALLEE_SAVED.contains(&reg) && !saved[owner.index()].contains(&reg)
-            {
-                saved[owner.index()].push(reg);
+        let functions = self.allocation.spill_slots.len();
+        let mut used = vec![faun_regalloc::RegSet::EMPTY; functions];
+        for layout in &self.liveness.blocks {
+            let owner = self.selected.blocks[layout.block].owner.index();
+            for at in layout.entry.index()..=layout.terminator.index() {
+                let point = Point::at(at).expect("a point");
+                used[owner] = used[owner].union(self.allocation.occupied(point));
             }
         }
-        for registers in &mut saved {
-            registers.sort_by_key(|reg| CALLEE_SAVED.iter().position(|saved| saved == reg));
-        }
-        saved
+        (0..functions)
+            .map(|owner| {
+                if owner == entry.index() {
+                    return Vec::new();
+                }
+                CALLEE_SAVED
+                    .into_iter()
+                    .filter(|&reg| used[owner].contains(reg))
+                    .collect()
+            })
+            .collect()
     }
 
     fn spill_slots(&self, owner: FunctionId) -> u32 {
@@ -954,14 +938,13 @@ impl<'a> Lowering<'a> {
     )]
     fn emit_instruction(&mut self, points: &InstPoints) -> Result<(), String> {
         let inst = self.selected.instructions[points.instruction];
-        let uses = &self.allocation.operand_locations[points.instruction.index()];
+        let uses = &self.allocation.operands[inst.operands.range()];
         let reg = |at: usize| match uses[at] {
             Location::Register(reg) => Ok(reg),
             Location::Spill(_) => Err("x86 allocated instruction operand is spilled".to_owned()),
         };
-        let result_reg = inst
-            .result
-            .map(|value| match self.location(points.late, value)? {
+        let result_reg = self.allocation.results[points.instruction.index()]
+            .map(|location| match location {
                 Location::Register(reg) => Ok(reg),
                 Location::Spill(_) => Err("x86 allocated instruction result is spilled".to_owned()),
             })
@@ -1376,7 +1359,10 @@ impl<'a> Lowering<'a> {
                 {
                     (condition_code, condition_code.inverse())
                 } else {
-                    let condition = match self.location(layout.terminator, condition)? {
+                    let condition = match self.allocation.conditions[layout.block.index()]
+                        .ok_or_else(|| {
+                            format!("x86 branch on v{} has no condition", condition.index())
+                        })? {
                         Location::Register(reg) => reg,
                         Location::Spill(_) => {
                             return Err("x86 branch condition is spilled".to_owned());
@@ -1494,13 +1480,12 @@ impl<'a> Lowering<'a> {
             self.open_frame(self.selected.blocks[from].owner);
         }
         let moves = self.edge_moves(from, target)?.to_vec();
-        let entry = self.liveness.blocks[target.index()].entry;
         let block = self.selected.blocks[target];
-        let defining: Vec<_> = self.selected.block_params[block.params.range()]
+        let defining: Vec<_> = self.allocation.params[block.params.range()]
             .iter()
-            .filter_map(|&param| match self.location(entry, param) {
-                Ok(Location::Spill(SpillSlot(slot))) => Some(FrameSlot::at(slot)),
-                _ => None,
+            .filter_map(|&location| match location {
+                Location::Spill(SpillSlot(slot)) => Some(FrameSlot::at(slot)),
+                Location::Register(_) => None,
             })
             .collect();
         let owner = self.selected.blocks[from].owner;
@@ -1509,12 +1494,6 @@ impl<'a> Lowering<'a> {
             self.close_frame(owner);
         }
         Ok(())
-    }
-
-    fn location(&self, point: Point, value: VReg) -> Result<Location, String> {
-        self.allocation
-            .location(point, value)
-            .ok_or_else(|| format!("x86 v{} has no allocated segment", value.index()))
     }
 }
 

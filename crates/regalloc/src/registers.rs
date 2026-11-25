@@ -4,8 +4,11 @@
 //! virtual registers, each operand naming its allowed register set and any
 //! fixed or tied location, and each instruction the registers it clobbers or
 //! uses as scratch. Sets can describe banks without teaching this module
-//! target-specific register classes, aliases, encodings or ABI rules. What comes back says where each
-//! value is at each point, and the moves between.
+//! target-specific register classes, aliases, encodings or ABI rules. What
+//! comes back is sparse: where each operand is read and was just before,
+//! where each result, parameter and condition is, the moves made at the
+//! points where something moves, the stores of values that wait in memory,
+//! and which registers are held at each point.
 //!
 //! The allocator walks each block in order, keeps live values in registers,
 //! and where they run out puts in memory the value read furthest ahead,
@@ -155,11 +158,19 @@ impl<R: Register> Code<R> {
 /// Where the code asks more of the registers than there are, or the
 /// allocation it came to does not hold.
 pub fn allocate<R: Register>(code: &Code<R>) -> Result<(Liveness, Allocation<R>), String> {
+    let (liveness, allocation, _) = allocate_recording(code)?;
+    Ok((liveness, allocation))
+}
+
+/// Allocate, keeping where every live value is at every point as well.
+fn allocate_recording<R: Register>(
+    code: &Code<R>,
+) -> Result<(Liveness, Allocation<R>, States<R>), String> {
     verify_register_sets(code)?;
     let liveness = Liveness::build(code)?;
-    let allocation = Allocator::new(code, &liveness)?.run()?;
+    let (allocation, states) = Allocator::new(code, &liveness)?.run()?;
     allocation.verify(code, &liveness)?;
-    Ok((liveness, allocation))
+    Ok((liveness, allocation, states))
 }
 
 /// The blocks each block reaches.
@@ -208,14 +219,6 @@ pub enum Location<R> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Segment<R> {
-    pub value: VReg,
-    pub start: Point,
-    pub end: Point,
-    pub location: Location<R>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Transition<R> {
     pub value: VReg,
     pub at: Point,
@@ -232,9 +235,23 @@ pub struct EdgeMoves<R> {
 
 #[derive(Debug)]
 pub struct Allocation<R> {
-    pub segments: Vec<Segment<R>>,
+    /// Where each operand is read, beside it in [`Code::operands`]: an
+    /// instruction's where the instruction reads it, a terminator's where
+    /// the terminator does.
+    pub operands: Vec<Location<R>>,
+    /// Where each operand of an instruction is just before it, beside it
+    /// in [`Code::operands`]; a terminator's is where it is read.
+    pub sources: Vec<Location<R>>,
+    /// Where each instruction's result is made.
+    pub results: Vec<Option<Location<R>>>,
+    /// Where each block's parameter is on entering it, beside it in
+    /// [`Code::block_params`].
+    pub params: Vec<Location<R>>,
+    /// Where each block's branch reads its condition.
+    pub conditions: Vec<Option<Location<R>>>,
+    /// The moves between where values are at one point and where they are
+    /// at the next, ordered by point.
     pub transitions: Vec<Transition<R>>,
-    pub operand_locations: Vec<Vec<Location<R>>>,
     pub operand_moves: Vec<Vec<CopyMove<R>>>,
     pub edge_moves: Vec<EdgeMoves<R>>,
     pub edge_cost: TransitionCost,
@@ -245,6 +262,9 @@ pub struct Allocation<R> {
     /// never changes, so its slot holds it from there on, and no other move
     /// of it into memory needs writing: see [`Self::elides`].
     pub stores: Vec<(Point, R, SpillSlot)>,
+    /// The registers holding a value at each point, and whether a value
+    /// waits in memory there.
+    occupancy: Vec<(RegSet, bool)>,
     index: Index,
 }
 
@@ -252,8 +272,6 @@ pub struct Allocation<R> {
 /// are, so finding one looks only among its own.
 #[derive(Debug, Default)]
 struct Index {
-    /// Where each value's segments start, and where the last one's end.
-    segments: Vec<u32>,
     /// Where each point's transitions start, and where the last point's end.
     transitions: Vec<u32>,
     /// Where each point's stores start, and where the last point's end.
@@ -261,11 +279,8 @@ struct Index {
 }
 
 impl Index {
-    fn new<R>(allocation: &Allocation<R>, values: usize, points: usize) -> Self {
+    fn new<R>(allocation: &Allocation<R>, points: usize) -> Self {
         Self {
-            segments: runs(&allocation.segments, values, |segment| {
-                segment.value.index()
-            }),
             transitions: runs(&allocation.transitions, points, |transition| {
                 transition.at.index()
             }),
@@ -401,6 +416,12 @@ struct States<R> {
 }
 
 impl<R: Copy> States<R> {
+    /// Where `value` is at `point`, if it is live there.
+    #[cfg(test)]
+    fn location(&self, liveness: &Liveness, point: Point, value: VReg) -> Option<Location<R>> {
+        self.at(liveness, point.index())?.location(value)
+    }
+
     fn new(liveness: &Liveness) -> Self {
         Self {
             locations: vec![Location::Spill(SpillSlot(0)); liveness.live.len()],
@@ -780,6 +801,15 @@ impl<R: Register> Placement<R> {
     }
 }
 
+/// Where an allocation puts each operand, result, parameter and condition.
+struct Placed<R> {
+    operands: Vec<Location<R>>,
+    sources: Vec<Location<R>>,
+    results: Vec<Option<Location<R>>>,
+    params: Vec<Location<R>>,
+    conditions: Vec<Option<Location<R>>>,
+}
+
 struct Allocator<'a, R> {
     code: &'a Code<R>,
     liveness: &'a Liveness,
@@ -795,6 +825,12 @@ struct Allocator<'a, R> {
     /// and the parameter it becomes there.
     handed_to: Vec<Vec<(BlockId, VReg)>>,
     operand_locations: Vec<Option<Vec<Location<R>>>>,
+    /// The moves between consecutive points of a block, as each is
+    /// recorded, in order.
+    transitions: Vec<Transition<R>>,
+    /// The registers holding a value at each point recorded, and whether a
+    /// value waits in memory there.
+    occupancy: Vec<(RegSet, bool)>,
     operand_moves: Vec<Option<Vec<CopyMove<R>>>>,
     edge_moves: Vec<EdgeMoves<R>>,
     edge_cost: TransitionCost,
@@ -832,6 +868,8 @@ impl<'a, R: Register> Allocator<'a, R> {
             homes: preferred_sets(code),
             handed_to: handed_to(code),
             operand_locations: vec![None; code.instructions.len()],
+            transitions: Vec::new(),
+            occupancy: vec![(RegSet::EMPTY, false); liveness.points()],
             operand_moves: vec![None; code.instructions.len()],
             edge_moves: Vec::new(),
             edge_cost: TransitionCost::default(),
@@ -848,30 +886,32 @@ impl<'a, R: Register> Allocator<'a, R> {
         })
     }
 
-    fn run(mut self) -> Result<Allocation<R>, String> {
+    fn run(mut self) -> Result<(Allocation<R>, States<R>), String> {
         self.allocate_blocks()?;
         self.plan_edges()?;
         self.verify_states()?;
         let stores = self.stores();
-        let (segments, transitions) =
-            build_segments(&self.states, self.liveness, self.code.values)?;
-        let operand_locations =
-            collect_instruction_data(self.operand_locations, "operand allocation")?;
-        let operand_moves = collect_instruction_data(self.operand_moves, "operand move plan")?;
+        let placed = self.placed()?;
+        let operand_moves =
+            collect_instruction_data(std::mem::take(&mut self.operand_moves), "operand move plan")?;
         let mut spill_slots = function_spill_slots(
             self.code,
             self.liveness,
-            &segments,
-            &transitions,
+            &self.states,
+            &self.transitions,
             &operand_moves,
             &self.edge_moves,
         )?;
         widen_for_stores(self.code, self.liveness, &stores, &mut spill_slots)?;
         let mut allocation = Allocation {
             index: Index::default(),
-            segments,
-            transitions,
-            operand_locations,
+            operands: placed.operands,
+            sources: placed.sources,
+            results: placed.results,
+            params: placed.params,
+            conditions: placed.conditions,
+            transitions: self.transitions,
+            occupancy: self.occupancy,
             operand_moves,
             edge_moves: self.edge_moves,
             edge_cost: self.edge_cost,
@@ -879,8 +919,8 @@ impl<'a, R: Register> Allocator<'a, R> {
             spill_slots,
             stores,
         };
-        allocation.index = Index::new(&allocation, self.code.values, self.liveness.points());
-        Ok(allocation)
+        allocation.index = Index::new(&allocation, self.liveness.points());
+        Ok((allocation, self.states))
     }
 
     /// Allocate each block in order, each starting where a predecessor
@@ -1441,13 +1481,140 @@ impl<'a, R: Register> Allocator<'a, R> {
     fn record(&mut self, block: BlockId, point: Point) {
         let (start, end) = self.liveness.at[point.index()];
         let locations = &mut self.states.locations[span(start, end)];
+        let (mut held, mut spilled) = (RegSet::EMPTY, false);
         for (value, location) in self.liveness.live(point).iter().zip(locations) {
             *location = self
                 .placement
                 .get(value)
                 .expect("every live value has a location");
+            match *location {
+                Location::Register(reg) => held = held.union(RegSet::of(&[reg])),
+                Location::Spill(_) => spilled = true,
+            }
         }
+        self.occupancy[point.index()] = (held, spilled);
         self.states.blocks[point.index()] = Some(block);
+        self.note_transitions(point);
+    }
+
+    /// The moves each value live both at the point before `point`, in the
+    /// same block, and at `point` makes between where it is at each.
+    fn note_transitions(&mut self, point: Point) {
+        let Some(before) = point.index().checked_sub(1) else {
+            return;
+        };
+        let (states, transitions) = (&self.states, &mut self.transitions);
+        let now = states
+            .at(self.liveness, point.index())
+            .expect("a point just recorded");
+        let Some(earlier) = states
+            .at(self.liveness, before)
+            .filter(|earlier| earlier.block == now.block)
+        else {
+            return;
+        };
+        let (mut was, mut is) = (0, 0);
+        while was < earlier.live.0.len() && is < now.live.0.len() {
+            let (old, new) = (earlier.live.0[was], now.live.0[is]);
+            match old.cmp(&new) {
+                std::cmp::Ordering::Less => was += 1,
+                std::cmp::Ordering::Greater => is += 1,
+                std::cmp::Ordering::Equal => {
+                    let (from, to) = (earlier.locations[was], now.locations[is]);
+                    if from != to {
+                        transitions.push(Transition {
+                            value: new,
+                            at: point,
+                            from,
+                            to,
+                        });
+                    }
+                    was += 1;
+                    is += 1;
+                }
+            }
+        }
+    }
+
+    /// Where each operand, result, parameter and condition is, read off
+    /// the points recorded.
+    fn placed(&self) -> Result<Placed<R>, String> {
+        let unset = Location::Spill(SpillSlot(0));
+        let mut placed = Placed {
+            operands: vec![unset; self.code.operands.len()],
+            sources: vec![unset; self.code.operands.len()],
+            results: vec![None; self.code.instructions.len()],
+            params: vec![unset; self.code.block_params.len()],
+            conditions: vec![None; self.code.blocks.len()],
+        };
+        for layout in &self.liveness.blocks {
+            let block = self.code.blocks[layout.block];
+            for (at, &param) in block
+                .params
+                .range()
+                .zip(&self.code.block_params[block.params.range()])
+            {
+                placed.params[at] = self.location(layout.entry, param)?;
+            }
+            for points in &layout.instructions {
+                self.place_instruction(points, &mut placed)?;
+            }
+            self.place_terminator(layout, &mut placed)?;
+        }
+        Ok(placed)
+    }
+
+    /// Where an instruction's operands are read and were just before it,
+    /// and where its result is made.
+    fn place_instruction(&self, points: &InstPoints, placed: &mut Placed<R>) -> Result<(), String> {
+        let inst = self.code.instructions[points.instruction];
+        let before = Point(points.early.0 - 1);
+        let assigned = self.operand_locations[points.instruction.index()]
+            .as_ref()
+            .ok_or_else(|| "instruction operands were not allocated".to_owned())?;
+        for ((at, &value), &location) in inst
+            .operands
+            .range()
+            .zip(&self.code.operands[inst.operands.range()])
+            .zip(assigned)
+        {
+            placed.operands[at] = location;
+            placed.sources[at] = self.location(before, value)?;
+        }
+        placed.results[points.instruction.index()] = inst
+            .result
+            .map(|result| self.location(points.late, result))
+            .transpose()?;
+        Ok(())
+    }
+
+    /// Where a block's terminator reads what it hands on, and its
+    /// condition.
+    fn place_terminator(&self, layout: &BlockPoints, placed: &mut Placed<R>) -> Result<(), String> {
+        let read = |range: Range, placed: &mut Placed<R>| -> Result<(), String> {
+            for (at, &value) in range.range().zip(&self.code.operands[range.range()]) {
+                let location = self.location(layout.terminator, value)?;
+                placed.operands[at] = location;
+                placed.sources[at] = location;
+            }
+            Ok(())
+        };
+        match self.code.blocks[layout.block].terminator {
+            Terminator::Jump { args, .. } => read(args, placed),
+            Terminator::Branch {
+                condition,
+                then_args,
+                else_args,
+                ..
+            } => {
+                placed.conditions[layout.block.index()] =
+                    Some(self.location(layout.terminator, condition)?);
+                read(then_args, placed)?;
+                read(else_args, placed)
+            }
+            Terminator::Return { values, .. } => read(values, placed),
+            Terminator::Halt => Ok(()),
+        }
     }
 
     /// Where the values live at `point` are, once it is allocated.
@@ -2099,7 +2266,7 @@ fn hand_back<R: Register>(code: &Code<R>, preferred: &mut [Option<R>]) -> bool {
 fn function_spill_slots<R: Register>(
     code: &Code<R>,
     liveness: &Liveness,
-    segments: &[Segment<R>],
+    states: &States<R>,
     transitions: &[Transition<R>],
     operand_moves: &[Vec<CopyMove<R>>],
     edge_moves: &[EdgeMoves<R>],
@@ -2107,11 +2274,7 @@ fn function_spill_slots<R: Register>(
     // Whether each function uses its frame, and the last slot it names.
     let mut frame: Vec<(bool, Option<u32>)> = vec![(false, None); function_count(code)];
     let owner_at = |point| owner_at(code, liveness, point);
-    for segment in segments {
-        let owner = owner_at(segment.start)
-            .ok_or_else(|| "spill segment has no owning function".to_owned())?;
-        frame_note(&mut frame, owner, place(segment.location));
-    }
+    note_points(code, liveness, states, &mut frame);
     // The transitions at each point are planned as the moves made there.
     for (point, copies) in &copies_at_points(transitions) {
         let owner =
@@ -2199,6 +2362,25 @@ fn copies_at_points<R: Register>(
         }
     }
     at_point
+}
+
+/// Note that each function uses its frame wherever a value is in it at a
+/// point of one of its blocks.
+fn note_points<R: Register>(
+    code: &Code<R>,
+    liveness: &Liveness,
+    states: &States<R>,
+    frame: &mut [(bool, Option<u32>)],
+) {
+    for at in 0..liveness.points() {
+        let Some(state) = states.at(liveness, at) else {
+            continue;
+        };
+        let owner = code.blocks[state.block].owner;
+        for &location in state.locations {
+            frame_note(frame, owner, place(location));
+        }
+    }
 }
 
 /// Note that `owner` uses its frame wherever `moves` go through it.
@@ -2296,58 +2478,6 @@ pub const fn place<R: Register>(location: Location<R>) -> Place<R> {
     }
 }
 
-/// Each value's runs of one location, and the moves between them.
-type Segmented<R> = (Vec<Segment<R>>, Vec<Transition<R>>);
-
-/// Each value's runs of consecutive points in one block and one location,
-/// ordered by value and then by start, and the transitions between a
-/// value's runs, ordered by the point each is made at.
-fn build_segments<R: Register>(
-    states: &States<R>,
-    liveness: &Liveness,
-    values: usize,
-) -> Result<Segmented<R>, String> {
-    let mut segments: Vec<Segment<R>> = Vec::new();
-    let mut transitions = Vec::new();
-    // Each value's latest segment, the only one that can run on into the
-    // next point.
-    let mut latest: Vec<Option<usize>> = vec![None; values];
-    for point_at in 0..liveness.points() {
-        let Some(state) = states.at(liveness, point_at) else {
-            continue;
-        };
-        let point = Point::at(point_at)?;
-        let same_block = point_at > 0 && states.blocks[point_at - 1] == Some(state.block);
-        for (value, location) in state.values() {
-            let previous = latest[value.index()]
-                .filter(|&at| same_block && segments[at].end.index() == point_at);
-            if let Some(previous) = previous
-                && segments[previous].location == location
-            {
-                segments[previous].end = Point::at(point_at + 1)?;
-                continue;
-            }
-            if let Some(previous) = previous {
-                transitions.push(Transition {
-                    value,
-                    at: point,
-                    from: segments[previous].location,
-                    to: location,
-                });
-            }
-            latest[value.index()] = Some(segments.len());
-            segments.push(Segment {
-                value,
-                start: point,
-                end: Point::at(point_at + 1)?,
-                location,
-            });
-        }
-    }
-    segments.sort_unstable_by_key(|segment| (segment.value, segment.start.0));
-    Ok((segments, transitions))
-}
-
 impl<R: Register> Allocation<R> {
     /// The values written to memory where they are made at `point`, each
     /// from its register.
@@ -2373,14 +2503,16 @@ impl<R: Register> Allocation<R> {
         &self.transitions[run_of(&self.index.transitions, at)]
     }
 
-    /// Where `value` is at `point`, if it is live there.
+    /// The registers holding a value at `point`.
     #[must_use]
-    pub fn location(&self, point: Point, value: VReg) -> Option<Location<R>> {
-        let at = value.index();
-        let own = &self.segments[run_of(&self.index.segments, at)];
-        let after = own.partition_point(|segment| segment.start.0 <= point.0);
-        let segment = own[..after].last()?;
-        (point.0 < segment.end.0).then_some(segment.location)
+    pub fn occupied(&self, point: Point) -> RegSet {
+        self.occupancy[point.index()].0
+    }
+
+    /// Whether a value waits in memory at `point`.
+    #[must_use]
+    pub fn spills_at(&self, point: Point) -> bool {
+        self.occupancy[point.index()].1
     }
 
     #[expect(
@@ -2388,35 +2520,17 @@ impl<R: Register> Allocation<R> {
         reason = "the allocation boundary verifies ranges, transitions, moves, and costs"
     )]
     fn verify(&self, code: &Code<R>, liveness: &Liveness) -> Result<(), String> {
-        if self.operand_locations.len() != code.instructions.len()
+        if [self.operands.len(), self.sources.len()] != [code.operands.len(); 2]
+            || self.results.len() != code.instructions.len()
             || self.operand_moves.len() != code.instructions.len()
+            || self.params.len() != code.block_params.len()
+            || self.conditions.len() != code.blocks.len()
+            || self.occupancy.len() != liveness.points()
         {
-            return Err("allocation omitted instruction operands".to_owned());
+            return Err("allocation omitted a placement".to_owned());
         }
-        for (inst, locations) in code.instructions.iter().zip(&self.operand_locations) {
-            if locations.len() != inst.operands.len() {
-                return Err("allocation has the wrong operand-location arity".to_owned());
-            }
-        }
-        for segment in &self.segments {
-            if segment.start.index() >= segment.end.index()
-                || segment.end.index() > liveness.points()
-                || segment.value.index() >= code.values
-            {
-                return Err("allocation contains an invalid live segment".to_owned());
-            }
-            if let Location::Spill(SpillSlot(slot)) = segment.location {
-                let owner = owner_at(code, liveness, segment.start)
-                    .ok_or_else(|| "spill segment has no owning function".to_owned())?;
-                if self
-                    .spill_slots
-                    .get(owner.index())
-                    .is_none_or(|&slots| slot >= slots)
-                {
-                    return Err("allocation refers past its spill frame".to_owned());
-                }
-            }
-        }
+        // A spill slot named anywhere was named at a point, and each
+        // function's frame is sized by the slots its points name.
         for &(point, _, SpillSlot(slot)) in &self.stores {
             let owner = owner_at(code, liveness, point)
                 .ok_or_else(|| "spill store has no owning function".to_owned())?;
@@ -2562,32 +2676,28 @@ mod tests {
         code
     }
 
+    /// Whether `value` waits in memory at any point.
+    fn spilled(liveness: &Liveness, states: &States<Two>, value: usize) -> bool {
+        (0..liveness.points()).any(|at| {
+            matches!(
+                states.location(liveness, Point(u32::try_from(at).unwrap()), VReg::at(value)),
+                Some(Location::Spill(_))
+            )
+        })
+    }
+
     #[test]
     fn a_machine_of_two_registers_spills_what_it_cannot_hold() {
-        let (_, allocation) = allocate(&pressed(5)).unwrap();
-        assert!(
-            allocation
-                .segments
-                .iter()
-                .any(|segment| matches!(segment.location, Location::Spill(_)))
-        );
-        let (_, allocation) = allocate(&pressed(2)).unwrap();
-        assert!(
-            allocation
-                .segments
-                .iter()
-                .all(|segment| matches!(segment.location, Location::Register(_)))
-        );
+        let (liveness, _, states) = allocate_recording(&pressed(5)).unwrap();
+        assert!((0..5).any(|value| spilled(&liveness, &states, value)));
+        let (liveness, _, states) = allocate_recording(&pressed(2)).unwrap();
+        assert!(!(0..2).any(|value| spilled(&liveness, &states, value)));
     }
 
     #[test]
     fn what_is_read_furthest_ahead_waits_in_memory() {
-        let (_, allocation) = allocate(&made_then_read(3, &[1, 2, 0])).unwrap();
-        let spilled = |value: usize| {
-            allocation.segments.iter().any(|segment| {
-                segment.value == VReg::at(value) && matches!(segment.location, Location::Spill(_))
-            })
-        };
+        let (liveness, _, states) = allocate_recording(&made_then_read(3, &[1, 2, 0])).unwrap();
+        let spilled = |value: usize| spilled(&liveness, &states, value);
         assert!(spilled(0));
         assert!(!spilled(1));
     }
