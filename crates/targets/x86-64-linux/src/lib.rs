@@ -1,5 +1,5 @@
 //! `selected` flattens machine-IR regions into a verified target-local SSA
-//! CFG. Its allocator computes segmented liveness, splits around constraints
+//! CFG. Its allocator computes per-point liveness, splits around constraints
 //! and clobbers, plans transfers through `parallel_copy`, and lowers a fully
 //! verified symbolic `machine::Allocated` sequence. Allowed-register sets
 //! separate integer and scalar XMM operands; copies and spills preserve their

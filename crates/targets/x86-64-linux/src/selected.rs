@@ -2,7 +2,7 @@
 //!
 //! This target-owned phase turns structured machine-IR regions into ordinary
 //! target blocks and edges. Source value identity remains virtual-register
-//! identity until segmented allocation lowers the CFG to
+//! identity until register allocation lowers the CFG to
 //! [`super::machine::Allocated`].
 
 mod register_allocate;

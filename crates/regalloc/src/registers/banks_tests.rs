@@ -146,25 +146,25 @@ fn uses_move_between_banks_and_a_tied_input_survives_its_overwrite() {
         RegSet::EMPTY,
     );
     halt(&mut code);
-    let (live, allocation) = allocate(&code).unwrap();
+    let (live, allocation, states) = allocate_recording(&code).unwrap();
     assert!(
-        allocation.operand_locations[float.index()]
+        allocation.operands[code.instructions[float].operands.range()]
             .iter()
             .all(|location| matches!(location, Location::Register(reg) if FP.contains(*reg)))
     );
     assert!(
-        allocation.operand_locations[integer.index()]
+        allocation.operands[code.instructions[integer].operands.range()]
             .iter()
             .all(|location| matches!(location, Location::Register(reg) if GP.contains(*reg)))
     );
     let points = &live.blocks[0].instructions[2];
     assert_eq!(
-        allocation.location(points.late, VReg::at(2)),
-        Some(allocation.operand_locations[float.index()][0])
+        states.location(&live, points.late, VReg::at(2)),
+        Some(allocation.operands[code.instructions[float].operands.range()][0])
     );
     assert_ne!(
-        allocation.location(points.late, VReg::at(0)),
-        allocation.location(points.late, VReg::at(2))
+        states.location(&live, points.late, VReg::at(0)),
+        states.location(&live, points.late, VReg::at(2))
     );
 }
 
@@ -198,7 +198,7 @@ fn repeated_operands_in_different_banks_keep_both_physical_copies() {
     );
     halt(&mut code);
     let (_, allocation) = allocate(&code).unwrap();
-    let places = &allocation.operand_locations[uses.index()];
+    let places = &allocation.operands[code.instructions[uses].operands.range()];
     assert_ne!(places[0], places[1]);
     assert_ne!(places[0], places[2]);
     assert!(matches!(places[1], Location::Register(reg) if FP.contains(reg)));
@@ -259,7 +259,7 @@ fn bank_pressure_and_call_clobbers_spill_and_reload_float_values() {
         );
     }
     halt(&mut code);
-    let (live, allocation) = allocate(&code).unwrap();
+    let (live, allocation, states) = allocate_recording(&code).unwrap();
     assert_eq!(allocation.stores.len(), 5);
     assert!(
         allocation
@@ -270,7 +270,7 @@ fn bank_pressure_and_call_clobbers_spill_and_reload_float_values() {
     let after_call = live.blocks[0].instructions[5].late;
     for at in 0..5 {
         assert!(matches!(
-            allocation.location(after_call, VReg::at(at)),
+            states.location(&live, after_call, VReg::at(at)),
             Some(Location::Spill(_))
         ));
     }
@@ -325,9 +325,9 @@ fn loop_edges_swap_banks_and_branch_conditions_are_constrained() {
         },
     );
     block(&mut code, &[], 2, 2, Terminator::Halt);
-    let (live, allocation) = allocate(&code).unwrap();
+    let (live, allocation, states) = allocate_recording(&code).unwrap();
     assert!(
-        matches!(allocation.location(live.blocks[1].terminator, VReg::at(3)), Some(Location::Register(reg)) if GP.contains(reg))
+        matches!(states.location(&live, live.blocks[1].terminator, VReg::at(3)), Some(Location::Register(reg)) if GP.contains(reg))
     );
     assert!(
         allocation
@@ -405,10 +405,10 @@ fn single_use_tied_copies_propagate_the_consumers_bank_to_loads() {
         RegSet::EMPTY,
     );
     halt(&mut code);
-    let (live, allocation) = allocate(&code).unwrap();
+    let (live, _, states) = allocate_recording(&code).unwrap();
     for (at, value) in [0, 1, 2].into_iter().enumerate() {
         assert!(
-            matches!(allocation.location(live.blocks[0].instructions[at].late, VReg::at(value)), Some(Location::Register(reg)) if FP.contains(reg))
+            matches!(states.location(&live, live.blocks[0].instructions[at].late, VReg::at(value)), Some(Location::Register(reg)) if FP.contains(reg))
         );
     }
 }

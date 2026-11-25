@@ -137,11 +137,11 @@ mod tests {
     use faun_core::ir::{Binary, Class, Program};
 
     #[test]
-    fn loops_produce_segmented_live_ranges_and_edge_costs() {
+    fn loops_produce_placed_results_and_edge_costs() {
         let program = faun_core::programs::carries_a_total_into_an_arm(3);
         let selected = select(&program).unwrap();
         let (_, allocation) = registers::allocate(&selected.code(false)).unwrap();
-        assert!(!allocation.segments.is_empty());
+        assert!(allocation.results.iter().any(Option::is_some));
         assert!(allocation.edges > 0);
     }
 
@@ -163,14 +163,16 @@ mod tests {
             .unwrap();
         let (_, allocation) = registers::allocate(&selected.code(false)).unwrap();
         assert_eq!(
-            allocation.operand_locations[divide],
+            allocation.operands[selected.instructions[super::super::InstId::at(divide)]
+                .operands
+                .range()],
             [Location::Register(Reg::Rax), Location::Register(Reg::Rcx)]
         );
         assert!(!allocation.operand_moves[divide].is_empty());
     }
 
     #[test]
-    fn register_pressure_creates_spilled_segments() {
+    fn register_pressure_spills_to_the_frame() {
         let (mut program, main) = Program::new("main");
         program.define(main, |builder, _| {
             // More live at once than there are registers.
@@ -186,12 +188,7 @@ mod tests {
         });
         let selected = select(&program).unwrap();
         let (_, allocation) = registers::allocate(&selected.code(false)).unwrap();
-        assert!(
-            allocation
-                .segments
-                .iter()
-                .any(|segment| matches!(segment.location, Location::Spill(_)))
-        );
+        assert!(allocation.spill_slots.iter().any(|&slots| slots > 0));
     }
 
     #[test]
