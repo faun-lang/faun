@@ -24,5 +24,7 @@ use super::{Program, common, prune, simplify};
 /// same thing afterwards. Data, globals, names and function IDs do.
 #[must_use]
 pub fn optimize(program: &Program) -> Program {
-    prune::prune(&common::common(&simplify::simplify(program)))
+    prune::prune(&common::common(&super::hoist::hoist(&simplify::simplify(
+        program,
+    ))))
 }
