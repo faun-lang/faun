@@ -296,6 +296,7 @@ fn answer_analysis_restores_locals_after_nonreturning_bindings() {
         takes: demand.takes,
         callees: vec![],
         refused: std::cell::RefCell::default(),
+        powers_of_two: std::cell::RefCell::default(),
         looping: std::cell::RefCell::default(),
         round: std::cell::RefCell::default(),
         onward: std::cell::RefCell::default(),

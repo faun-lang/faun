@@ -167,6 +167,7 @@ fn lowered(
         takes: demand.takes,
         callees,
         refused: std::cell::RefCell::default(),
+        powers_of_two: std::cell::RefCell::default(),
         looping: std::cell::RefCell::default(),
         round: std::cell::RefCell::default(),
         onward: std::cell::RefCell::default(),
@@ -178,6 +179,7 @@ fn lowered(
     };
     for (id, callee) in program.function_ids().zip(&lowering.callees) {
         if matches!(callee, Callee::Function(_)) && program.function(id).body().is_some() {
+            lowering.powers_of_two.borrow_mut().clear();
             lowering.function(&mut machine, id)?;
         }
     }
@@ -2022,6 +2024,47 @@ fn met(b: &mut super::Builder, arg: ValueId, wanted: Class) -> ValueId {
     }
 }
 
+/// `x`, held in `bits` bits, moved down `k` places where `down`, and its low
+/// `k` bits otherwise; nought or `x` itself where `k` is `bits` or more.
+/// Worked out at the width alone: what is known of the least `x` can be
+/// says nothing of a mask, nor of nought. `k` is read below `bits` once
+/// that is asked, so a target shifts by it in one instruction.
+fn shifted_or_masked(
+    b: &mut super::Builder,
+    down: bool,
+    x: ValueId,
+    k: ValueId,
+    bits: u16,
+) -> ValueId {
+    let work = Class::fixed(bits);
+    // The fewest bits that hold every distance below `bits`.
+    let needed = (u16::BITS - (bits - 1).leading_zeros()).max(1);
+    let distance = Class::fixed(u16::try_from(needed).expect("a distance below a word"));
+    let x = met(b, x, work);
+    let width = b.constant(Class::fixed(7), u64::from(bits));
+    let near = super::arithmetic::compare(b, Relation::Less, k, width);
+    b.if_(
+        near,
+        &[work],
+        |b| {
+            let by = b.convert(distance, k);
+            let value = if down {
+                b.binary_at(work, Binary::ShiftDown, x, by)
+            } else {
+                let one = b.constant(work, 1);
+                let power = b.binary_at(work, Binary::ShiftUp, one, by);
+                let mask = b.binary_at(work, Binary::Sub, power, one);
+                b.binary_at(work, Binary::And, x, mask)
+            };
+            b.yield_(&[value]);
+        },
+        |b| {
+            let value = if down { b.constant(work, 0) } else { x };
+            b.yield_(&[value]);
+        },
+    )[0]
+}
+
 /// Where two arms meet: what they leave with is one place, so it is as wide
 /// as either of them needs. A flat product's leaves are held at the classes
 /// its type says, so two arms answering one already agree.
@@ -2159,6 +2202,10 @@ struct Lowering<'a> {
     /// body is built. Region callbacks answer values rather than results,
     /// so a refusal is kept here instead of returned from each of them.
     refused: std::cell::RefCell<Option<String>>,
+    /// Each value of the function being lowered that is two to a power,
+    /// with the exponent: a quotient or remainder by one is a shift or a
+    /// mask of a dividend a word holds, however large the exponent.
+    powers_of_two: std::cell::RefCell<Vec<(ValueId, ValueId)>>,
     /// The function being lowered as a loop, and the calls of itself in
     /// tail position, each of which goes round again rather than calling.
     looping: std::cell::RefCell<Option<(barb::FnId, Vec<barb::ExprId>)>>,
@@ -3012,6 +3059,10 @@ impl Lowering<'_> {
                 // read at the operation's width, which on a narrow word is
                 // several words and a division to take them apart.
                 let mut args = self.call_arguments(function, arguments, locals);
+                if let Some(reduced) = self.by_power_of_two(b, *operation, &args, self.width(expr))
+                {
+                    return Answer::Value(Held::One(reduced));
+                }
                 for (value, &bound) in args.iter_mut().zip(self.facts.arguments(expr)) {
                     if b.class(*value) == Class::Natural && width(bound) != Class::Natural {
                         *value = b.convert(width(bound), *value);
@@ -3022,12 +3073,11 @@ impl Lowering<'_> {
                 {
                     return Answer::Value(Held::One(self.affine(b, expr, affine, locals)));
                 }
-                return Answer::Value(Held::One(self.operation(
-                    b,
-                    *operation,
-                    self.width(expr),
-                    &args,
-                )));
+                let answer = self.operation(b, *operation, self.width(expr), &args);
+                if *operation == barb::Operation::Pow && b.known_number(args[0]) == Some(2) {
+                    self.powers_of_two.borrow_mut().push((answer, args[1]));
+                }
+                return Answer::Value(Held::One(answer));
             }
             Callee::Rotation(rotation) => {
                 let args = self.call_arguments(function, arguments, locals);
@@ -3451,6 +3501,42 @@ impl Lowering<'_> {
             values.extend_from_slice(held.values());
         }
         values
+    }
+
+    /// A quotient or remainder by two to a power, `x / 2.pow(k)` or
+    /// `x % 2.pow(k)`, where `x` is held in `w` bits or fewer: `x` moved
+    /// down `k` places, or its low `k` bits, and where `k` is `w` or more,
+    /// nought or `x` itself. The power is never needed, however large `k`
+    /// may be, so it is not worked out a multiplication at a time and
+    /// divided by. `k` is read below `w` once that is asked, so a target
+    /// shifts by it in one instruction.
+    fn by_power_of_two(
+        &self,
+        b: &mut super::Builder,
+        operation: barb::Operation,
+        args: &[ValueId],
+        result: Class,
+    ) -> Option<ValueId> {
+        if !matches!(operation, barb::Operation::Div | barb::Operation::Mod) {
+            return None;
+        }
+        let &[x, divisor] = args else {
+            return None;
+        };
+        let exponent = self
+            .powers_of_two
+            .borrow()
+            .iter()
+            .find(|&&(power, _)| power == divisor)
+            .map(|&(_, exponent)| exponent)?;
+        let held = b.class(x);
+        let bits = match held {
+            Class::Held(_) => held.width().filter(|&bits| (1..=64).contains(&bits))?,
+            _ => return None,
+        };
+        let down = operation == barb::Operation::Div;
+        let answer = shifted_or_masked(b, down, x, exponent, bits);
+        Some(met(b, answer, result))
     }
 
     /// The one value a scalar local is held in.
