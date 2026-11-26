@@ -309,8 +309,30 @@ pub(crate) fn test_file_by_definitions(entry: &std::path::Path) -> (Vec<String>,
 /// Each expectation that does not hold, as [`test_file`] tells it: where
 /// it was written, and what a comparison saw.
 fn told(entry: &std::path::Path, by_definitions: bool, fuel: u64) -> (Vec<String>, usize) {
+    told_as(entry, by_definitions, fuel, faun_frontend::Reporting::Each)
+}
+
+/// As [`test_file`], the entry printing only the expectations that do not
+/// hold, all at once when every one is asked, as the backends' tests ask
+/// the standard library's.
+pub(crate) fn test_file_reporting_failures(entry: &std::path::Path) -> (Vec<String>, usize) {
+    told_as(
+        entry,
+        false,
+        EXPECTATION_FUEL,
+        faun_frontend::Reporting::Failures,
+    )
+}
+
+/// As [`told`], printing what `reporting` says.
+fn told_as(
+    entry: &std::path::Path,
+    by_definitions: bool,
+    fuel: u64,
+    reporting: faun_frontend::Reporting,
+) -> (Vec<String>, usize) {
     let (failed, count) =
-        ask(entry, by_definitions, fuel).unwrap_or_else(|error| panic!("{error}"));
+        ask(entry, by_definitions, fuel, reporting).unwrap_or_else(|error| panic!("{error}"));
     for (_, said) in &failed {
         eprintln!("{said}");
     }
@@ -325,7 +347,7 @@ pub(crate) fn test_file_within(
     entry: &std::path::Path,
     fuel: u64,
 ) -> Result<(Vec<String>, usize), String> {
-    let (failed, count) = ask(entry, false, fuel)?;
+    let (failed, count) = ask(entry, false, fuel, faun_frontend::Reporting::Each)?;
     Ok((failed.into_iter().map(|(_, said)| said).collect(), count))
 }
 
@@ -348,12 +370,13 @@ fn ask(
     entry: &std::path::Path,
     by_definitions: bool,
     fuel: u64,
+    reporting: faun_frontend::Reporting,
 ) -> Result<(Vec<(String, String)>, usize), String> {
     let mut tests = faun_frontend::lower_tests_to_barb_using(
         entry,
         &faun_driver::platform(&X86_64Linux),
         &faun_frontend::packages::Packages::default(),
-        faun_frontend::Reporting::Each,
+        reporting,
     )
     .unwrap_or_else(|error| panic!("{}", error.message));
     if by_definitions {

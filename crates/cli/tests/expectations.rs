@@ -3,6 +3,7 @@
 
 mod support;
 
+use std::fmt::Write as _;
 use std::fs;
 
 use faun_x86_64_linux::X86_64Linux;
@@ -41,6 +42,29 @@ fn a_test_build_asks_every_expectation_in_the_package() {
     assert_eq!(failed, ["main.fn:9", "halves.fn:7"]);
     // Built as an application, the package is its own `main!`.
     assert_eq!(package.run(), 9);
+}
+
+/// A package of thousands of expectations is asked as one of a few. The
+/// test entry that prints only those that do not hold joins a record of
+/// each into one string, which is not nested a level deeper for every
+/// expectation before it, so building it takes no deeper a stack than a
+/// test's thread has, and each is still numbered in its place.
+#[test]
+fn a_package_of_thousands_of_expectations_is_asked() {
+    let asked = 3000;
+    let failing = 2345;
+    let mut source = String::from("main!(host) -> host.exit!(0)\n");
+    for at in 1..=asked {
+        let answer = if at == failing { at + 1 } else { at };
+        write!(source, "\nexpect {at} == {answer}").unwrap();
+    }
+    let package = Package::new("thousands", &source);
+
+    let (failed, count) = support::test_file_reporting_failures(&package.entry());
+    assert_eq!(count, asked);
+    // The entry's source starts with the host's import and a blank line,
+    // then `main!` and a blank line.
+    assert_eq!(failed, [format!("main.fn:{}", failing + 4)]);
 }
 
 /// An `expect` written directly beneath a definition, with no blank line
