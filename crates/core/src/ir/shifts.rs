@@ -7,7 +7,7 @@
 //! only shifts it can do in one instruction.
 
 use super::rewrite::{self, Pass, Rebuild};
-use super::{Binary, Builder, Direction, Op, Program, Relation, ValueId};
+use super::{Binary, Builder, Class, Direction, Op, Program, Relation, ValueId};
 
 /// `program` with every shift by a worked-out distance a target on words of
 /// `word_bits` cannot do in one instruction -- all of them, where `native`
@@ -33,33 +33,158 @@ impl Pass for Expand {
             return false;
         };
         let class = rebuild.source().class(results[0]);
-        let wide = class.width().is_some_and(|bits| bits > self.word_bits);
-        // An instruction moves by the distance modulo the word, which is the
-        // distance itself where it is below the word. Up, a value moved a
-        // word or more fits only where it is nought, which that answers too.
-        let below = rebuild
+        if class == Class::Natural {
+            return self.natural(rebuild, b, op, (left, right), results[0]);
+        }
+        let bits = class.width().unwrap_or(self.word_bits);
+        let wide = bits > self.word_bits;
+        let most = rebuild
             .source()
             .class(right)
             .facts()
-            .and_then(|facts| facts.high)
-            .is_some_and(|most| most < u64::from(self.word_bits));
+            .and_then(|facts| facts.high);
+        // An instruction moves by the distance modulo the word, which is the
+        // distance itself where it is below the word. Up, a value moved a
+        // word or more fits only where it is nought, which that answers too,
+        // once the distance is read at a word.
+        let below = most.is_some_and(|most| most < u64::from(self.word_bits));
         if self.native && !wide && (op == Binary::ShiftUp || below) {
-            return false;
+            return self.in_one(rebuild, b, (op, class), (left, right), results[0]);
         }
-        let direction = if op == Binary::ShiftUp {
-            Direction::Up
+        let direction = direction(op);
+        let value = at_class(b, rebuild.value(left), class);
+        let count = rebuild.value(right);
+        let answer = if most.is_some_and(|most| most < u64::from(bits)) {
+            self.moved(b, direction, (op, class), value, count)
         } else {
-            Direction::Down
+            self.clamped(b, direction, (op, class), value, count)
         };
-        let value = rebuild.value(left);
-        let value = if b.class(value) == class {
-            value
-        } else {
-            b.convert(class, value)
-        };
-        let answer = looped(b, direction, value, rebuild.value(right));
         rebuild.stands_for(results[0], answer);
         true
+    }
+}
+
+impl Expand {
+    /// A natural's shift, which is the natural runtime's and legalization
+    /// writes, handed a distance a word holds or a natural: one wider than
+    /// the target's word is read as a natural, which it is exactly.
+    /// Whether it was rewritten.
+    fn natural(
+        &self,
+        rebuild: &Rebuild<'_>,
+        b: &mut Builder,
+        op: Binary,
+        (left, right): (ValueId, ValueId),
+        result: ValueId,
+    ) -> bool {
+        let by = rebuild.value(right);
+        let wider = b
+            .class(by)
+            .width()
+            .is_some_and(|width| width > self.word_bits);
+        if !wider {
+            return false;
+        }
+        let by = b.convert(Class::Natural, by);
+        let moved = b.binary_at(Class::Natural, op, rebuild.value(left), by);
+        rebuild.stands_for(result, moved);
+        true
+    }
+
+    /// A shift a target makes in one instruction, its distance read at a
+    /// word where it is wider than the target's: whether it was rewritten.
+    fn in_one(
+        &self,
+        rebuild: &Rebuild<'_>,
+        b: &mut Builder,
+        (op, class): (Binary, Class),
+        (left, right): (ValueId, ValueId),
+        result: ValueId,
+    ) -> bool {
+        let held = b.class(rebuild.value(right));
+        let in_word =
+            held == Class::Word || held.width().is_some_and(|width| width <= self.word_bits);
+        if in_word {
+            return false;
+        }
+        let by = b.convert(Class::Word, rebuild.value(right));
+        let moved = b.binary_at(class, op, rebuild.value(left), by);
+        rebuild.stands_for(result, moved);
+        true
+    }
+
+    /// `value` moved `count` places, which may be its width or more: that
+    /// moves every bit out, down; up, it fits only a nought. Below it, the
+    /// count is read in as few bits as hold it, so a loop of places goes
+    /// round fewer times than the width.
+    fn clamped(
+        &self,
+        b: &mut Builder,
+        direction: Direction,
+        (op, class): (Binary, Class),
+        value: ValueId,
+        count: ValueId,
+    ) -> ValueId {
+        let bits = class.width().unwrap_or(self.word_bits);
+        let width = b.constant(Class::fixed(16), u64::from(bits));
+        let near = super::arithmetic::compare(b, Relation::Less, count, width);
+        b.if_(
+            near,
+            &[class],
+            |b| {
+                let needed = (u16::BITS - (bits - 1).leading_zeros()).max(1);
+                let narrow = Class::fixed(u16::try_from(needed).expect("a width's bits"));
+                let count = b.convert(narrow, count);
+                let moved = self.moved(b, direction, (op, class), value, count);
+                b.yield_(&[moved]);
+            },
+            |b| {
+                let nought = b.constant(class, 0);
+                b.yield_(&[nought]);
+            },
+        )[0]
+    }
+
+    /// `value` moved `count` places, which is below its width: one
+    /// instruction where the target has it, and a loop of places otherwise.
+    fn moved(
+        &self,
+        b: &mut Builder,
+        direction: Direction,
+        (op, class): (Binary, Class),
+        value: ValueId,
+        count: ValueId,
+    ) -> ValueId {
+        let wide = class.width().unwrap_or(self.word_bits) > self.word_bits;
+        if self.native
+            && !wide
+            && b.class(count)
+                .facts()
+                .and_then(|facts| facts.high)
+                .is_some_and(|most| most < u64::from(self.word_bits))
+        {
+            b.binary_at(class, op, value, count)
+        } else {
+            looped(b, direction, value, count)
+        }
+    }
+}
+
+/// Which way `op` moves bits.
+fn direction(op: Binary) -> Direction {
+    if op == Binary::ShiftUp {
+        Direction::Up
+    } else {
+        Direction::Down
+    }
+}
+
+/// `value` read at `class`.
+fn at_class(b: &mut Builder, value: ValueId, class: Class) -> ValueId {
+    if b.class(value) == class {
+        value
+    } else {
+        b.convert(class, value)
     }
 }
 

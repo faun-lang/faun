@@ -183,7 +183,7 @@ fn static_layout_configuration_and_pruning() {
 
 #[test]
 fn every_helper_subset_resolves_exactly_its_requested_handles() {
-    for mask in 0u16..(1 << Helper::ALL.len()) {
+    for mask in 0u32..(1 << Helper::ALL.len()) {
         let mut needs = Needs::default();
         for (at, helper) in Helper::ALL.into_iter().enumerate() {
             if mask & (1 << at) != 0 {

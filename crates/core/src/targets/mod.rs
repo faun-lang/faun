@@ -325,6 +325,10 @@ fn prepare_counting<T: Target + ?Sized>(
             join_routines: speed && target.budget().carries(6, 2),
         },
     )?;
+    // The natural runtime's shifts move digits by a worked-out distance,
+    // which a target shifting by known distances only takes a place at a
+    // time.
+    let prepared = crate::ir::expand_shifts(&prepared, target.word(), target.shifts_by_register());
     // What legalization wrote -- offsets from known sizes, steps by
     // known strides -- is worked out again with the word's width known.
     let prepared = crate::ir::optimize(&prepared);

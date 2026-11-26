@@ -282,3 +282,74 @@ fn a_power_of_two_divided_by_is_never_built() {
         assert!(!machine.contains(" = Mul "), "{target}: {machine}");
     }
 }
+
+#[test]
+fn a_natural_moves_by_whole_digits_and_the_bits_between() {
+    // Numbers of one digit and of several, on every word size, moved by
+    // distances below a digit, at one, between two and past every digit
+    // they have, each distance read while the program runs. Moved up and
+    // back down, a number is itself; moved down, it is its quotient.
+    let package = Package::new(
+        "natural-shifts",
+        r#"
+        main!(host) -> (
+          lift = host.args.len() - 1
+          xs = [5, 65535, 4294967297, 2.pow(100) + 12345, 3.pow(90)].map(|x| x + lift)
+          ks = [0, 1, 3, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 200, 2.pow(70)].map(|k| k + lift)
+          lines = xs.map(|x| ks.map(|k| "${x >> k} ${(x << k.min(300)) >> k.min(300) == x}").join(" "))
+          printed = host.println!(lines.join(" | "))
+          host.exit!(0)
+        )
+        "#,
+    );
+    let expected = moved_lines();
+    prints_everywhere(&package, &expected.join(" | "));
+}
+
+/// The distances `a_natural_moves_by_whole_digits_and_the_bits_between`
+/// moves by, the last standing for one no immediate holds.
+const DISTANCES: [u32; 16] = [
+    0,
+    1,
+    3,
+    15,
+    16,
+    17,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65,
+    127,
+    128,
+    200,
+    u32::MAX,
+];
+
+/// What `a_natural_moves_by_whole_digits_and_the_bits_between` prints: each
+/// number moved down each distance, and that each moved up and back is
+/// itself, a line a number.
+fn moved_lines() -> Vec<String> {
+    use num_bigint::BigUint;
+    let xs = [
+        BigUint::from(5u8),
+        BigUint::from(65535u32),
+        BigUint::from(4_294_967_297u64),
+        (BigUint::from(1u8) << 100u32) + 12345u32,
+        BigUint::from(3u8).pow(90),
+    ];
+    xs.iter()
+        .map(|x| {
+            let moved = DISTANCES.map(|k| {
+                let down = if k == u32::MAX {
+                    BigUint::default()
+                } else {
+                    x >> k
+                };
+                format!("{down} True")
+            });
+            moved.join(" ")
+        })
+        .collect()
+}
