@@ -14,35 +14,45 @@ numerals_below = 256
 U8 : Nat.(
   zero : U8
   zero = U8(0)
+  expect U8.zero == 0
 
   of_nat : Nat -> U8
   of_nat(n) -> U8(n % 256)
+  expect U8.of_nat(300) == 44
 
   to_nat : U8 -> Nat
   to_nat(U8(value)) -> value
+  expect U8.of_nat(200).to_nat() == 200
 
   add : (U8, U8) -> U8
   add(U8(a), U8(b)) -> U8((a + b) % 256)
+  expect U8.of_nat(250) + 10 == 4
 
   sub : (U8, U8) -> U8
   sub(U8(a), U8(b)) -> U8((a + 256 - b) % 256)
+  expect U8.of_nat(3) - 5 == 254
 
   mul : (U8, U8) -> U8
   mul(U8(a), U8(b)) -> U8((a * b) % 256)
+  expect U8.of_nat(16) * 17 == 16
 
   div : (U8, U8) -> U8
   div(U8(a), U8(b)) -> U8(a / b)
+  expect U8.of_nat(7) / 2 == 3
 
   mod : (U8, U8) -> U8
   mod(U8(a), U8(b)) -> U8(a % b)
+  expect U8.of_nat(7) % 2 == 1
 
   cmp : (U8, U8) -> Order
 
   min : (U8, U8) -> U8
   min(a, b) -> (a <= b).select(a, b)
+  expect U8.of_nat(3).min(5) == 3
 
   max : (U8, U8) -> U8
   max(a, b) -> (a <= b).select(b, a)
+  expect U8.of_nat(3).max(5) == 5
 
   to_str : U8 -> Str
 
@@ -50,27 +60,37 @@ U8 : Nat.(
   is_digit : U8 -> Bool
   is_digit(U8('0'..'9')) -> True
   is_digit(_) -> False
+  expect '7'.is_digit()
+  expect !'x'.is_digit()
 
   is_ascii_lower : U8 -> Bool
   is_ascii_lower(U8('a'..'z')) -> True
   is_ascii_lower(_) -> False
+  expect 'q'.is_ascii_lower() & !'Q'.is_ascii_lower()
 
   is_ascii_upper : U8 -> Bool
   is_ascii_upper(U8('A'..'Z')) -> True
   is_ascii_upper(_) -> False
+  expect 'Q'.is_ascii_upper() & !'q'.is_ascii_upper()
 
   is_ascii_letter : U8 -> Bool
   is_ascii_letter(byte) -> byte.is_ascii_lower() | byte.is_ascii_upper()
+  expect 'a'.is_ascii_letter() & 'Z'.is_ascii_letter()
+  expect !'1'.is_ascii_letter()
 
   # An ASCII capital as its small letter, and any other byte as it is.
   to_ascii_lower : U8 -> U8
   to_ascii_lower(byte) if byte.is_ascii_upper() -> byte + 32
   to_ascii_lower(byte) -> byte
+  expect 'Q'.to_ascii_lower() == 'q'
+  expect '1'.to_ascii_lower() == '1'
 
   # An ASCII small letter as its capital, and any other byte as it is.
   to_ascii_upper : U8 -> U8
   to_ascii_upper(byte) if byte.is_ascii_lower() -> byte - 32
   to_ascii_upper(byte) -> byte
+  expect 'q'.to_ascii_upper() == 'Q'
+  expect '1'.to_ascii_upper() == '1'
 
   # Bitwise, as `Nat`'s: `a & b`, `a | b` and `a ^ b`. Two words' bits
   # make a word, so the remainder changes nothing and costs nothing; it
@@ -78,27 +98,34 @@ U8 : Nat.(
   # worked out round a loop.
   and : (U8, U8) -> U8
   and(U8(a), U8(b)) -> U8((a & b) % 256)
+  expect (U8.of_nat(12) & 10) == 8
 
   or : (U8, U8) -> U8
   or(U8(a), U8(b)) -> U8((a | b) % 256)
+  expect (U8.of_nat(0xf0) | 0x0f) == 255
 
   xor : (U8, U8) -> U8
   xor(U8(a), U8(b)) -> U8((a ^ b) % 256)
+  expect (U8.of_nat(12) ^ 10) == 6
 
   # Every bit flipped.
   not : U8 -> U8
   not(U8(a)) -> U8(255 - a)
+  expect !U8.of_nat(0b10100101) == 0b01011010
 
   # The bits moved up by `amount`, those past the top lost: nought where
   # `amount` is the width or more.
   shift_left : (U8, Nat) -> U8
   shift_left(U8(a), amount) if amount < 8 -> of_nat(a * 2.pow(amount))
   shift_left(_, _) -> U8(0)
+  expect U8.of_nat(0x81).shift_left(1) == 2
+  expect U8.of_nat(1).shift_left(8) == 0
 
   # The bits moved down by `amount`, those below the bottom lost.
   shift_right : (U8, Nat) -> U8
   shift_right(U8(a), amount) if amount < 8 -> U8(a / 2.pow(amount))
   shift_right(_, _) -> U8(0)
+  expect U8.of_nat(0x81).shift_right(7) == 1
 
   # The bits moved up by `amount`, those past the top coming round to the
   # bottom. The width round is no change.
@@ -108,32 +135,32 @@ U8 : Nat.(
     moved = a * 2.pow(amount % 8)
     U8(moved % 256 + moved / 256)
   )
+  expect U8.of_nat(0x81).rotate_left(1) == 3
+  expect U8.of_nat(0x81).rotate_left(8) == 0x81
 
   rotate_right : (U8, Nat) -> U8
   rotate_right(word, amount) -> rotate_left(word, 8 - amount % 8)
+  expect U8.of_nat(0x81).rotate_right(1) == 0xc0
 
-  # `hasher` with `a` fed: widened to a word.
   # `n` as a byte when it fits, and a refusal when it does not: the
   # checked narrowing, for values worked out at run time.
   from_nat : Nat -> Result(U8, [TooBig])
   from_nat(n) if n < 0x100 -> Ok(of_nat(n))
   from_nat(_) -> Err(TooBig)
+  expect U8.from_nat(255) == Ok(255)
+  expect U8.from_nat(256) == Err(TooBig)
 
   # `base` raised to the `exponent`-th power, modulo 256, by
   # `Nat.pow_mod`, so no intermediate grows past the ring.
   pow : (U8, Nat) -> U8
   pow(U8(base), exponent) -> U8(base.pow_mod(exponent, 256))
+  expect U8.of_nat(3).pow(5) == 243
+  expect U8.of_nat(3).pow(6) == 217
 
+  # `hasher` with `a` fed: widened to a word.
   hash_into : (U8, h) -> h where Hasher(h)
   hash_into(a, hasher) -> hasher.write_u64(U64.of_nat(to_nat(a)))
 )
 
-expect '7'.is_digit() & !'x'.is_digit() & !'/'.is_digit() & !':'.is_digit()
-expect 'Q'.to_ascii_lower() == 'q' & 'q'.to_ascii_upper() == 'Q' & '1'.to_ascii_upper() == '1'
-expect 'a'.is_ascii_letter() & 'Z'.is_ascii_letter() & !'@'.is_ascii_letter() & !'['.is_ascii_letter()
-expect (U8.of_nat(12) ^ 10) == 6 & (U8.of_nat(0xf0) | 0x0f) == 255
-expect !U8.of_nat(0b10100101) == 0b01011010
-expect U8.of_nat(0x81).shift_left(1) == 2 & U8.of_nat(0x81).shift_right(7) == 1
-expect U8.of_nat(0x81).rotate_left(1) == 3 & U8.of_nat(0x81).rotate_right(1) == 0xc0
-expect U8.of_nat(1).shift_left(8) == 0 & U8.of_nat(0x81).rotate_left(8) == 0x81
-expect U8.from_nat(255) == Ok(255) & U8.from_nat(256) == Err(TooBig)
+expect !'/'.is_digit() & !':'.is_digit()
+expect !'@'.is_ascii_letter() & !'['.is_ascii_letter()

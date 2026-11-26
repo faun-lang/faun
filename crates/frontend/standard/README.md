@@ -94,11 +94,13 @@ written in more than one byte and `Err(OutOfBounds)` past the end, so a
 slice is always text. A numeral pattern of a word and a string pattern are each a test
 of equality, asked before the clause's guard.
 
-Each public method of `Str` and `List` but `hash_into` has examples,
+Each public method of the library's exported types has examples,
 `expect`s written directly beneath it, which are its
 [examples](../../../notes/forms/modules.md#examples): read there, they show
 it used, and `just test-std` asks them with the library's other
-expectations.
+expectations. Two kinds have none: `hash_into`, which only a hasher calls,
+and a member written as a signature alone, `cmp`, `equals` or `to_str`,
+whose body the compiler derives, which an `expect` cannot stand beneath.
 
 `List` follows Ori's standard list: `len`, `is_empty`, `append`, `concat`,
 `prepend`, `map`, `map2`, `flat_map`, `flatten`, `join`, `filter`, `count`,

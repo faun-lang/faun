@@ -13,81 +13,97 @@ SortedSet(k) : SortedMap(k, Bool).(
   # The empty set.
   empty : SortedSet(k)
   empty = SortedSet(SortedMap.empty)
+  expect SortedSet.empty.is_empty()
 
   # The set whose only member is `key`.
   singleton : k -> SortedSet(k) where Ordered(k)
   singleton(key) -> SortedSet(SortedMap.empty.insert(key, True))
+  expect SortedSet.singleton(1).to_list() == [1]
 
   # Whether `set` has no members.
   is_empty : SortedSet(k) -> Bool
   is_empty(SortedSet(members)) -> SortedMap.is_empty(members)
+  expect !SortedSet.of_list([1]).is_empty()
 
   # `set` with `key` as a member; membership is idempotent.
   insert : (SortedSet(k), k) -> SortedSet(k) where Ordered(k)
   insert(SortedSet(members), key) -> SortedSet(SortedMap.insert(members, key, True))
+  expect SortedSet.of_list([2]).insert(1).insert(2).to_list() == [1, 2]
 
   # `set` without `key`; unchanged when `key` is not a member.
   remove : (SortedSet(k), k) -> SortedSet(k) where Ordered(k)
   remove(SortedSet(members), key) -> SortedSet(SortedMap.remove(members, key))
+  expect SortedSet.of_list([1, 2]).remove(1).to_list() == [2]
+  expect SortedSet.of_list([1]).remove(2).to_list() == [1]
 
   # The members of either set. Union is commutative, associative, and
   # idempotent, and `empty` is its identity.
   union : (SortedSet(k), SortedSet(k)) -> SortedSet(k) where Ordered(k)
   union(set, other) -> fold(other, set, insert)
+  expect SortedSet.of_list([3, 1]).union(SortedSet.of_list([2, 3])).to_list() == [1, 2, 3]
 
   # The members of both sets.
   intersection : (SortedSet(k), SortedSet(k)) -> SortedSet(k) where Ordered(k)
   intersection(set, other) -> of_list(to_list(set).filter(|key| contains(other, key)))
+  expect SortedSet.of_list([1, 2, 3]).intersection(SortedSet.of_list([3, 2, 4])).to_list() == [2, 3]
 
   # The members of `set` that are not members of `other`. With
   # `intersection` it partitions `set` without loss:
   # `set.difference(other).union(set.intersection(other))` is `set`.
   difference : (SortedSet(k), SortedSet(k)) -> SortedSet(k) where Ordered(k)
   difference(set, other) -> fold(other, set, remove)
+  expect SortedSet.of_list([1, 2, 3]).difference(SortedSet.of_list([2, 4])).to_list() == [1, 3]
 
   # Whether `key` is a member of `set`.
   contains : (SortedSet(k), k) -> Bool where Ordered(k)
   contains(SortedSet(members), key) -> SortedMap.contains(members, key)
+  expect SortedSet.of_list([1, 2]).contains(2)
+  expect !SortedSet.of_list([1, 2]).contains(3)
 
   # The number of members of `set`.
   len : SortedSet(k) -> Nat
   len(SortedSet(members)) -> SortedMap.len(members)
+  expect SortedSet.of_list([3, 1, 3]).len() == 2
 
   # The result of combining the members of `set` in ascending order, beginning
   # with `initial`.
   fold : (SortedSet(k), a, (a, k) -> a) -> a
   fold(set, initial, combine) -> to_list(set).fold(initial, combine)
+  expect SortedSet.of_list(["b", "a"]).fold("", |text, key| text.concat(key)) == "ab"
 
   # The members at least `low`, in ascending order.
   from : (SortedSet(k), k) -> List(k) where Ordered(k)
   from(SortedSet(members), low) -> SortedMap.from(members, low).map(|(key, _)| key)
+  expect SortedSet.of_list([5, 1, 9, 3, 7]).from(4) == [5, 7, 9]
+  expect SortedSet.of_list([1, 2]).from(3) == []
 
   # The members at least `low` and below `high`, in ascending order.
   range : (SortedSet(k), k, k) -> List(k) where Ordered(k)
   range(SortedSet(members), low, high) -> SortedMap.range(members, low, high).map(|(key, _)| key)
+  expect SortedSet.of_list([5, 1, 9, 3, 7]).range(3, 8) == [3, 5, 7]
+  expect SortedSet.of_list([5]).range(6, 9) == []
 
   # The members of `set` in ascending order — the set's one observable shape.
   to_list : SortedSet(k) -> List(k)
   to_list(SortedSet(members)) -> SortedMap.keys(members)
+  expect SortedSet.of_list([3, 1, 2]).to_list() == [1, 2, 3]
 
   # The set as the call building it is written, its members in ascending
   # order: `SortedSet.of_list([1, 2, 3])`.
   to_str : SortedSet(k) -> Str where Printable(k)
   to_str(set) -> "SortedSet.of_list(${to_list(set)})"
+  expect "${SortedSet.of_list(["b", "a", "b"])}" == "SortedSet.of_list([\"a\", \"b\"])"
 
   # The set whose members are the items of `list`, later duplicates winning as
   # repeated `insert` calls would.
   of_list : List(k) -> SortedSet(k) where Ordered(k)
   of_list(items) -> items.fold(empty, insert)
+  expect SortedSet.of_list([2, 1, 2]).to_list() == [1, 2]
 
   # Whether `set` and `other` hold the same members: their ascending lists
   # agree, however either was built.
   equals : (SortedSet(k), SortedSet(k)) -> Bool where Equatable(k)
   equals(set, other) -> to_list(set) == to_list(other)
+  expect SortedSet.of_list([3, 1, 2]) == SortedSet.of_list([1, 2, 3, 1])
+  expect SortedSet.of_list([1]) != SortedSet.of_list([2])
 )
-
-expect SortedSet.of_list([3, 1, 2]) == SortedSet.of_list([1, 2, 3, 1])
-expect SortedSet.of_list([1]) != SortedSet.of_list([2])
-expect "${SortedSet.of_list(["b", "a", "b"])}" == "SortedSet.of_list([\"a\", \"b\"])"
-expect SortedSet.of_list([5, 1, 9, 3, 7]).from(4) == [5, 7, 9] & SortedSet.of_list([1, 2]).from(3) == []
-expect SortedSet.of_list([5, 1, 9, 3, 7]).range(3, 8) == [3, 5, 7] & SortedSet.of_list([5]).range(6, 9) == []

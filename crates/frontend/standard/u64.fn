@@ -13,27 +13,35 @@ numerals_below = 18446744073709551616
 U64 : Nat.(
   zero : U64
   zero = U64(0)
+  expect U64.zero == 0
 
   of_nat : Nat -> U64
   of_nat(n) -> U64(n % 18446744073709551616)
+  expect U64.of_nat(18446744073709551617) == 1
 
   to_nat : U64 -> Nat
   to_nat(U64(value)) -> value
+  expect U64.of_nat(70000).to_nat() == 70000
 
   add : (U64, U64) -> U64
   add(U64(a), U64(b)) -> U64((a + b) % 18446744073709551616)
+  expect U64.of_nat(0xffffffffffffffff) + 1 == 0
 
   sub : (U64, U64) -> U64
   sub(U64(a), U64(b)) -> U64((a + 18446744073709551616 - b) % 18446744073709551616)
+  expect U64.of_nat(0) - 1 == 0xffffffffffffffff
 
   mul : (U64, U64) -> U64
   mul(U64(a), U64(b)) -> U64((a * b) % 18446744073709551616)
+  expect U64.of_nat(0x100000000) * 0x100000000 == 0
 
   div : (U64, U64) -> U64
   div(U64(a), U64(b)) -> U64(a / b)
+  expect U64.of_nat(7) / 2 == 3
 
   mod : (U64, U64) -> U64
   mod(U64(a), U64(b)) -> U64(a % b)
+  expect U64.of_nat(7) % 2 == 1
 
   cmp : (U64, U64) -> Order
 
@@ -45,27 +53,34 @@ U64 : Nat.(
   # worked out round a loop.
   and : (U64, U64) -> U64
   and(U64(a), U64(b)) -> U64((a & b) % 18446744073709551616)
+  expect (U64.of_nat(12) & 10) == 8
 
   or : (U64, U64) -> U64
   or(U64(a), U64(b)) -> U64((a | b) % 18446744073709551616)
+  expect (U64.of_nat(0xf0) | 0x0f) == 0xff
 
   xor : (U64, U64) -> U64
   xor(U64(a), U64(b)) -> U64((a ^ b) % 18446744073709551616)
+  expect (U64.of_nat(12) ^ 10) == 6
 
   # Every bit flipped.
   not : U64 -> U64
   not(U64(a)) -> U64(18446744073709551615 - a)
+  expect !U64.of_nat(0) == 0xffffffffffffffff
 
   # The bits moved up by `amount`, those past the top lost: nought where
   # `amount` is the width or more.
   shift_left : (U64, Nat) -> U64
   shift_left(U64(a), amount) if amount < 64 -> of_nat(a * 2.pow(amount))
   shift_left(_, _) -> U64(0)
+  expect U64.of_nat(0x8000000000000001).shift_left(1) == 2
+  expect U64.of_nat(1).shift_left(64) == 0
 
   # The bits moved down by `amount`, those below the bottom lost.
   shift_right : (U64, Nat) -> U64
   shift_right(U64(a), amount) if amount < 64 -> U64(a / 2.pow(amount))
   shift_right(_, _) -> U64(0)
+  expect U64.of_nat(0x8000000000000001).shift_right(63) == 1
 
   # The bits moved up by `amount`, those past the top coming round to the
   # bottom. The width round is no change.
@@ -74,41 +89,51 @@ U64 : Nat.(
     shift = amount % 64
     of_nat(a * 2.pow(shift) + a / 2.pow(64 - shift))
   )
+  expect U64.of_nat(0x8000000000000001).rotate_left(1) == 3
 
   rotate_right : (U64, Nat) -> U64
   rotate_right(word, amount) -> rotate_left(word, 64 - amount % 64)
+  expect U64.of_nat(0x8000000000000001).rotate_right(1) == 0xc000000000000000
 
-  # `hasher` with `a` fed: itself.
   # `n` as a word when it fits, and a refusal when it does not: the
   # checked narrowing, for values worked out at run time.
   from_nat : Nat -> Result(U64, [TooBig])
   from_nat(n) if n < 0x10000000000000000 -> Ok(of_nat(n))
   from_nat(_) -> Err(TooBig)
+  expect U64.from_nat(18446744073709551615) == Ok(0xffffffffffffffff)
+  expect U64.from_nat(18446744073709551616) == Err(TooBig)
 
   # `base` raised to the `exponent`-th power, modulo 0x10000000000000000, by
   # `Nat.pow_mod`, so no intermediate grows past the ring.
   pow : (U64, Nat) -> U64
   pow(U64(base), exponent) -> U64(base.pow_mod(exponent, 0x10000000000000000))
+  expect U64.of_nat(3).pow(4) == 81
+  expect U64.of_nat(2).pow(64) == 0
 
   # The smaller of `a` and `b`.
   min : (U64, U64) -> U64
   min(U64(a), U64(b)) -> U64(a.min(b))
+  expect U64.of_nat(7).min(3) == 3
 
   # The larger of `a` and `b`.
   max : (U64, U64) -> U64
   max(U64(a), U64(b)) -> U64(a.max(b))
+  expect U64.of_nat(7).max(9) == 9
 
   # `word` as a `U64`; widening cannot wrap.
   of_u8 : U8 -> U64
   of_u8(word) -> U64(U8.to_nat(word))
+  expect U64.of_u8(200) == 200
 
   # `word` as a `U64`; widening cannot wrap.
   of_u16 : U16 -> U64
   of_u16(word) -> U64(U16.to_nat(word))
+  expect U64.of_u16(60000) == 60000
 
   # `word` as a `U64`; widening cannot wrap.
   of_u32 : U32 -> U64
   of_u32(word) -> U64(U32.to_nat(word))
+  expect U64.of_u32(5) == 5
 
   # The word's 8 bytes, least significant first. The count is the
   # contract, so the shape says it, and taking the tuple apart always matches.
@@ -123,6 +148,7 @@ U64 : Nat.(
     U8.of_nat(to_nat(shift_right(word, 48))),
     U8.of_nat(to_nat(shift_right(word, 56))),
   )
+  expect U64.of_nat(0x0807060504030201).le_bytes() == (1, 2, 3, 4, 5, 6, 7, 8)
 
   # The word whose little-endian bytes are these, least significant first.
   # The arity makes the width static, so every input converts.
@@ -136,20 +162,19 @@ U64 : Nat.(
     shift_left(of_u8(f), 40) |
     shift_left(of_u8(g), 48) |
     shift_left(of_u8(h), 56)
+  expect U64.of_le_bytes(1, 0, 0, 0, 0, 0, 0, 0x80) == 0x8000000000000001
 
   # The word's low 32 bits.
   to_u32 : U64 -> U32
   to_u32(U64(n)) -> U32.of_nat(n)
+  expect U64.of_nat(0x1122334455667788).to_u32() == 0x55667788
 
   # The word's low 8 bits.
   to_u8 : U64 -> U8
   to_u8(U64(n)) -> U8.of_nat(n)
+  expect U64.of_nat(0x1ff).to_u8() == 0xff
 
+  # `hasher` with `a` fed: itself.
   hash_into : (U64, h) -> h where Hasher(h)
   hash_into(a, hasher) -> hasher.write_u64(a)
 )
-
-expect !U64.of_nat(0) == 0xffffffffffffffff
-expect U64.of_le_bytes(1, 0, 0, 0, 0, 0, 0, 0x80) == 0x8000000000000001
-expect U64.of_nat(0x1122334455667788).to_u32() == 0x55667788 & U64.of_nat(0x1ff).to_u8() == 0xff
-expect U32.of_nat(7).min(3) == 3 & U64.of_nat(7).max(9) == 9 & U64.of_u32(5) == 5

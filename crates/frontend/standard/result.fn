@@ -8,24 +8,33 @@ Result(a, e) : [Ok(a), Err(e)].(
   map_ok : (Result(a, e), a -> b) -> Result(b, e)
   map_ok(Ok(value), f) -> Ok(f(value))
   map_ok(Err(error), _) -> Err(error)
+  expect Nat.from_str("3").map_ok(|n| n + 1) == Ok(4)
+  expect Err(Missing).map_ok(|n| n + 1) == Err(Missing)
 
   map_err : (Result(a, e), e -> f) -> Result(a, f)
   map_err(Ok(value), _) -> Ok(value)
   map_err(Err(error), f) -> Err(f(error))
+  expect Nat.from_str("x").map_err(|_| Gone) == Err(Gone)
 
   err_as : (Result(a, e), f) -> Result(a, f)
   err_as(Ok(value), _) -> Ok(value)
   err_as(Err(_), error) -> Err(error)
+  expect Ok(1).err_as(Missing) == Ok(1)
+  expect Nat.from_str("x").err_as(Missing) == Err(Missing)
 
   and_then : (Result(a, e), a -> Result(b, e)) -> Result(b, e)
   and_then(Ok(value), f) -> f(value)
   and_then(Err(error), _) -> Err(error)
+  expect Ok("4").and_then(Nat.from_str) == Ok(4)
 
   # The value, or where there is none, what `alternative` makes of the
   # error: the next thing to try, which is tried only where this failed.
   or_else : (Result(a, e), e -> Result(a, f)) -> Result(a, f)
   or_else(Ok(value), _) -> Ok(value)
   or_else(Err(error), alternative) -> alternative(error)
+  expect Nat.from_str("4").or_else(|_| Nat.from_str("7")) == Ok(4)
+  expect Nat.from_str("x").or_else(|_| Nat.from_str("7")) == Ok(7)
+  expect Nat.from_str("x").or_else(|Malformed| Err(Gone)) == Err(Gone)
 
   # The first that is `Ok`: this one, or else `other`, so `a | b | c`
   # tries each in turn. Both are worked out before either is asked; where
@@ -34,26 +43,35 @@ Result(a, e) : [Ok(a), Err(e)].(
   or : (Result(a, e), Result(a, e)) -> Result(a, e)
   or(Ok(value), _) -> Ok(value)
   or(Err(_), other) -> other
+  expect (Nat.from_str("4") | Nat.from_str("7")) == Ok(4)
+  expect (Nat.from_str("x") | Nat.from_str("7")) == Ok(7)
+  expect (Nat.from_str("x") | Nat.from_str("y")) == Err(Malformed)
 
   map2 : (Result(a, e), Result(b, e), (a, b) -> c) -> Result(c, e)
   map2(Ok(a), Ok(b), f) -> Ok(f(a, b))
   map2(Err(error), _, _) -> Err(error)
   map2(_, Err(error), _) -> Err(error)
+  expect Nat.from_str("2").map2(Nat.from_str("3"), |a, b| a * b) == Ok(6)
+  expect Nat.from_str("2").map2(Nat.from_str("x"), |a, b| a * b) == Err(Malformed)
 
   is_ok : Result(a, e) -> Bool
   is_ok(Ok(_)) -> True
   is_ok(Err(_)) -> False
+  expect Nat.from_str("1").is_ok() & !Nat.from_str("x").is_ok()
 
   is_err : Result(a, e) -> Bool
   is_err(value) -> is_ok(value).not()
+  expect Nat.from_str("x").is_err()
 
   ok_or : (Result(a, e), a) -> a
   ok_or(Ok(value), _) -> value
   ok_or(Err(_), fallback) -> fallback
+  expect Nat.from_str("x").ok_or(0) == 0
 
   err_or : (Result(a, e), e) -> e
   err_or(Ok(_), fallback) -> fallback
   err_or(Err(error), _) -> error
+  expect Nat.from_str("x").err_or(Gone) == Malformed
 
   # `Ok(value)` or `Err(error)`, each by its own type's `to_str`, as a tag
   # is written: which it was is the first thing it says.
@@ -68,11 +86,6 @@ Result(a, e) : [Ok(a), Err(e)].(
     Equatable(e)
 )
 
-expect Ok(1).err_as(Missing) == Ok(1) & Ok(1).err_as(Missing) != Ok(2)
-expect (Nat.from_str("4") | Nat.from_str("7")) == Ok(4) & (Nat.from_str("x") | Nat.from_str("7")) == Ok(7)
-expect (Nat.from_str("x") | Nat.from_str("y")) == Err(Malformed)
-expect Nat.from_str("4").or_else(|_| Nat.from_str("7")) == Ok(4) & Nat.from_str("x").or_else(|_| Nat.from_str("7")) == Ok(7)
-expect Nat.from_str("x").or_else(|Malformed| Err(Gone)) == Err(Gone)
-expect Err(Missing).map_ok(|n| n + 1) == Err(Missing) & Ok(3).err_as(Missing) != Err(Missing)
+expect Ok(1).err_as(Missing) != Ok(2) & Ok(3).err_as(Missing) != Err(Missing)
 expect Nat.from_str("48") == Ok(48) & Nat.from_str("x") == Err(Malformed)
 expect Nat.from_str("48").to_str() == "Ok(48)" & Nat.from_str("x").to_str() == "Err(Malformed)"

@@ -11,32 +11,40 @@ Order : [Lt, Eq, Gt].(
   lt : Order -> Bool
   lt(Lt) -> True
   lt(_) -> False
+  expect Lt.lt() & !Eq.lt()
 
   le : Order -> Bool
   le(Gt) -> False
   le(_) -> True
+  expect Eq.le() & !Gt.le()
 
   gt : Order -> Bool
   gt(Gt) -> True
   gt(_) -> False
+  expect Gt.gt() & !Eq.gt()
 
   ge : Order -> Bool
   ge(Lt) -> False
   ge(_) -> True
+  expect Eq.ge() & !Lt.ge()
 
   eq : Order -> Bool
   eq(Eq) -> True
   eq(_) -> False
+  expect Eq.eq() & !Lt.eq()
 
   ne : Order -> Bool
   ne(Eq) -> False
   ne(_) -> True
+  expect Lt.ne() & !Eq.ne()
 
   # This order, or where it is `Eq`, the next: how a tuple is ordered
   # position by position. Written `|`, as `a.cmp(b) | c.cmp(d)`.
   or : (Order, Order) -> Order
   or(Eq, next) -> next
   or(decided, _) -> decided
+  expect Eq.or(Gt) == Gt
+  expect (1.cmp(2) | 5.cmp(3)) == Lt
 
   equals : (Order, Order) -> Bool
 
@@ -45,5 +53,4 @@ Order : [Lt, Eq, Gt].(
   hash_into : (Order, h) -> h where Hasher(h)
 )
 
-expect Lt.ne() & !Eq.ne()
 expect 1.cmp(2) == Lt & Gt != Eq & Gt.to_str() == "Gt"
