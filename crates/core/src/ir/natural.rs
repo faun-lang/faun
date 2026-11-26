@@ -116,10 +116,14 @@ pub(super) enum Helper {
     And,
     Or,
     Xor,
+    /// A natural moved up a worked-out number of places.
+    ShiftUp,
+    /// A natural moved down a worked-out number of places.
+    ShiftDown,
 }
 
 impl Helper {
-    pub(super) const ALL: [Self; 14] = [
+    pub(super) const ALL: [Self; 16] = [
         Self::Allocate,
         Self::Add,
         Self::Sub,
@@ -134,6 +138,8 @@ impl Helper {
         Self::And,
         Self::Or,
         Self::Xor,
+        Self::ShiftUp,
+        Self::ShiftDown,
     ];
 
     #[expect(
@@ -155,7 +161,8 @@ impl Helper {
             Binary::And => Self::And,
             Binary::Or => Self::Or,
             Binary::Xor => Self::Xor,
-            Binary::ShiftUp | Binary::ShiftDown => panic!("a shift is never of a natural"),
+            Binary::ShiftUp => Self::ShiftUp,
+            Binary::ShiftDown => Self::ShiftDown,
         }
     }
 }
@@ -754,6 +761,7 @@ pub(super) fn append(
         };
         storage.append(program, needs, compare, &mut library);
         storage.append_bitwise(program, needs, &mut library);
+        storage.append_shifts(program, needs, &mut library);
     }
     Ok(library)
 }
@@ -940,6 +948,23 @@ impl Storage {
         }
     }
 
+    fn append_shifts(self, p: &mut Program, needs: Needs, lib: &mut Library) {
+        let shifts = [
+            (Helper::ShiftUp, Direction::Up),
+            (Helper::ShiftDown, Direction::Down),
+        ];
+        if !shifts.iter().any(|&(helper, _)| needs.contains(helper)) {
+            return;
+        }
+        let digit = digit_reader(p, self.word);
+        for (helper, direction) in shifts {
+            if needs.contains(helper) {
+                let objects = shifting_digits(p, self, digit, direction);
+                lib.insert(helper, self.shift(p, objects, direction));
+            }
+        }
+    }
+
     fn append_bitwise(self, p: &mut Program, needs: Needs, lib: &mut Library) {
         let bitwise = [
             (Helper::And, Binary::And, "and"),
@@ -1036,6 +1061,122 @@ impl Storage {
             b.ret(&[out]);
         });
         f
+    }
+
+    /// A natural moved up or down by a natural number of places. An
+    /// immediate moved down, or moved up while it stays below half a word,
+    /// is a shift of the word holding it; anything else is a pass over its
+    /// digits, a whole digit of the distance at a time and the rest a part
+    /// of each digit carried into the next. A distance no immediate holds
+    /// moves every bit of any number out, down, and up asks for more
+    /// digits than any request may.
+    fn shift(self, p: &mut Program, objects: FunctionId, direction: Direction) -> FunctionId {
+        let name = match direction {
+            Direction::Up => "nat.shift_up",
+            Direction::Down => "nat.shift_down",
+        };
+        let f = declare(p, name, &[A, A], &[A]);
+        p.define(f, |b, args| {
+            let (a, k) = (args[0], args[1]);
+            let far = is_object(b, k);
+            b.leave_if(far, |b| self.shift_far(b, direction, a));
+            let k = unwrapped(b, k);
+            let named = is_object(b, a);
+            b.leave_unless(named, |b| {
+                let x = unwrapped(b, a);
+                self.shift_immediate(b, direction, x, k);
+            });
+            let out = self.shift_digits(b, objects, (a, named), k);
+            b.ret(&[out]);
+        });
+        f
+    }
+
+    /// A natural moved by a distance no immediate holds: down, nought; up,
+    /// nought if it is, and otherwise more digits than any request may ask
+    /// for, which fails.
+    fn shift_far(self, b: &mut Builder<'_>, direction: Direction, a: ValueId) {
+        let nought = small(b, 0);
+        if direction == Direction::Up {
+            let none = eq(b, a, nought);
+            b.leave_if(none, |b| b.ret(&[nought]));
+            let most = number(b, u64::MAX >> (64 - word_bits(self.word)));
+            let all = b.call_one(self.alloc, &[most]);
+            b.ret(&[all]);
+        } else {
+            b.ret(&[nought]);
+        }
+    }
+
+    /// `a` moved `k` places through its digits, a whole digit of `k` at a
+    /// time and the rest in each digit, boxed for the routine where it is
+    /// an immediate, as `named` says it is not.
+    fn shift_digits(
+        self,
+        b: &mut Builder<'_>,
+        objects: FunctionId,
+        (a, named): (ValueId, ValueId),
+        k: ValueId,
+    ) -> ValueId {
+        let bits = word_bits(self.word);
+        let size = number(b, u64::from(bits));
+        let whole = b.binary(Binary::Div, k, size);
+        let part = b.binary(Binary::Mod, k, size);
+        let part = b.convert(distance_class(bits), part);
+        let held = b.if_(
+            named,
+            &[A],
+            |b| {
+                let at = object(b, a);
+                b.yield_(&[at]);
+            },
+            |b| {
+                let n = unwrapped(b, a);
+                let at = b.call_one(self.boxed, &[n]);
+                b.yield_(&[at]);
+            },
+        )[0];
+        let out = b.call_one(objects, &[held, whole, part]);
+        b.unless(named, |b| {
+            b.call(self.release, &[held]);
+        });
+        out
+    }
+
+    /// An immediate's number `x` moved `k` places, answered where the
+    /// answer is an immediate too, and left to the digits otherwise: down,
+    /// always; up, while it stays below half a word, which is while `x` is
+    /// no more than the most below it moved back down as far.
+    fn shift_immediate(self, b: &mut Builder<'_>, direction: Direction, x: ValueId, k: ValueId) {
+        let bits = word_bits(self.word);
+        let narrow = distance_class(bits);
+        let width = number(b, u64::from(bits));
+        let near = lt(b, k, width);
+        if direction == Direction::Down {
+            let moved = shifted_down_within(b, x, k, (near, narrow));
+            let held = small_word(b, moved);
+            b.ret(&[held]);
+            return;
+        }
+        let zero = number(b, 0);
+        let none = eq(b, x, zero);
+        b.leave_if(none, |b| {
+            let nought = small(b, 0);
+            b.ret(&[nought]);
+        });
+        b.leave_if(near, |b| {
+            let by = b.convert(narrow, k);
+            let top = number(b, self.half - 1);
+            let room = b.binary(Binary::ShiftDown, top, by);
+            let over = lt(b, room, x);
+            b.leave_unless(over, |b| {
+                let moved = b.binary(Binary::ShiftUp, x, by);
+                let held = small_word(b, moved);
+                b.ret(&[held]);
+            });
+            b.yield_(&[]);
+        });
+        b.yield_(&[]);
     }
 
     fn difference(self, p: &mut Program, objects: FunctionId) -> FunctionId {
@@ -2015,6 +2156,191 @@ fn bitwise_digits(
         b.ret(&[result]);
     });
     f
+}
+
+/// `x` moved down `k` places where `near` says `k` is below the word, read
+/// at `narrow`; nought where it is not.
+fn shifted_down_within(
+    b: &mut Builder<'_>,
+    x: ValueId,
+    k: ValueId,
+    (near, narrow): (ValueId, Class),
+) -> ValueId {
+    b.if_(
+        near,
+        &[W],
+        |b| {
+            let by = b.convert(narrow, k);
+            let moved = b.binary(Binary::ShiftDown, x, by);
+            b.yield_(&[moved]);
+        },
+        |b| {
+            let zero = number(b, 0);
+            b.yield_(&[zero]);
+        },
+    )[0]
+}
+
+/// `count` noughts written from the start of `out`.
+fn noughts(b: &mut Builder<'_>, out: ValueId, count: ValueId, word: usize) {
+    let (one, zero) = (number(b, 1), number(b, 0));
+    b.loop_(&[zero], &[], |b, state| {
+        let i = state[0];
+        let done = eq(b, i, count);
+        b.leave_if(done, |b| b.break_(&[]));
+        write_digit(b, out, i, zero, word);
+        let next = add(b, i, one);
+        b.continue_(&[next]);
+    });
+}
+
+/// The class of a distance below a word of `bits`: as few bits as hold
+/// every one, so that a target shifts by it in one instruction.
+fn distance_class(bits: u16) -> Class {
+    let needed = (u16::BITS - (bits - 1).leading_zeros()).max(1);
+    Class::fixed(u16::try_from(needed).expect("a word's bits"))
+}
+
+/// An object's digits moved `whole` digits and `part` bits, up or down:
+/// up, each digit's low bits go up `part` places and its high bits carry
+/// into the next digit; down, each digit is the one `whole` above it moved
+/// down `part` places, with the low bits of the one above that carried in.
+/// No distance is ever the word or more, which a machine takes modulo it.
+fn shifting_digits(
+    p: &mut Program,
+    storage: Storage,
+    digit: FunctionId,
+    direction: Direction,
+) -> FunctionId {
+    let bits = word_bits(storage.word);
+    let narrow = distance_class(bits);
+    let name = match direction {
+        Direction::Up => "nat.shift_up_digits",
+        Direction::Down => "nat.shift_down_digits",
+    };
+    let f = declare(p, name, &[A, W, narrow], &[A]);
+    p.define(f, |b, args| {
+        let moved = Moved {
+            storage,
+            digit,
+            a: args[0],
+            whole: args[1],
+            part: args[2],
+        };
+        let out = match direction {
+            Direction::Up => moved.up(b),
+            Direction::Down => moved.down(b),
+        };
+        let result = b.call_one(storage.finish, &[out]);
+        b.ret(&[result]);
+    });
+    f
+}
+
+/// An object's digits being moved, and how far.
+#[derive(Clone, Copy)]
+struct Moved {
+    storage: Storage,
+    digit: FunctionId,
+    a: ValueId,
+    whole: ValueId,
+    part: ValueId,
+}
+
+impl Moved {
+    /// How far the bits carried between digits move: the rest of the word
+    /// less one, after one place moved first, so that no distance is the
+    /// word; and a distance of one.
+    fn rest(self, b: &mut Builder<'_>) -> (ValueId, ValueId) {
+        let narrow = distance_class(word_bits(self.storage.word));
+        let top = b.constant(narrow, u64::from(word_bits(self.storage.word) - 1));
+        let rest = b.binary_at(narrow, Binary::Sub, top, self.part);
+        (rest, b.constant(narrow, 1))
+    }
+
+    /// The digits moved up, `whole` noughts below them, as an object of
+    /// digits not yet trimmed.
+    fn up(self, b: &mut Builder<'_>) -> ValueId {
+        let Self {
+            storage,
+            digit,
+            a,
+            whole,
+            part,
+        } = self;
+        let word = storage.word;
+        let (rest, single) = self.rest(b);
+        let la = length(b, a);
+        let (one, zero) = (number(b, 1), number(b, 0));
+        let len = add(b, la, whole);
+        let cap = add(b, len, one);
+        let out = b.call_one(storage.alloc, &[cap]);
+        noughts(b, out, whole, word);
+        let all = number(b, u64::MAX >> (64 - word_bits(word)));
+        let low = b.binary(Binary::ShiftDown, all, part);
+        let carry = b.loop_(&[zero, zero], &[W], |b, state| {
+            let (i, carry) = (state[0], state[1]);
+            let done = eq(b, i, la);
+            b.leave_if(done, |b| b.break_(&[carry]));
+            let x = b.call_one(digit, &[a, i]);
+            let kept = b.binary(Binary::And, x, low);
+            let moved = b.binary(Binary::ShiftUp, kept, part);
+            let answer = b.binary(Binary::Or, moved, carry);
+            let at = add(b, i, whole);
+            write_digit(b, out, at, answer, word);
+            let halved = b.binary(Binary::ShiftDown, x, single);
+            let carried = b.binary(Binary::ShiftDown, halved, rest);
+            let next = add(b, i, one);
+            b.continue_(&[next, carried]);
+        })[0];
+        write_digit(b, out, len, carry, word);
+        out
+    }
+
+    /// The digits moved down, those below `whole` gone, as an object of
+    /// digits not yet trimmed; nought where every digit is gone.
+    fn down(self, b: &mut Builder<'_>) -> ValueId {
+        let Self {
+            storage,
+            digit,
+            a,
+            whole,
+            part,
+        } = self;
+        let word = storage.word;
+        let (rest, single) = self.rest(b);
+        let la = length(b, a);
+        let (one, zero) = (number(b, 1), number(b, 0));
+        let gone = lt(b, whole, la);
+        b.leave_unless(gone, |b| {
+            let nought = small(b, 0);
+            b.ret(&[nought]);
+        });
+        let len = sub(b, la, whole);
+        let cap = add(b, len, one);
+        let out = b.call_one(storage.alloc, &[cap]);
+        let power = b.binary(Binary::ShiftUp, one, part);
+        let below = sub(b, power, one);
+        b.loop_(&[zero], &[], |b, state| {
+            let i = state[0];
+            let done = eq(b, i, len);
+            b.leave_if(done, |b| b.break_(&[]));
+            let at = add(b, i, whole);
+            let x = b.call_one(digit, &[a, at]);
+            let moved = b.binary(Binary::ShiftDown, x, part);
+            let above = add(b, at, one);
+            let y = b.call_one(digit, &[a, above]);
+            let kept = b.binary(Binary::And, y, below);
+            let lifted = b.binary(Binary::ShiftUp, kept, single);
+            let lifted = b.binary(Binary::ShiftUp, lifted, rest);
+            let answer = b.binary(Binary::Or, moved, lifted);
+            write_digit(b, out, i, answer, word);
+            let next = add(b, i, one);
+            b.continue_(&[next]);
+        });
+        write_digit(b, out, len, zero, word);
+        out
+    }
 }
 
 // Mutates a unique scratch object, known >= the borrowed right operand.

@@ -250,9 +250,11 @@ impl rewrite::Pass for Simplify {
                 op: Binary::Mod,
                 left,
                 right,
-            } => self
-                .kept(rebuild.source(), right)
-                .is_some_and(|bits| Self::remainder(rebuild, b, left, bits, results[0])),
+            } => {
+                self.kept(rebuild.source(), right)
+                    .is_some_and(|bits| Self::remainder(rebuild, b, left, bits, results[0]))
+                    || self.below_moved(rebuild, b, left, right, results[0])
+            }
             Op::Binary {
                 op: Binary::And,
                 left,
@@ -789,7 +791,9 @@ impl Simplify {
         };
         let class = rebuild.source().class(result);
         let by = rebuild.value(right);
-        if self.number(left) != Some(1) || !b.class(by).fits(class) {
+        // A distance is a count of places, of whatever class: shifting
+        // reads it at a width a target moves by.
+        if !self.one(left) {
             return false;
         }
         // A product at a class that wraps may lose its top bits, which a
@@ -797,8 +801,100 @@ impl Simplify {
         if op == Binary::ShiftUp && class.wraps() {
             return false;
         }
-        let moved = b.binary_at(class, op, rebuild.value(value), by);
+        let moved = if op == Binary::ShiftDown {
+            let (x, work) = self.dividend(rebuild, value, class);
+            let moved = b.binary_at(work, op, x, by);
+            if work == class {
+                moved
+            } else {
+                b.convert(class, moved)
+            }
+        } else {
+            b.binary_at(class, op, rebuild.value(value), by)
+        };
         rebuild.stands_for(result, moved);
+        true
+    }
+
+    /// Whether an old value is one, written as a constant or widened from
+    /// one, as a natural one is.
+    fn one(&self, value: ValueId) -> bool {
+        match self.wrote.0[value.index()] {
+            Some((
+                Op::Convert { value: from },
+                Class::Natural | Class::Word | Class::Held(_),
+                _,
+            )) => self.number(from) == Some(1),
+            _ => self.number(value) == Some(1),
+        }
+    }
+
+    /// The dividend a quotient or remainder is worked out on, and its class:
+    /// what `value` was before it was only widened, since neither is more
+    /// than the dividend, and a word is cheaper to work on than a natural.
+    fn dividend(
+        &self,
+        rebuild: &rewrite::Rebuild<'_>,
+        mut value: ValueId,
+        class: Class,
+    ) -> (ValueId, Class) {
+        let source = rebuild.source();
+        let widened = |from: Class, to: Class| {
+            matches!(from, Class::Held(_) | Class::Word) && (to == Class::Natural || from.fits(to))
+        };
+        while let Some((Op::Convert { value: from }, to, _)) = self.wrote.0[value.index()] {
+            if !widened(source.class(from), to) {
+                break;
+            }
+            value = from;
+        }
+        let narrowest = source.class(value);
+        let work = if widened(narrowest, class) {
+            narrowest
+        } else {
+            class
+        };
+        (rebuild.value(value), work)
+    }
+
+    /// A remainder by one moved up some places is what is left of `value`
+    /// once it is moved down and back up as many: `x - ((x >> k) << k)`.
+    /// What goes back up is no more than `value`, so it fits wherever
+    /// `value` does, and once `k` moves every bit out it is nought.
+    fn below_moved(
+        &self,
+        rebuild: &rewrite::Rebuild<'_>,
+        b: &mut Builder,
+        value: ValueId,
+        power: ValueId,
+        result: ValueId,
+    ) -> bool {
+        let Some((
+            Op::Binary {
+                op: Binary::ShiftUp,
+                left,
+                right,
+            },
+            ..,
+        )) = self.wrote.0[power.index()]
+        else {
+            return false;
+        };
+        if !self.one(left) {
+            return false;
+        }
+        let class = rebuild.source().class(result);
+        let (x, work) = self.dividend(rebuild, value, class);
+        let by = rebuild.value(right);
+        let down = b.binary_at(work, Binary::ShiftDown, x, by);
+        let back = b.binary_at(work, Binary::ShiftUp, down, by);
+        let left_over = b.binary_at(work, Binary::Sub, x, back);
+        let left_over = if work == class {
+            left_over
+        } else {
+            b.convert(class, left_over)
+        };
+        rebuild.stands_for(result, left_over);
         true
     }
 

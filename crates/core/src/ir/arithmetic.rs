@@ -127,8 +127,10 @@ fn monus(b: &mut Builder, result: Class, left: ValueId, right: ValueId) -> Value
     at(b, answer, result)
 }
 
-/// Two to a power, at a class a machine holds, is one moved up that many
-/// places.
+/// Two to the power of `exponent`, which is one moved up `exponent` places:
+/// at a natural where nothing bounds it, so the power is never worked out a
+/// multiplication at a time, and whatever divides or multiplies by it can
+/// move by the exponent instead.
 fn shifted_one(
     b: &mut Builder,
     result: Class,
@@ -136,12 +138,16 @@ fn shifted_one(
     exponent: ValueId,
 ) -> Option<ValueId> {
     if b.known_number(base) != Some(2)
-        || !matches!(result, Class::Held(_) | Class::Word)
-        || !b.class(exponent).fits(result)
+        || !matches!(result, Class::Held(_) | Class::Word | Class::Natural)
     {
         return None;
     }
-    let one = b.constant(result, 1);
+    let one = if result == Class::Natural {
+        let one = b.constant(Class::fixed(1), 1);
+        b.convert(Class::Natural, one)
+    } else {
+        b.constant(result, 1)
+    };
     Some(b.binary_at(result, Binary::ShiftUp, one, exponent))
 }
 

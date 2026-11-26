@@ -572,15 +572,14 @@ impl Checker<'_> {
                 left,
                 right,
             } => self.monus(left, right, results)?,
+            // A shift's distance is a count, not a number of the value's
+            // kind, so it may be of any numeric class: `ir::expand_shifts`
+            // reads it at a width a target shifts by.
             Op::Binary {
                 op: Binary::ShiftUp | Binary::ShiftDown,
-                ..
-            } if results
-                .iter()
-                .any(|&result| self.program.class(result) == Class::Natural) =>
-            {
-                return Err("a shift is of a machine value, not a natural".into());
-            }
+                left,
+                right,
+            } => self.shifted(left, right, results)?,
             Op::Binary { left, right, .. } => self.binary(left, right, results)?,
             Op::Shift { value, by, .. } => self.shift(value, by, results)?,
             Op::Float { float, operands } => self.float(float, operands, results)?,
@@ -722,6 +721,18 @@ impl Checker<'_> {
             return Err(format!("invalid conversion from {from:?} to {class:?}"));
         }
         Ok(())
+    }
+
+    fn shifted(&self, value: ValueId, by: ValueId, results: &[ValueId]) -> Result<(), String> {
+        let [result] = results else {
+            return Err("a shift must have one result".into());
+        };
+        let held = self.program.class(*result);
+        let numeric = |class| !matches!(class, Class::Address | Class::Cell | Class::Buffer);
+        if !numeric(held) || !numeric(self.read(by)?) {
+            return Err("a shift is of a number, by a number".into());
+        }
+        self.require(value, held)
     }
 
     fn binary(&self, left: ValueId, right: ValueId, results: &[ValueId]) -> Result<(), String> {

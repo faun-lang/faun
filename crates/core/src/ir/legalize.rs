@@ -564,6 +564,14 @@ fn inspect(
             match *op {
                 Op::Binary { op, left, right } if source.class(left) == Class::Natural => {
                     needs.insert(helper_for(op, right, divisors));
+                    // A shift's distance may be a machine value, read as a
+                    // natural to be handed in.
+                    if matches!(op, Binary::ShiftUp | Binary::ShiftDown)
+                        && source.class(right) != Class::Natural
+                        && !always_small(source.class(right), config.word_bits)
+                    {
+                        needs.insert(Helper::FromWord);
+                    }
                 }
                 Op::Compare { left, .. } if source.class(left) == Class::Natural => {
                     needs.insert(Helper::Compare);
@@ -1394,6 +1402,27 @@ impl Pass<'_> {
                 Binary::Add => self.library.inline(b, Inline::Add, v(left), v(right)),
                 Binary::Sub | Binary::Monus => {
                     self.library.inline(b, Inline::Monus, v(left), v(right))
+                }
+                Binary::ShiftUp | Binary::ShiftDown => {
+                    let function = self.library.require(helper_for(op, right, &self.divisors));
+                    // A distance read as a natural here is this call's own,
+                    // and let go after it.
+                    let (by, own) = match self.source.class(right) {
+                        Class::Natural => (v(right), false),
+                        class if always_small(class, self.word_bits()) => {
+                            let number = word(b, v(right));
+                            (Library::small_word(b, number), false)
+                        }
+                        _ => {
+                            let from = self.library.require(Helper::FromWord);
+                            (b.call_one(from, &[v(right)]), true)
+                        }
+                    };
+                    let moved = b.call_one(function, &[v(left), by]);
+                    if own {
+                        self.library.release_value(b, by);
+                    }
+                    moved
                 }
                 _ => {
                     let function = self.library.require(helper_for(op, right, &self.divisors));
