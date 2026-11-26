@@ -348,7 +348,7 @@ fn entry(
         })
         .collect::<Vec<_>>();
     let lines: Vec<Vec<h::StringPart>> = match reporting {
-        Reporting::Failures => vec![parts],
+        Reporting::Failures => vec![grouped(sites, span, parts)],
         Reporting::Each => parts.into_iter().map(|part| vec![part]).collect(),
     };
     let bindings = lines
@@ -372,6 +372,32 @@ fn entry(
         },
         locals: 1,
     }
+}
+
+/// How many records one string of the test entry joins. A string's pieces
+/// are joined one after another, each join holding the ones before it, so
+/// a string of a record for each of a package's hundreds of expectations
+/// would nest as deep as it has records, and every pass that walks it
+/// would recurse as deep.
+const GROUP: usize = 64;
+
+/// `parts` as one string's, in groups of [`GROUP`], each group a string of
+/// its own spliced into the next, so the joins nest no deeper than a
+/// group's records and the groups' count. Joining is associative, so the
+/// text is the same.
+fn grouped(sites: &mut h::Sites, span: Span, mut parts: Vec<h::StringPart>) -> Vec<h::StringPart> {
+    while parts.len() > GROUP {
+        let mut groups = Vec::with_capacity(parts.len().div_ceil(GROUP));
+        let mut parts_left = parts.into_iter().peekable();
+        while parts_left.peek().is_some() {
+            let group: Vec<_> = parts_left.by_ref().take(GROUP).collect();
+            groups.push(h::StringPart::Splice(
+                sites.expr(span, h::ExprKind::String(group)),
+            ));
+        }
+        parts = groups;
+    }
+    parts
 }
 
 /// What `expectation` prints: its own answer where it `shows` its sides,
