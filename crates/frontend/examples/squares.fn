@@ -1,11 +1,9 @@
-# Three nine-letter words a row each, whose columns read on: the second
-# starts with the first's middle third, the third with the first's last,
-# and the second ends with the third's middle. The words come one to a
-# line on standard input; each square found goes out as a line.
+# Three words of nine bytes each, in three-byte thirds: the second starts
+# with the first's middle third, the third with the first's last, and the
+# second ends with the third's middle. A third cannot cut a UTF-8 character.
+# The words come one to a line; each square found goes out as a line.
 #
-# A Python program spelled this as three nested `for` loops over `bisect`
-# and slices; here the loops are `flat_map`, the bisecting a sorted set's
-# `from`, and the slices `Str.slice`.
+# The loops are `flat_map`, and a sorted set's `from` finds each prefix.
 
 import std.host {Host}
 
@@ -19,10 +17,24 @@ main!(host) -> (
 
 squares : SortedSet(Str) -> List(Str)
 squares(words) -> words.to_list().flat_map(|first|
-  starting(words, first.slice(6, first.len()).ok_or("")).flat_map(|third|
-    starting(words, first.slice(3, 6).ok_or(""))
-      .filter(|second| second.ends_with(third.slice(3, 6).ok_or("")))
-      .map(|second| "${first},${second},${third}")))
+  if thirds(first) is Ok((middle, last)) then
+    starting(words, last).flat_map(|third|
+      if thirds(third) is Ok((third_middle, _)) then
+        starting(words, middle)
+          .filter(|second| second.len() == 9 & second.ends_with(third_middle))
+          .map(|second| "${first},${second},${third}")
+      else [])
+  else [])
+
+# The middle and last thirds, only when both cuts leave valid text.
+thirds : Str -> Result((Str, Str), [NotNineBytes, InvalidUtf8])
+thirds(word) if word.len() != 9 -> Err(NotNineBytes)
+thirds(word) -> (
+  bytes = word.to_utf8()
+  middle = Str.from_utf8(bytes.drop(3).take(3))?
+  last = Str.from_utf8(bytes.drop(6))?
+  Ok((middle, last))
+)
 
 # The words that start with `prefix`, which a sorted set holds together.
 starting : (SortedSet(Str), Str) -> List(Str)
@@ -30,3 +42,6 @@ starting(words, prefix) -> words.from(prefix).take_while(|word| word.starts_with
 
 expect squares(SortedSet.of_list(["abcdefghi", "defxyzjkl", "ghijklmno"])) == ["abcdefghi,defxyzjkl,ghijklmno"]
 expect squares(SortedSet.of_list(["abcdefghi", "defxyzzzz", "ghijklmno"])) == []
+expect squares(SortedSet.of_list(["a"])) == []
+expect squares(SortedSet.of_list(["abcéxdé", "éxmnoghi", "déghijkl"])) == ["abcéxdé,éxmnoghi,déghijkl"]
+expect thirds("abécdefg") == Err(InvalidUtf8)

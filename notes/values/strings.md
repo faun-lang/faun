@@ -31,11 +31,9 @@ The library reads text with `is_empty`, `split`, `lines`, `trim`,
 with `concat`, `pieces.join(separator)`, `repeat`, `pad_start`, `pad_end`
 and `Str.hex(bytes)`. Matching and cutting go byte by byte. That is sound
 for text, since no byte that continues a character equals one that begins
-a character, so a match never starts inside one. There is no indexing; a
-slice by byte position, `text.slice(start, end)`, answers `Err(NotAtBoundary)`
-where either end falls inside a character, so a slice is always text. `len`
-counts bytes; `pad_start` and `pad_end` count
-Unicode scalars.
+a character, so a match never starts inside one. There is no positional
+indexing or slicing on `Str`. `len` counts bytes; `pad_start` and `pad_end`
+count Unicode scalars.
 
 ```ruby
 expect "é".len() == 2 & "🦌".len() == 4
@@ -142,26 +140,16 @@ The cost is that `len` is bytes, not characters, and there is no constant
 time "nth character". Grapheme clusters, which is what a reader calls a
 character, are not modelled at all. Python's strings index by code point
 and Swift's by grapheme cluster; both pay for it in representation or in
-time. The names say which unit an operation counts.
+time.
 
-### Why is slicing by position checked?
+### Why is there no positional slice?
 
-A byte offset into text is about bytes, not letters: cutting text for
-display needs characters, which a byte count is not. But fixed-format text,
-a nine-letter word read as three thirds or a column of a report, is cut by
-position, and without a slice every such program went through the bytes,
-`Str.from_utf8(word.to_utf8().take(6).drop(3))`, to say `word[3:6]`. So
-`slice` takes byte positions and answers a `Result`: `NotAtBoundary` where a
-position falls inside a character, `OutOfBounds` past the end. A slice is
-always text, which is what the bytes round trip guaranteed, and the
-`Result` says what Ori's `Str.take` could not: it cut to the nearest
-character boundary, quietly answering a question about letters with a
-count of bytes, and was removed.
-
-The cost is a `Result` at every slice, `word.slice(3, 6).ok_or("")`, where
-the text is known to be ASCII. The recourse, where many cuts are made, is
-working on `List(U8)` throughout, as the host and `run_stdin!` already hand
-it.
+Text can be counted in bytes, Unicode scalars, or grapheme clusters. A
+position by itself doesn't say which. Prefer splitting at a separator or
+removing a known prefix or suffix. If a format specifies byte offsets, use
+`to_utf8` and work on the byte list; check a piece with `Str.from_utf8`
+before using it as text. Check the byte bounds separately where they
+matter: a piece that is valid UTF-8 can still be too short for the format.
 
 ### Why are splices `to_str`?
 
@@ -262,6 +250,9 @@ names then had to work around the gap, so it gained this one.
 - **2026-11-11:** `Str.slice` took the place of the bytes round trip for
   cutting text by position, checked at both ends, after a word-squares
   program needed `word[3:6]` three times over.
+- **2026-11-26:** removed `Str.slice`. The indices counted bytes but the
+  name didn't say so, and falling back to empty text after a failed cut
+  let the word-squares example report a match on short input.
 
 ## Related
 

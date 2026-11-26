@@ -97,8 +97,8 @@ at 32% together. serde_json's typed decode builds no tree at all.
 
 Checking each string as UTF-8 is 5%. An unchecked slice, taking part of a
 `Str` without checking it again, was tried and measured no faster, so it
-was not kept; `Str.slice` checks both ends
-([strings](values/strings.md)).
+was not kept. The then-current `Str.slice` checked both ends
+([string history](values/strings.md#history)).
 
 ## What changed in the compiler
 

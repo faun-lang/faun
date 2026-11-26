@@ -86,13 +86,11 @@ is left whole. A string or character literal writes `\n`, `\r`, `\t`, `\0`,
 its one to six hexadecimal digits, as Rust does. For reading text there are `is_empty`, `split` at a separator,
 `lines` at `\n` or `\r\n`, `trim` of ASCII white space, `starts_with`,
 `ends_with`, `drop_prefix` and `drop_suffix`; for writing it,
-`pieces.join(separator)`, `repeat`, `pad_start` and `pad_end`. Matching and cutting go byte by
-byte, which no character boundary can fall inside. `text.slice(start,
-end)` takes the bytes from `start` up to `end`, as Python's `text[start:end]`
-does, answering `Err(NotAtBoundary)` where either falls inside a character
-written in more than one byte and `Err(OutOfBounds)` past the end, so a
-slice is always text. A numeral pattern of a word and a string pattern are each a test
-of equality, asked before the clause's guard.
+`pieces.join(separator)`, `repeat`, `pad_start` and `pad_end`. There is no
+positional indexing or slicing on `Str`. For a format that specifies byte
+offsets, use `to_utf8`, work on the byte list, and check any new text with
+`Str.from_utf8`. A numeral pattern of a word and a string pattern are each
+a test of equality, asked before the clause's guard.
 
 Each public method of the library's exported types has examples,
 `expect`s written directly beneath it, which are its
