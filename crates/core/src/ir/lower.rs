@@ -3534,6 +3534,12 @@ impl Lowering<'_> {
             Class::Held(_) => held.width().filter(|&bits| (1..=64).contains(&bits))?,
             _ => return None,
         };
+        // An exponent already known below the width made a power a word
+        // holds, which simplifying reads as a shift without asking.
+        let most = b.class(exponent).facts().and_then(|facts| facts.high);
+        if most.is_some_and(|most| most < u64::from(bits)) {
+            return None;
+        }
         let down = operation == barb::Operation::Div;
         let answer = shifted_or_masked(b, down, x, exponent, bits);
         Some(met(b, answer, result))
