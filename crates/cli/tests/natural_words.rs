@@ -215,3 +215,70 @@ fn a_natural_a_branch_bounds_is_narrowed_where_it_is_operated_on() {
         );
     }
 }
+
+#[test]
+fn a_quotient_or_remainder_by_a_power_of_two_is_a_shift_or_a_mask() {
+    // `x` holds sixteen bits, and `k` is read while the program runs: below
+    // the width, at it, past it, and as a natural no word holds, whose power
+    // would never finish being built. Each answer is `x` moved down `k`
+    // places, or its low `k` bits, on every target.
+    let package = Package::new(
+        "power-of-two-divisor",
+        r#"
+        main!(host) -> (
+          lift = host.args.len()
+          x = (1000 + lift) * 97 % 65536
+          ks = [0, 1, 7, 15, 16, 17, 63, 64, 1000, 2.pow(64)].map(|k| k + lift - 1)
+          lines = ks.map(|k| "${x / 2.pow(k)} ${x % 2.pow(k)}")
+          printed = host.println!(lines.join(" | "))
+          host.exit!(0)
+        )
+        "#,
+    );
+    let x = 1001u128 * 97 % 65536;
+    let expected: Vec<String> = [0u32, 1, 7, 15, 16, 17, 63, 64, 1000, u32::MAX]
+        .iter()
+        .map(|&k| {
+            let (quotient, remainder) = if k < 16 {
+                (x >> k, x & ((1 << k) - 1))
+            } else {
+                (0, x)
+            };
+            format!("{quotient} {remainder}")
+        })
+        .collect();
+    prints_everywhere(&package, &expected.join(" | "));
+}
+
+#[test]
+fn a_power_of_two_divided_by_is_never_built() {
+    // `k` is known only while the program runs, so `2.pow(k)` is no
+    // constant, and nothing else in the program multiplies: built, the
+    // power would be squared and multiplied in, a step for each bit of `k`.
+    // Read as a shift and a mask, it is never built, on any target.
+    let package = Package::new(
+        "power-of-two-unbuilt",
+        r#"
+        walk : (List(U8), Nat, Nat, Nat) -> Nat
+        walk([], _, _, sum) -> sum
+        walk([byte, *rest], k, x, sum) ->
+          walk(rest, k, (x + byte.to_nat() + 7) % 65536, sum + x / 2.pow(k) + x % 2.pow(k))
+
+        main!(host) -> (
+          k = host.args.len() + 3
+          printed = host.println!("${walk([5, 6, 7, 200], k, 1, 0)}")
+          host.exit!(0)
+        )
+        "#,
+    );
+    prints_everywhere(&package, "35");
+    for target in MACHINES {
+        let result = Command::new(env!("CARGO_BIN_EXE_faun"))
+            .args(["emit", "--target", target, "machine"])
+            .arg(package.entry())
+            .output()
+            .unwrap();
+        let machine = String::from_utf8_lossy(&result.stdout);
+        assert!(!machine.contains(" = Mul "), "{target}: {machine}");
+    }
+}
