@@ -5,7 +5,7 @@ error: mismatched types
    |              --- ^ expected `Nat`, found `Str`
    |              |
    |              arguments to this method are incorrect
-  ::: std/nat.fn:17:3
+  ::: std/nat.fn:19:3
    |
-17 |   add : (Nat, Nat) -> Nat
+19 |   add : (Nat, Nat) -> Nat
    |   ----------------------- method defined here

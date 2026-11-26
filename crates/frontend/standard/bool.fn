@@ -8,27 +8,33 @@ Bool : [False, True].(
   not : Bool -> Bool
   not(False) -> True
   not(True) -> False
+  expect True.not() == False
 
   and : (Bool, Bool) -> Bool
   and(True, True) -> True
   and(_, _) -> False
+  expect True.and(False) == False
 
   or : (Bool, Bool) -> Bool
   or(False, False) -> False
   or(_, _) -> True
+  expect False.or(True) == True
 
   xor : (Bool, Bool) -> Bool
   xor(True, False) -> True
   xor(False, True) -> True
   xor(_, _) -> False
+  expect True.xor(True) == False
 
   select : (Bool, a, a) -> a
   select(True, yes, _) -> yes
   select(False, _, no) -> no
+  expect True.select("yes", "no") == "yes"
 
   to_nat : Bool -> Nat
   to_nat(False) -> 0
   to_nat(True) -> 1
+  expect True.to_nat() == 1
 
   # False before True.
   cmp : (Bool, Bool) -> Order

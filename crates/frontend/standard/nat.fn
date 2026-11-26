@@ -8,24 +8,30 @@ export {Nat.*}
 Nat : [Zero, Succ(Nat)].(
   zero : Nat
   zero = 0
+  expect Nat.zero == 0
 
   # A numeral of a generic type is built through its type's `of_nat`, and a
   # natural is already one.
   of_nat : Nat -> Nat
   of_nat(n) -> n
+  expect Nat.of_nat(3) == 3
 
   add : (Nat, Nat) -> Nat
   add(0, y) -> y
   add(Succ(n), y) -> Succ(n + y)
+  expect 2 + 3 == 5
 
   sub : (Nat, Nat) -> Nat
   sub(0, _) -> 0
   sub(m, 0) -> m
   sub(Succ(m), Succ(n)) -> m - n
+  expect 5 - 3 == 2
+  expect 3 - 5 == 0
 
   mul : (Nat, Nat) -> Nat
   mul(0, _) -> 0
   mul(Succ(m), y) -> y + m * y
+  expect 4 * 3 == 12
 
   div : (Nat, Nat) -> Nat
   div(_, 0) -> 0
@@ -34,6 +40,8 @@ Nat : [Zero, Succ(Nat)].(
     quotient = div(a, divisor)
     div_step(nat_same(mod(a, divisor), b), quotient)
   )
+  expect 7 / 2 == 3
+  expect 7 / 0 == 0
 
   mod : (Nat, Nat) -> Nat
   mod(a, 0) -> a
@@ -42,28 +50,36 @@ Nat : [Zero, Succ(Nat)].(
     remainder = mod(a, divisor)
     mod_step(nat_same(remainder, b), remainder)
   )
+  expect 7 % 3 == 1
+  expect 7 % 0 == 7
 
   # `base` to the `exponent`, squaring the base as the exponent halves: as
   # many steps as the exponent has bits, each going round again. The
   # compiler recognizes the walk, and answers a power as one operation.
   pow : (Nat, Nat) -> Nat
   pow(base, exponent) -> pow_into(base, exponent, 1)
+  expect 2.pow(10) == 1024
+  expect 0.pow(0) == 1
 
   times : (Nat, a, a -> a) -> a
   times(0, value, _) -> value
   times(Succ(count), value, f) -> times(count, f(value), f)
+  expect 3.times(1, |n| n * 2) == 8
 
   # One comparison each way, which the compiler recognizes as instructions,
   # rather than a walk down both counts. `equals` is its `Eq`, which the
   # compiler answers as the one comparison again.
   cmp : (Nat, Nat) -> Order
   cmp(a, b) -> nat_order(nat_below(a, b), nat_same(a, b))
+  expect 3.cmp(5) == Lt
 
   min : (Nat, Nat) -> Nat
   min(a, b) -> (a <= b).select(a, b)
+  expect 3.min(5) == 3
 
   max : (Nat, Nat) -> Nat
   max(a, b) -> (a <= b).select(b, a)
+  expect 3.max(5) == 5
 
   # Bitwise, a bit of the answer for each place either has one: `a & b`,
   # `a | b` and `a ^ b`. Each walk goes on only while both have bits left.
@@ -71,39 +87,48 @@ Nat : [Zero, Succ(Nat)].(
   # instruction on a word, or a digit at a time past one.
   and : (Nat, Nat) -> Nat
   and(a, b) -> and_bits(a, b, 1, 0)
+  expect (12 & 10) == 8
 
   or : (Nat, Nat) -> Nat
   or(a, b) -> or_bits(a, b, 1, 0)
+  expect (12 | 10) == 14
 
   xor : (Nat, Nat) -> Nat
   xor(a, b) -> xor_bits(a, b, 1, 0)
+  expect (12 ^ 10) == 6
 
   # The bits moved up by `amount`, a natural having no top to lose them
   # past: `n * 2.pow(amount)`.
   shift_left : (Nat, Nat) -> Nat
   shift_left(n, amount) -> n * 2.pow(amount)
+  expect 5.shift_left(3) == 40
 
   # The bits moved down by `amount`, those below the bottom lost:
   # `n / 2.pow(amount)`.
   shift_right : (Nat, Nat) -> Nat
   shift_right(n, amount) -> n / 2.pow(amount)
+  expect 40.shift_right(3) == 5
 
   # The decimal text.
   to_str : Nat -> Str
   to_str(n) -> Str.from_ascii(nat_decimal(n)).ok_or("")
+  expect 42.to_str() == "42"
 
   # `Ok` of the number `text` writes in decimal: one digit or more, and
   # nothing else, no sign and no space.
   from_str : Str -> Result(Nat, [Malformed])
   from_str(text) -> nat_digits(text.to_utf8(), 0, False)
+  expect Nat.from_str("007") == Ok(7)
+  expect Nat.from_str("-1") == Err(Malformed)
 
-  # `hasher` with `n` fed: its value.
   # `Ok(n)` when `i` is the natural `n`; otherwise `Err(Negative)`: the
   # fallible narrowing `Int.of_nat` widens from, where `Int.abs` drops the
   # sign instead.
   from_int : Int -> Result(Nat, [Negative])
   from_int(Pos(n)) -> Ok(n)
   from_int(NegSucc(_)) -> Err(Negative)
+  expect Nat.from_int(4) == Ok(4)
+  expect Nat.from_int(-2) == Err(Negative)
 
   # `base` raised to the `exponent`-th power, modulo `modulus`, each
   # product taken modulo as it is made, so no intermediate grows past it:
@@ -111,6 +136,8 @@ Nat : [Zero, Succ(Nat)].(
   # throw most of it away. By squaring, as `pow` goes.
   pow_mod : (Nat, Nat, Nat) -> Nat
   pow_mod(base, exponent, modulus) -> pow_mod_into(base % modulus, exponent, 1 % modulus, modulus)
+  expect Nat.pow_mod(3, 200, 1000) == 1
+  expect Nat.pow_mod(5, 0, 1) == 0
 
   # The greatest common divisor: the largest natural dividing both, so
   # `gcd(n, 0)` is `n`, and nought only for `gcd(0, 0)`. Euclid's, each step
@@ -119,7 +146,10 @@ Nat : [Zero, Succ(Nat)].(
   gcd : (Nat, Nat) -> Nat
   gcd(a, 0) -> a
   gcd(a, b) -> gcd(b, a % b)
+  expect Nat.gcd(12, 18) == 6
+  expect Nat.gcd(0, 0) == 0
 
+  # `hasher` with `n` fed: its value.
   hash_into : (Nat, h) -> h where Hasher(h)
   hash_into(n, hasher) -> hasher.write_u64(U64.of_nat(n))
 
@@ -207,21 +237,16 @@ div_step(False, quotient) -> quotient
 mod_step(True, _) -> 0
 mod_step(False, remainder) -> Succ(remainder)
 
-expect Nat.from_str("0").ok_or(9) == 0 & Nat.from_str("007").ok_or(0) == 7
-expect Nat.from_str("1234").ok_or(0) == 1234
-expect Nat.from_str("").is_err() & Nat.from_str("12a").is_err() & Nat.from_str("-1").is_err()
-expect 3.min(5) == 3 & 3.max(5) == 5
+expect Nat.from_str("0") == Ok(0) & Nat.from_str("1234") == Ok(1234)
+expect Nat.from_str("").is_err() & Nat.from_str("12a").is_err()
 # `&`, `|` and `^` bind looser than comparisons, so a bitwise answer is
 # compared in parentheses.
-expect (12 & 10) == 8 & (12 | 10) == 14 & (12 ^ 10) == 6
 expect (0 & 7) == 0 & (0 | 7) == 7 & (7 ^ 7) == 0 & (5 | 0) == 5
 expect (1267650600228229401496703205376 | 1) == 1267650600228229401496703205377
-expect 5.shift_left(3) == 40 & 1.shift_left(100) == 1267650600228229401496703205376 & 0.shift_left(9) == 0
+expect 1.shift_left(100) == 1267650600228229401496703205376 & 0.shift_left(9) == 0
 expect (40007.shift_right(10) & 7) == 7 & 40007.shift_right(13) == 4 & 5.shift_right(3) == 0
-expect 2.pow(0) == 1 & 2.pow(10) == 1024 & 3.pow(5) == 243 & 0.pow(0) == 1 & 0.pow(3) == 0
-expect (-3).pow(3) == -27 & Nat.pow_mod(3, 200, 1000) == 1 & Nat.pow_mod(5, 0, 1) == 0
-expect Nat.from_int(-2) == Err(Negative) & Nat.from_int(4) == Ok(4)
-expect Nat.gcd(0, 0) == 0 & Nat.gcd(0, 7) == 7 & Nat.gcd(7, 0) == 7 & Nat.gcd(1, 9) == 1 & Nat.gcd(9, 1) == 1
-expect Nat.gcd(12, 18) == 6 & Nat.gcd(18, 12) == 6 & Nat.gcd(9, 9) == 9 & Nat.gcd(35, 64) == 1
+expect 2.pow(0) == 1 & 3.pow(5) == 243 & 0.pow(3) == 0
+expect Nat.gcd(0, 7) == 7 & Nat.gcd(7, 0) == 7 & Nat.gcd(1, 9) == 1 & Nat.gcd(9, 1) == 1
+expect Nat.gcd(18, 12) == 6 & Nat.gcd(9, 9) == 9 & Nat.gcd(35, 64) == 1
 expect Nat.gcd(1267650600228229401496703205376, 3541774862152233910272) == 1180591620717411303424
 expect Nat.gcd(618970019642690137449562111, 18446744073709551616) == 1 & Nat.gcd(110680464442257309696, 166020696663385964544) == 55340232221128654848

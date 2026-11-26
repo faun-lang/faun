@@ -8,37 +8,45 @@ export {Int.*}
 Int : [Pos(Nat), NegSucc(Nat)].(
   zero : Int
   zero = Pos(0)
+  expect Int.zero == 0
 
   of_nat : Nat -> Int
   of_nat(n) -> Pos(n)
+  expect Int.of_nat(3) == 3
 
   abs : Int -> Nat
   abs(Pos(n)) -> n
   abs(NegSucc(n)) -> n + 1
+  expect (-5).abs() == 5
 
   is_negative : Int -> Bool
   is_negative(Pos(_)) -> False
   is_negative(NegSucc(_)) -> True
+  expect (-1).is_negative() & !Int.zero.is_negative()
 
   neg : Int -> Int
   neg(Pos(0)) -> Pos(0)
   neg(Pos(Succ(n))) -> NegSucc(n)
   neg(NegSucc(n)) -> Pos(n + 1)
+  expect (-5).neg() == 5
 
   add : (Int, Int) -> Int
   add(Pos(a), Pos(b)) -> Pos(a + b)
   add(NegSucc(a), NegSucc(b)) -> NegSucc(a + b + 1)
   add(Pos(a), NegSucc(b)) -> difference(a, Succ(b))
   add(NegSucc(a), Pos(b)) -> difference(b, Succ(a))
+  expect -3 + 5 == 2
 
   sub : (Int, Int) -> Int
   sub(a, b) -> a + neg(b)
+  expect -2 - 3 == -5
 
   mul : (Int, Int) -> Int
   mul(Pos(a), Pos(b)) -> Pos(a * b)
   mul(Pos(a), NegSucc(b)) -> neg(of_nat(a * (b + 1)))
   mul(NegSucc(a), Pos(b)) -> neg(of_nat((a + 1) * b))
   mul(NegSucc(a), NegSucc(b)) -> Pos((a + 1) * (b + 1))
+  expect -2 * 3 == -6
 
   # `a` divided by `b`, Euclidean: the remainder is never negative, so
   # `0 <= a % b < |b|` whatever the signs, and `a = (a / b) * b + a % b`
@@ -53,6 +61,8 @@ Int : [Pos(Nat), NegSucc(Nat)].(
   div(Pos(a), NegSucc(b)) -> neg(of_nat(a / (b + 1)))
   div(NegSucc(a), Pos(b)) -> neg(of_nat(rounded_away((a + 1) / b, (a + 1) % b)))
   div(NegSucc(a), NegSucc(b)) -> of_nat(rounded_away((a + 1) / (b + 1), (a + 1) % (b + 1)))
+  expect -7 / 3 == -3
+  expect 7 / -3 == -2
 
   # `a` modulo `b`, Euclidean: the one `r` in `0 <= r < |b|` with
   # `a = q * b + r`. The divisor's sign does not reach the remainder; a
@@ -63,6 +73,8 @@ Int : [Pos(Nat), NegSucc(Nat)].(
   mod(Pos(a), NegSucc(b)) -> Pos(a % (b + 1))
   mod(NegSucc(a), Pos(b)) -> folded_up((a + 1) % b, b)
   mod(NegSucc(a), NegSucc(b)) -> folded_up((a + 1) % (b + 1), b + 1)
+  expect -7 % 3 == 2
+  expect 7 % -3 == 1
 
   # Every negative before every natural; among negatives, the larger
   # predecessor is further below.
@@ -71,29 +83,36 @@ Int : [Pos(Nat), NegSucc(Nat)].(
   cmp(NegSucc(a), NegSucc(b)) -> b.cmp(a)
   cmp(Pos(_), NegSucc(_)) -> Gt
   cmp(NegSucc(_), Pos(_)) -> Lt
+  expect (-2).cmp(1) == Lt
 
   min : (Int, Int) -> Int
   min(a, b) -> (a <= b).select(a, b)
+  expect (-2).min(1) == -2
 
   max : (Int, Int) -> Int
   max(a, b) -> (a <= b).select(b, a)
+  expect (-2).max(1) == 1
 
   to_str : Int -> Str
   to_str(Pos(n)) -> n.to_str()
   to_str(NegSucc(n)) -> "-".concat((n + 1).to_str())
+  expect (-12).to_str() == "-12"
 
   # `Ok` of the number `text` writes in decimal, a `-` before it for a
   # negative one, as `Nat.from_str` reads the digits.
   from_str : Str -> Result(Int, [Malformed])
   from_str(text) -> signed(text.drop_prefix("-"), text)
+  expect Int.from_str("-42") == Ok(-42)
+  expect Int.from_str("--1") == Err(Malformed)
 
-  # `hasher` with `a` fed: its sign, then its magnitude.
   # `base` raised to the `exponent`-th power. A negative exponent would
   # need a rational answer, so it is not this operation's.
   pow : (Int, Nat) -> Int
   pow(_, 0) -> of_nat(1)
   pow(base, Succ(rest)) -> base * pow(base, rest)
+  expect (-3).pow(3) == -27
 
+  # `hasher` with `a` fed: its sign, then its magnitude.
   hash_into : (Int, h) -> h where Hasher(h)
   hash_into(a, hasher) -> hasher.write_u64(U64.of_nat(is_negative(a).to_nat())).write_u64(U64.of_nat(abs(a)))
 )
@@ -120,9 +139,6 @@ folded_up : (Nat, Nat) -> Int
 folded_up(0, _) -> Pos(0)
 folded_up(r, magnitude) -> Pos(magnitude - r)
 
-expect Int.from_str("-42").ok_or(0) == -42 & Int.from_str("17").ok_or(0) == 17
-expect Int.from_str("-").is_err() & Int.from_str("--1").is_err()
-expect (-2).min(1) == -2 & (-2).max(1) == 1
-expect -7 / 3 == -3 & -7 % 3 == 2 & 7 / -3 == -2 & 7 % -3 == 1
+expect Int.from_str("17") == Ok(17) & Int.from_str("-") == Err(Malformed)
 expect -7 / -3 == 3 & -7 % -3 == 2 & -6 / 3 == -2 & -6 % 3 == 0
 expect 5 / 0 == 0 & -5 % 0 == -5 & -1 / 2 == -1 & -1 % 2 == 1

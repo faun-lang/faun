@@ -20,26 +20,33 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
   # The empty map.
   empty : SortedMap(k, v)
   empty = Tip
+  expect SortedMap.empty.is_empty()
 
   # Whether `map` has no entries.
   is_empty : SortedMap(k, v) -> Bool
   is_empty(Tip) -> True
   is_empty(_) -> False
+  expect !SortedMap.of_list([(1, "a")]).is_empty()
 
   # The number of entries in `map`.
   len : SortedMap(k, v) -> Nat
   len(Tip) -> 0
   len(Bin(left, _, _, right, _)) -> len(left) + 1 + len(right)
+  expect SortedMap.of_list([(1, "a"), (2, "b"), (1, "c")]).len() == 2
 
   # The value bound to `key` in `map`: `Ok(value)` when `key` is present;
   # otherwise `Err(Missing)`.
   get : (SortedMap(k, v), k) -> Result(v, [Missing]) where Ordered(k)
   get(Tip, _) -> Err(Missing)
   get(Bin(left, found, value, right, _), key) -> got(key.cmp(found), left, value, right, key)
+  expect SortedMap.of_list([(1, "a")]).get(1) == Ok("a")
+  expect SortedMap.of_list([(1, "a")]).get(2) == Err(Missing)
 
   # Whether `key` is bound in `map`.
   contains : (SortedMap(k, v), k) -> Bool where Ordered(k)
   contains(map, key) -> get(map, key).is_ok()
+  expect SortedMap.of_list([(1, "a")]).contains(1)
+  expect !SortedMap.of_list([(1, "a")]).contains(2)
 
   # `map` with `value` bound to `key`, replacing any existing binding for that
   # key. An existing key keeps its position and takes the new value, so
@@ -48,6 +55,7 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
   insert(Tip, key, value) -> Bin(Tip, key, value, Tip, 1)
   insert(Bin(left, found, existing, right, depth), key, value) ->
     inserted_at(key.cmp(found), left, found, existing, right, depth, key, value)
+  expect SortedMap.empty.insert(2, "b").insert(1, "a").insert(2, "c").to_list() == [(1, "a"), (2, "c")]
 
   # `map` without any binding for `key`; unchanged when `key` is absent, so
   # removal is idempotent, and it undoes an `insert` of a key that was not
@@ -56,24 +64,30 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
   remove(Tip, _) -> Tip
   remove(Bin(left, found, value, right, _), key) ->
     removed_at(key.cmp(found), left, found, value, right, key)
+  expect SortedMap.of_list([(1, "a"), (2, "b")]).remove(1).to_list() == [(2, "b")]
+  expect SortedMap.of_list([(1, "a")]).remove(2).to_list() == [(1, "a")]
 
   # `map` with `key`'s value replaced by `change` applied to it; unchanged
   # when `key` is absent, as `remove` is, and as `Map.update` does.
   update : (SortedMap(k, v), k, v -> v) -> SortedMap(k, v) where Ordered(k)
   update(map, key, change) -> get(map, key).map_ok(|value| insert(map, key, change(value))).ok_or(map)
+  expect SortedMap.of_list([(1, 10)]).update(1, |n| n + 1).update(2, |n| n + 1).to_list() == [(1, 11)]
 
   # `map` with `key`'s value replaced by `change` applied to it, or to
   # `missing` where `key` is absent, as `Map.update_or` does.
   update_or : (SortedMap(k, v), k, v, v -> v) -> SortedMap(k, v) where Ordered(k)
   update_or(map, key, missing, change) -> insert(map, key, change(get(map, key).ok_or(missing)))
+  expect SortedMap.of_list([(2, [1])]).update_or(1, [], |xs| [0, *xs]).update_or(2, [], |xs| [0, *xs]).to_list() == [(1, [0]), (2, [0, 1])]
 
   # The keys of `map` in ascending order.
   keys : SortedMap(k, v) -> List(k)
   keys(map) -> to_list(map).map(|(key, _)| key)
+  expect SortedMap.of_list([(2, "b"), (1, "a")]).keys() == [1, 2]
 
   # The values of `map`, in ascending order of their keys.
   values : SortedMap(k, v) -> List(v)
   values(map) -> to_list(map).map(|(_, value)| value)
+  expect SortedMap.of_list([(2, "b"), (1, "a")]).values() == ["a", "b"]
 
   # The result of combining the entries of `map` in ascending key order,
   # beginning with `initial`, each entry as its key and value: the left
@@ -82,6 +96,7 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
   fold(Tip, initial, _) -> initial
   fold(Bin(left, key, value, right, _), initial, combine) ->
     fold(right, combine(fold(left, initial, combine), key, value), combine)
+  expect SortedMap.of_list([(2, "b"), (1, "a")]).fold("", |text, _, piece| text.concat(piece)) == "ab"
 
   # `map` with each value changed by `change`, its keys and shape as they
   # were.
@@ -89,21 +104,25 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
   map_values(Tip, _) -> Tip
   map_values(Bin(left, key, value, right, depth), change) ->
     Bin(map_values(left, change), key, change(value), map_values(right, change), depth)
+  expect SortedMap.of_list([(1, 1), (2, 2)]).map_values(|n| n * 10).to_list() == [(1, 10), (2, 20)]
 
-  # The entries of `map` in ascending key order — the map's one observable
-  # shape.
   # The entries whose keys are at least `low`, in ascending order, the
   # parts of the tree holding only smaller keys passed over.
   from : (SortedMap(k, v), k) -> List((k, v)) where Ordered(k)
   from(map, low) -> from_onto(map, low, [])
+  expect SortedMap.of_list([(2, "b"), (1, "a"), (3, "c")]).from(2) == [(2, "b"), (3, "c")]
 
   # The entries whose keys are at least `low` and below `high`, in
   # ascending order, visiting only the parts of the tree that hold them.
   range : (SortedMap(k, v), k, k) -> List((k, v)) where Ordered(k)
   range(map, low, high) -> range_onto(map, low, high, [])
+  expect SortedMap.of_list([(2, "b"), (1, "a"), (3, "c")]).range(1, 3) == [(1, "a"), (2, "b")]
 
+  # The entries of `map` in ascending key order — the map's one observable
+  # shape.
   to_list : SortedMap(k, v) -> List((k, v))
   to_list(map) -> all_onto(map, [])
+  expect SortedMap.of_list([(2, "b"), (1, "a")]).to_list() == [(1, "a"), (2, "b")]
 
   # The map as the call building it is written, its entries in ascending
   # key order: `SortedMap.of_list([(1, "a"), (2, "b")])`.
@@ -111,6 +130,7 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
     Printable(k),
     Printable(v)
   to_str(map) -> "SortedMap.of_list(${to_list(map)})"
+  expect "${SortedMap.counted(["b", "a", "b"])}" == "SortedMap.of_list([(\"a\", 1), (\"b\", 2)])"
 
   # Whether `map` and `other` bind the same keys to equal values: their
   # ascending entries agree, however either was built.
@@ -118,11 +138,14 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
     Equatable(k),
     Equatable(v)
   equals(map, other) -> to_list(map) == to_list(other)
+  expect SortedMap.of_list([(2, "b"), (1, "a")]) == SortedMap.of_list([(1, "a"), (2, "b")])
+  expect SortedMap.of_list([(1, "a")]) != SortedMap.of_list([(1, "b")])
 
   # The map binding each entry of `entries`, later entries winning exactly as
   # repeated `insert` calls would.
   of_list : List((k, v)) -> SortedMap(k, v) where Ordered(k)
   of_list(entries) -> entries.fold(Tip, |built, (key, value)| insert(built, key, value))
+  expect SortedMap.of_list([(2, "b"), (1, "a"), (2, "c")]).to_list() == [(1, "a"), (2, "c")]
 
   # The elements of `values` gathered by `key`, as `Map.grouped` gathers
   # them, the groups in ascending key order and each in the order read.
@@ -131,11 +154,13 @@ SortedMap(k, v) : [Tip, Bin(SortedMap(k, v), k, v, SortedMap(k, v), Nat)].(
     gathered = values.fold(Tip, |table, value| update_or(table, key(value), [], |group| [value, *group]))
     map_values(gathered, |group| group.reverse())
   )
+  expect SortedMap.grouped([1, 2, 3, 4, 5], |n| n % 2).to_list() == [(0, [2, 4]), (1, [1, 3, 5])]
 
   # How many times each of `values` occurs, as `Map.counted` counts, in
   # ascending order of the values.
   counted : List(k) -> SortedMap(k, Nat) where Ordered(k)
   counted(values) -> values.fold(Tip, |tally, value| update_or(tally, value, 0, |count| count + 1))
+  expect SortedMap.counted(["b", "a", "b"]).to_list() == [("a", 1), ("b", 2)]
 )
 
 height : SortedMap(k, v) -> Nat
@@ -255,13 +280,3 @@ range_onto(Bin(_, key, _, right, _), low, high, after) if key < low -> range_ont
 range_onto(Bin(left, key, _, _, _), low, high, after) if key >= high -> range_onto(left, low, high, after)
 range_onto(Bin(left, key, value, right, _), low, high, after) ->
   range_onto(left, low, high, [(key, value), *range_onto(right, low, high, after)])
-
-expect SortedMap.counted(["b", "a", "b"]).to_list() == [("a", 1), ("b", 2)]
-expect "${SortedMap.counted(["b", "a", "b"])}" == "SortedMap.of_list([(\"a\", 1), (\"b\", 2)])"
-expect SortedMap.grouped([1, 2, 3, 4, 5], |n| n % 2).to_list() == [(0, [2, 4]), (1, [1, 3, 5])]
-expect SortedMap.of_list([(2, [1])]).update_or(1, [], |xs| [0, *xs]).update_or(2, [], |xs| [0, *xs]).to_list() == [(1, [0]), (2, [0, 1])]
-expect SortedMap.of_list([(1, 10)]).update(1, |n| n + 1).update(2, |n| n + 1).to_list() == [(1, 11)]
-expect SortedMap.of_list([(2, "b"), (1, "a")]) == SortedMap.of_list([(1, "a"), (2, "b")])
-expect SortedMap.of_list([(1, "a")]) != SortedMap.of_list([(1, "b")])
-expect SortedMap.of_list([(2, "b"), (1, "a"), (3, "c")]).from(2) == [(2, "b"), (3, "c")]
-expect SortedMap.of_list([(2, "b"), (1, "a"), (3, "c")]).range(1, 3) == [(1, "a"), (2, "b")]

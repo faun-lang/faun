@@ -33,6 +33,7 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
   # The empty map.
   empty : Map(k, v)
   empty = seeded(0)
+  expect Map.empty.is_empty()
 
   # The empty map whose hashing begins from `seed`. Two maps with different
   # seeds file the same keys under different digests and behave alike in
@@ -40,14 +41,18 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
   # what makes a table's collisions unforeseeable to whoever chose its keys.
   seeded : U64 -> Map(k, v)
   seeded(seed) -> Map({seed: seed, slots: [], index: List.repeat([], 16), size: 0})
+  expect Map.seeded(7).insert("a", 1) == Map.empty.insert("a", 1)
 
   # Whether `map` has no entries.
   is_empty : Map(k, v) -> Bool
   is_empty(map) -> len(map) == 0
+  expect !Map.of_list([("a", 1)]).is_empty()
+  expect Map.of_list([("a", 1)]).remove("a").is_empty()
 
   # The number of entries in `map`.
   len : Map(k, v) -> Nat
   len(Map({size, *})) -> size
+  expect Map.of_list([("a", 1), ("b", 2), ("a", 3)]).len() == 2
 
   # The value bound to `key` in `map`: `Ok(value)` when `key` is present;
   # otherwise `Err(Missing)`.
@@ -56,16 +61,21 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
     position = slot_of(seed, index, slots, key)?
     value_at(slots, position)
   )
+  expect Map.of_list([("a", 1)]).get("a") == Ok(1)
+  expect Map.of_list([("a", 1)]).get("b") == Err(Missing)
 
   # Whether `key` is bound in `map`.
   contains : (Map(k, v), k) -> Bool where Hashable(k)
   contains(map, key) -> get(map, key).is_ok()
+  expect Map.of_list([("a", 1)]).contains("a")
+  expect !Map.of_list([("a", 1)]).contains("b")
 
   # `map` with `value` bound to `key`, replacing any existing binding. An
   # existing key keeps its place in insertion order and takes the new value.
   insert : (Map(k, v), k, v) -> Map(k, v) where Hashable(k)
   insert(Map({seed, slots, index, size}), key, value) ->
     replaced(slot_of(seed, index, slots, key), seed, slots, index, size, key, value)
+  expect Map.empty.insert("a", 1).insert("b", 2).insert("a", 3).to_list() == [("a", 3), ("b", 2)]
 
   # `map` with `key`'s value replaced by `change` applied to it; unchanged
   # when `key` is absent, as `remove` is. Reading, changing, and writing back
@@ -73,12 +83,14 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
   # caller has to name a value for a key that is not there.
   update : (Map(k, v), k, v -> v) -> Map(k, v) where Hashable(k)
   update(map, key, change) -> changed(map, key, change, get(map, key))
+  expect Map.of_list([("a", 1)]).update("a", |n| n + 1).update("b", |n| n + 1).to_list() == [("a", 2)]
 
   # `map` with `key`'s value replaced by `change` applied to it, or to
   # `missing` where `key` is absent, as Python's `defaultdict` updates:
   # `counts.update_or(word, 0, |count| count + 1)`.
   update_or : (Map(k, v), k, v, v -> v) -> Map(k, v) where Hashable(k)
   update_or(map, key, missing, change) -> insert(map, key, change(get(map, key).ok_or(missing)))
+  expect Map.of_list([("a", 1)]).update_or("a", 0, |n| n + 1).update_or("b", 0, |n| n + 1).to_list() == [("a", 2), ("b", 1)]
 
   # `map` without any binding for `key`; unchanged when `key` is absent.
   remove : (Map(k, v), k) -> Map(k, v) where Hashable(k)
@@ -95,10 +107,13 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
       size: size - 1,
     })
   )
+  expect Map.of_list([("a", 1), ("b", 2)]).remove("a").to_list() == [("b", 2)]
+  expect Map.of_list([("a", 1)]).remove("b").to_list() == [("a", 1)]
 
   # The entries of `map` in insertion order.
   to_list : Map(k, v) -> List((k, v))
   to_list(Map({slots, *})) -> slots.flat_map(filled)
+  expect Map.of_list([("b", 2), ("a", 1)]).to_list() == [("b", 2), ("a", 1)]
 
   # The map as the call building it is written, its entries in insertion
   # order: `Map.of_list([("a", 1), ("b", 2)])`.
@@ -106,14 +121,18 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
     Printable(k),
     Printable(v)
   to_str(map) -> "Map.of_list(${to_list(map)})"
+  expect "${Map.of_list([("b", [1]), ("a", [])])}" == "Map.of_list([(\"b\", [1]), (\"a\", [])])"
+  expect Map.counted([0].drop(1)).to_str() == "Map.of_list([])"
 
   # The keys of `map` in insertion order.
   keys : Map(k, v) -> List(k)
   keys(map) -> to_list(map).map(|(key, _)| key)
+  expect Map.of_list([("b", 2), ("a", 1)]).keys() == ["b", "a"]
 
   # The values of `map` in insertion order.
   values : Map(k, v) -> List(v)
   values(map) -> to_list(map).map(|(_, value)| value)
+  expect Map.of_list([("b", 2), ("a", 1)]).values() == [2, 1]
 
   # `map` with `change` applied to every value: the same keys, bound in the
   # same order, read through a function rather than only read.
@@ -124,16 +143,20 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
   map_values : (Map(k, v), v -> w) -> Map(k, w)
   map_values(Map({seed, slots, index, size}), change) ->
     Map({seed: seed, slots: slots.map(|slot| value_changed(slot, change)), index: index, size: size})
+  expect Map.of_list([("a", 1), ("b", 2)]).map_values(|n| n * 10).to_list() == [("a", 10), ("b", 20)]
 
   # The result of combining the entries of `map` in insertion order,
   # beginning with `initial`, each entry as its key and value.
   fold : (Map(k, v), a, (a, k, v) -> a) -> a
   fold(Map({slots, *}), initial, combine) -> fold_slots(slots, initial, combine)
+  expect Map.of_list([("b", 2), ("a", 1)]).fold("", |text, key, _| text.concat(key)) == "ba"
+  expect Map.of_list([("a", 1), ("b", 2)]).fold(0, |total, _, n| total + n) == 3
 
   # The map binding each entry of `entries`, later entries winning as
   # repeated `insert` calls would.
   of_list : List((k, v)) -> Map(k, v) where Hashable(k)
   of_list(entries) -> entries.fold(empty, |built, (key, value)| insert(built, key, value))
+  expect Map.of_list([("a", 1), ("b", 2), ("a", 3)]).to_list() == [("a", 3), ("b", 2)]
 
   # The elements of `values` gathered by `key`: each element in the group
   # its key names, the groups in the order their keys first appear, and the
@@ -151,12 +174,15 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
     gathered = values.fold(empty, |table, value| update_or(table, key(value), [], |group| [value, *group]))
     map_values(gathered, |group| group.reverse())
   )
+  expect Map.grouped([1, 2, 3, 4, 5], |n| n % 2).to_list() == [(1, [1, 3, 5]), (0, [2, 4])]
 
   # How many times each of `values` occurs, as Python's `Counter` counts:
   # each value a key, in the order it first appears, bound to its count. A
   # value that never occurs is missing, so `get(value).ok_or(0)` reads it.
   counted : List(k) -> Map(k, Nat) where Hashable(k)
   counted(values) -> values.fold(empty, |tally, value| update_or(tally, value, 0, |count| count + 1))
+  expect Map.counted(["a", "b", "a"]).to_list() == [("a", 2), ("b", 1)]
+  expect Map.counted([0].drop(1)).is_empty()
 
   # Whether `map` and `other` bind the same keys to equal values, in
   # whatever order either was built: every entry of one is found in the
@@ -166,6 +192,8 @@ Map(k, v) : {seed: U64, slots: List(Slot(k, v)), index: List(List((U64, Nat))), 
     Equatable(v)
   equals(map, other) ->
     len(map) == len(other) & to_list(map).all(|(key, value)| get(other, key) == Ok(value))
+  expect Map.of_list([("a", 1), ("b", 2)]) == Map.of_list([("b", 2), ("a", 1)])
+  expect Map.of_list([("a", 1)]) != Map.of_list([("a", 2)])
 )
 
 # The read `update` already made, spent: a hit writes the changed value back
@@ -272,9 +300,3 @@ placed(index, room, digest, position) -> (
   held = index.get(bucket).ok_or([])
   index.put(bucket, [(digest, position), *held])
 )
-
-expect Map.counted(["a", "b", "a"]).to_list() == [("a", 2), ("b", 1)] & Map.counted([0].drop(1)).is_empty()
-expect "${Map.of_list([("b", [1]), ("a", [])])}" == "Map.of_list([(\"b\", [1]), (\"a\", [])])"
-expect Map.counted([0].drop(1)).to_str() == "Map.of_list([])"
-expect Map.grouped([1, 2, 3, 4, 5], |n| n % 2).to_list() == [(1, [1, 3, 5]), (0, [2, 4])]
-expect Map.of_list([("a", 1)]).update_or("a", 0, |n| n + 1).update_or("b", 0, |n| n + 1).to_list() == [("a", 2), ("b", 1)]

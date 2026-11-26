@@ -15,61 +15,77 @@ Set(k) : Map(k, Bool).(
   # The empty set.
   empty : Set(k)
   empty = Set(Map.empty)
+  expect Set.empty.is_empty()
 
   # Whether `set` has no members.
   is_empty : Set(k) -> Bool
   is_empty(Set(members)) -> Map.is_empty(members)
+  expect !Set.of_list([1]).is_empty()
 
   # The number of members of `set`.
   len : Set(k) -> Nat
   len(Set(members)) -> Map.len(members)
+  expect Set.of_list([3, 1, 3]).len() == 2
 
   # `set` with `key` as a member; membership is idempotent.
   insert : (Set(k), k) -> Set(k) where Hashable(k)
   insert(Set(members), key) -> Set(Map.insert(members, key, True))
+  expect Set.of_list([1]).insert(2).insert(1).to_list() == [1, 2]
 
   # `set` without `key`; unchanged when `key` is not a member.
   remove : (Set(k), k) -> Set(k) where Hashable(k)
   remove(Set(members), key) -> Set(Map.remove(members, key))
+  expect Set.of_list([1, 2]).remove(1).to_list() == [2]
+  expect Set.of_list([1]).remove(2).to_list() == [1]
 
   # Whether `key` is a member of `set`.
   contains : (Set(k), k) -> Bool where Hashable(k)
   contains(Set(members), key) -> Map.contains(members, key)
+  expect Set.of_list([1, 2]).contains(2)
+  expect !Set.of_list([1, 2]).contains(3)
 
   # The members of `set` in insertion order.
   to_list : Set(k) -> List(k)
   to_list(Set(members)) -> Map.keys(members)
+  expect Set.of_list([3, 1, 2]).to_list() == [3, 1, 2]
 
   # The set as the call building it is written, its members in insertion
   # order: `Set.of_list([1, 2, 3])`.
   to_str : Set(k) -> Str where Printable(k)
   to_str(set) -> "Set.of_list(${to_list(set)})"
+  expect "${Set.of_list([3, 1, 3])}" == "Set.of_list([3, 1])"
+  expect Set.of_list(["x"]).to_str() == "Set.of_list([\"x\"])"
 
   # The result of combining the members of `set` in insertion order,
   # beginning with `initial`.
   fold : (Set(k), a, (a, k) -> a) -> a
   fold(set, initial, combine) -> to_list(set).fold(initial, combine)
+  expect Set.of_list(["b", "a"]).fold("", |text, key| text.concat(key)) == "ba"
 
   # The set whose members are the items of `list`.
   of_list : List(k) -> Set(k) where Hashable(k)
   of_list(items) -> items.fold(empty, insert)
+  expect Set.of_list([2, 1, 2]).to_list() == [2, 1]
 
   # The members of either set.
   union : (Set(k), Set(k)) -> Set(k) where Hashable(k)
   union(set, other) -> fold(other, set, insert)
+  expect Set.of_list([1, 2]).union(Set.of_list([2, 3])).to_list() == [1, 2, 3]
 
   # The members of `set` that are not members of `other`.
   difference : (Set(k), Set(k)) -> Set(k) where Hashable(k)
   difference(set, other) -> fold(other, set, remove)
+  expect Set.of_list([1, 2, 3]).difference(Set.of_list([2, 4])).to_list() == [1, 3]
 
   # The members of both sets.
   intersection : (Set(k), Set(k)) -> Set(k) where Hashable(k)
   intersection(set, other) -> of_list(to_list(set).filter(|key| contains(other, key)))
+  expect Set.of_list([1, 2, 3]).intersection(Set.of_list([3, 2, 4])).to_list() == [2, 3]
 
   # Whether `set` and `other` have the same members, in whatever order
   # either was built. Linear in the size.
   equals : (Set(k), Set(k)) -> Bool where Hashable(k)
   equals(set, other) -> len(set) == len(other) & to_list(set).all(|key| contains(other, key))
+  expect Set.of_list([1, 2]) == Set.of_list([2, 1])
+  expect Set.of_list([1]) != Set.of_list([1, 2])
 )
-
-expect "${Set.of_list([3, 1, 3])}" == "Set.of_list([3, 1])" & Set.of_list(["x"]).to_str() == "Set.of_list([\"x\"])"

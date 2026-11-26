@@ -375,8 +375,9 @@ expect [1, 2].map(double) == [2, 4]
 Here the first two are examples of `double`, and the third, after a blank
 line, a test of the module.
 
-The standard library's public `Str` and `List` methods each have examples,
-but `hash_into`, which only a hasher calls.
+The standard library's public methods each have examples, but
+`hash_into`, which only a hasher calls, and a derived member written as a
+signature alone, which has no clause to stand beneath.
 
 Nothing reads examples yet but `faun test`: Faun has no documentation
 generator and no language server. Either would show a definition as above,
@@ -522,7 +523,7 @@ sees its private definitions, so nothing is exported only to be tested.
 Since an expectation is a definition, a test that no longer type-checks is
 an error under `faun check`, not a failure found later. And a test is only
 a `Bool`, so no test framework, assertion library or runner protocol is
-needed; the standard library holds 224 expectations, 138 of them examples,
+needed; the standard library holds 591 expectations, 555 of them examples,
 and the examples directory about 780. What the compiler can settle while compiling it settles there, before
 the program runs.
 
