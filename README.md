@@ -1,130 +1,70 @@
 # Faun
 
-A work-in-progress compiled, strict functional language exploring whether C-like performance, Python-like concision, and Rust-like safety can be obtained from a comparatively small set of language mechanisms.
+Faun is an experimental, compiled functional language. The goal is C-like
+performance with a small language, immutable values, and no source-level
+memory management.
+
+## What stands out
+
+- **Inferred types and structural records.** Signatures are optional. A
+  function can ask for the fields it needs without naming a record type.
+- **Pure code, explicit effects.** Pattern matches must cover every case.
+  Names ending in `!` mark effects. Programs get their I/O capabilities from
+  the host, and the compiler checks that resources such as open files are
+  neither dropped nor used after closing.
+- **Immutable values, reusable storage.** Reference counting tracks ownership.
+  The compiler can reuse storage in place when nothing else can observe the
+  change, without a tracing garbage collector.
+
+## When it isn't a good fit
+
+Faun is unfinished. There is no FFI, stable binary interface, or concurrency
+model. You can pass known functions and call-site lambdas, but can't store or
+return functions as values. Exhaustive matching doesn't guarantee recursion
+will terminate.
+
+## Examples
+
+**Match on a record.** The `*` lets callers supply extra fields. Save as
+`names.fn`:
 
 ```ruby
-# Computes the factorial of an arbitrarily large natural number.
-# Panic free: every match covers every input.
-factorial : Nat -> Nat
-factorial(0) -> 1
-factorial(m) -> m * factorial(m - 1)
+display_name : {name: Str, *} -> Str
+display_name({name: "", *}) -> "anonymous"
+display_name({name, *}) -> name
 
-# Effectful functions come from the host, and end with an exclamation mark
+expect display_name({name: "Ada", age: 36}) == "Ada"
+expect display_name({name: ""}) == "anonymous"
+```
+
+**Pass only the capability you need.** `greet!` gets stdout, not the whole
+host. Save as `hello.fn`:
+
+```ruby
+greet!(stdout) -> stdout.write!("Hello, world!\n".to_utf8())
+
 main!(host) -> (
-  name = host.args.get(1).ok_or("world")
-  host.println!("Hello, ${name}!")
+  greet!(host.stdout)
   host.exit!(0)
 )
 ```
 
-- **Strict functional semantics**: immutable values, value semantics, algebraic data types, pattern matching, and eager evaluation.
-- **Static, decidable typing**: HM-style type inference with row-polymorphic structural types; type signatures are optional, and may leave any part to inference with `_`.
-- **A pure core defined for every input**: pattern matches must be exhaustive. Recursion is not checked to stop: a call whose answer is needed and never comes back hangs, and pure work nothing needs may be left out. Effects enter explicitly through host-provided capabilities.
-- **Immutable semantics, mutable implementation**: heap values are reference-counted; uniquely owned storage may be reused in place when observationally equivalent to allocating a fresh value, with copy-on-write as the fallback.
-- **Second-order functions without runtime closures**: functions may accept statically known function arguments and call-site lambdas, but functions are not general runtime values.
-- **Explicit effects and resources**: effectful operations are syntactically marked, capabilities are passed explicitly, and linear resource types enforce explicit acquisition, use, and cleanup.
-- **Backend-independent semantics**: source programs expose neither machine layouts nor target intrinsics. Backends consume a shared, first-order machine-level IR.
+## Get started
 
-Faun is equally defined by the features it does not have
-
-- No source-level mutation, pointers, references, borrow syntax, or lifetime annotations.
-- No tracing garbage collector, reference cycles, or manual memory management.
-- No hidden semantic control flow: function and host calls happen only where written. There are no implicit constructors, destructors, exceptions, coercion hooks, or cleanup callbacks. Resource cleanup is explicit and statically enforced by linear resource types.
-- No null or unchecked partial pattern matches.
-- No inheritance, nominal subtyping, or implicit type conversions.
-- No first-class closures, currying, or higher-kinded types.
-- No dependent types or user-written proofs.
-- No macros, runtime reflection, or general compile-time metaprogramming.
-- No source-level object layouts, calling conventions, target intrinsics, or inline assembly.
-- No dependency on LLVM or libc.
-- And so much more! (That it doesn't have...)
-
-## What works today
-
-Compilation targets
-
-- x86-64 Linux
-- wasm32 WASI
-- MOS 6502 sim65
-- Apple Silicon macOS, with baseline support for constant exits, argument counts, and static writes.
-
-Every target has one backend: one lowering and one set of storage passes, shared by all of them, and its own emitter. Word size governs which layouts are available. In the development shell, `faun run` and `faun test` can execute Wasm with Wasmtime and 6502 images with sim65.
+In a checkout, build with the [pinned Rust toolchain](rust-toolchain.toml)
+and a C compiler. Save the two examples in the repository root, then run:
 
 ```sh
-faun run --target wasm32-wasi crates/frontend/examples/minimal-hello.fn
-faun run --target mos6502-sim65 crates/frontend/examples/minimal-hello.fn
-faun build --target aarch64-macos crates/frontend/examples/minimal-hello.fn -o hello
+cargo build --locked
+./target/debug/faun test names.fn
+./target/debug/faun run hello.fn
 ```
 
-Programs, in [`crates/frontend/examples`](crates/frontend/examples)
+The default target is native on x86-64 Linux and Apple Silicon macOS (limited
+support). For other hosts, choose `--target wasm32-wasi` or
+`--target mos6502-sim65`; `nix develop` includes their runners.
 
-- Advent of Code 2015, days 1 to 19
-- nine benchmark programs, from binary trees to spectral norm, each beside a C program
-- files read, written and closed, each checked to be closed once
-- libraries: JSON, MD5, a command-line parser, a heap, graphs, templates, property tests and more
-- `expect` tests, run by `faun test`
+[Language notes](notes/README.md) · [Standard library](crates/frontend/standard/README.md) ·
+[More examples](crates/frontend/examples) · [Helix highlighting](editors/tree-sitter-faun/README.md)
 
-Editors
-
-- Helix highlighting, by the tree-sitter grammar in [`editors/tree-sitter-faun`](editors/tree-sitter-faun/README.md)
-
-## Examples
-
-Newton's method, from [`newton.fn`](crates/frontend/examples/newton.fn): functions passed by name, a guard, and a failure that is a value
-
-```ruby
-Func = F64 -> F64
-
-# Newton's method, giving up after `n` steps: a root it never reaches is an
-# error value, not a crash.
-newton : (Func, Func, F64, Nat) -> Result(F64, [NoConvergence])
-newton(_, _, _, 0) -> Err(NoConvergence)
-newton(f, _, x, _) if f(x).abs() < 1.0e-12 -> Ok(x)
-newton(f, df, x, n) -> newton(f, df, x - f(x) / df(x), n - 1)
-
-f : Func
-f(x) -> x * x - 2.0
-
-df : Func
-df(x) -> 2.0 * x
-
-expect newton(f, df, 2.0, 50).ok_or(0.0).to_fixed(12) == "1.414213562373"
-expect newton(f, df, 0.0, 50) == Err(NoConvergence)
-```
-
-Quicksort, from [`quicksort.fn`](crates/frontend/examples/quicksort.fn): a generic function over any ordered type, list patterns, and lambdas
-
-```ruby
-sort : List(a) -> List(a) where Ordered(a)
-sort([]) -> []
-sort([pivot, *rest]) -> (
-  smaller = rest.filter(|x| x < pivot)
-  larger = rest.filter(|x| x >= pivot)
-  sort(smaller).concat([pivot]).concat(sort(larger))
-)
-
-expect sort([3, 1, 4, 1, 5, 9, 2, 6]) == [1, 1, 2, 3, 4, 5, 6, 9]
-expect sort(["pear", "fig", "apple"]) == ["apple", "fig", "pear"]
-```
-
-## Why not use Faun (yet)
-
-Faun is a work in progress. Today, though this may change, it has:
-
-- **No FFI**: a program cannot call code written in C or any other language.
-- **No ABI**: there is no stable binary interface, so compiled Faun cannot be linked as a library or called from other languages.
-- **No concurrency model**: a program runs on one thread. A model is in progress.
-
-## Open design questions
-
-- How to do FFI
-- How to do concurrency
-
-## License
-
-Faun, its standard library and its example libraries are under the
-[Zero-Clause BSD license](LICENSE): use them for anything, with no
-attribution required, so a compiled program carries no notice for the
-standard library inside it. Code adapted from elsewhere keeps its own
-license beside it: the `ansi` library's is roc-ansi's UPL-1.0, and the
-benchmarks game's C programs are under its revised BSD license.
+[0BSD](LICENSE), except where a separate license is noted.
