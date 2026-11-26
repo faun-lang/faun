@@ -67,6 +67,7 @@ mod common;
 mod digits;
 pub mod evaluate;
 mod fit;
+mod hoist;
 mod layout;
 mod legalize;
 mod lower;
@@ -121,6 +122,8 @@ mod external_tests;
 mod fit_tests;
 #[cfg(test)]
 mod flow_tests;
+#[cfg(test)]
+mod hoist_tests;
 #[cfg(test)]
 mod interpreter_tests;
 #[cfg(test)]
