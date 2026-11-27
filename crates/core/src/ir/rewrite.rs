@@ -157,6 +157,15 @@ pub(super) fn skeleton(source: &Program, declared: Declarations) -> Program {
 impl<'a> Rebuild<'a> {
     /// The program being read.
     #[must_use]
+    /// A rebuild of `source` with nothing yet standing for anything, for a
+    /// pass that walks regions itself.
+    pub(super) fn new(source: &'a Program) -> Self {
+        Self {
+            source,
+            values: vec![Cell::new(None); source.values_count()],
+        }
+    }
+
     pub(super) const fn source(&self) -> &'a Program {
         self.source
     }
@@ -286,7 +295,7 @@ impl<'a> Rebuild<'a> {
         clippy::too_many_lines,
         reason = "one arm per instruction; the length is the patterns"
     )]
-    fn plain(&self, b: &mut Builder, op: Op, results: &[ValueId]) -> Vec<ValueId> {
+    pub(super) fn plain(&self, b: &mut Builder, op: Op, results: &[ValueId]) -> Vec<ValueId> {
         match op {
             Op::Constant { value } => vec![b.constant(self.source.class(results[0]), value)],
             Op::NaturalConstant(data) => vec![b.kept_natural(data)],
@@ -348,6 +357,14 @@ impl<'a> Rebuild<'a> {
             } => vec![b.buffer_at((self.value(buffer), self.value(start)), shape)],
             Op::Keep { value } => {
                 b.keep(self.value(value));
+                Vec::new()
+            }
+            Op::Claim { value } => {
+                b.claim(self.value(value));
+                Vec::new()
+            }
+            Op::Release { value } => {
+                b.release(self.value(value));
                 Vec::new()
             }
             Op::BufferField {

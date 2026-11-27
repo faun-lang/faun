@@ -63,6 +63,7 @@ mod arithmetic;
 mod bounds;
 mod builder;
 mod cell;
+mod claims;
 mod common;
 mod digits;
 pub mod evaluate;
@@ -92,6 +93,7 @@ mod word_comparisons;
 
 pub use bounds::conversions_taking_nothing;
 pub use builder::Builder;
+pub use claims::place as place_claims;
 pub use fit::{Budget, fit};
 pub use layout::Layout;
 pub use legalize::legalize;
@@ -112,6 +114,8 @@ pub(crate) use word_comparisons::lower as lower_word_comparisons;
 mod arithmetic_tests;
 #[cfg(test)]
 mod bounds_tests;
+#[cfg(test)]
+mod claims_tests;
 #[cfg(test)]
 mod common_tests;
 #[cfg(test)]

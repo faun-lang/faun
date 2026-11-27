@@ -66,6 +66,9 @@ pub(crate) enum Color {
 pub(crate) enum Stage {
     Barb,
     Machine,
+    /// Machine IR with every claim to a managed value written where it is
+    /// taken and given up, as legalization reads it.
+    Claims,
     /// The target's own rendering of what it encodes.
     Target,
 }
@@ -308,12 +311,13 @@ fn test() -> impl Parser<(Command, Color)> {
 fn emit() -> impl Parser<(Command, Color)> {
     let target = target();
     let stage = positional::<String>("STAGE")
-        .help("The stage to print: barb, machine or target")
+        .help("The stage to print: barb, machine, claims or target")
         .parse(|stage| match stage.as_str() {
             "barb" => Ok(Stage::Barb),
             "machine" => Ok(Stage::Machine),
+            "claims" => Ok(Stage::Claims),
             "target" => Ok(Stage::Target),
-            _ => Err("expected barb, machine or target"),
+            _ => Err("expected barb, machine, claims or target"),
         });
     let source = positional::<PathBuf>("PATH").help("The source file to compile");
     colored(construct!(Command::Emit {

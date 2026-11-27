@@ -226,7 +226,9 @@ impl References<'_> {
             Op::Load { address: value, .. }
             | Op::Convert { value, .. }
             | Op::Shift { value, .. }
-            | Op::Keep { value } => self.value(value)?,
+            | Op::Keep { value }
+            | Op::Claim { value }
+            | Op::Release { value } => self.value(value)?,
             Op::Call { function, args } => {
                 reference(&p.functions, function, "function")?;
                 self.values(args)?;
@@ -559,6 +561,15 @@ impl Checker<'_> {
             }
             Op::Keep { value } => {
                 self.read(value)?;
+                self.results(results, &[])?;
+            }
+            Op::Claim { value } | Op::Release { value } => {
+                if !matches!(
+                    self.read(value)?,
+                    Class::Natural | Class::Cell | Class::Buffer
+                ) {
+                    return Err("a claim is to a natural, cell or buffer".into());
+                }
                 self.results(results, &[])?;
             }
             Op::Convert { value } => {
