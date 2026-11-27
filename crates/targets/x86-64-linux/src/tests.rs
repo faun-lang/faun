@@ -466,3 +466,49 @@ fn a_condition_kept_and_branched_on_is_not_tested_again() {
         "{code:?}"
     );
 }
+
+/// A branch on a value's low bit is the `and` that keeps the bit and a
+/// jump on the flags it set, not tested again.
+#[test]
+fn a_branch_on_a_low_bit_jumps_on_the_mask() {
+    use crate::machine::{Alu, Inst};
+    use faun_core::ir::{Binary, Class, Program};
+    use faun_core::targets::Favour;
+    let (mut source, main) = Program::new("main");
+    let odd = source.declare("odd", &[Class::Word, Class::Word], &[Class::Word]);
+    source.define(odd, |b, params| {
+        let low = b.convert(Class::fixed(1), params[0]);
+        let picked = b.if_(
+            low,
+            &[Class::Word],
+            |b| b.yield_(&[params[1]]),
+            |b| {
+                let sum = b.binary(Binary::Add, params[0], params[1]);
+                b.yield_(&[sum]);
+            },
+        );
+        b.ret(&picked);
+    });
+    source.define(main, |b, _| {
+        let three = b.constant(Class::Word, 3);
+        let four = b.constant(Class::Word, 4);
+        let answer = b.call(odd, &[three, four]);
+        b.ret(&answer);
+    });
+    let program = TARGET.prepare(&source).unwrap();
+    let allocated =
+        crate::selected::select_and_allocate_favouring(&program, Favour::Speed, false).unwrap();
+    let code = allocated.instructions();
+    assert!(
+        code.iter()
+            .any(|inst| matches!(inst, Inst::Narrow { bits: 1, .. })),
+        "{code:?}"
+    );
+    assert!(
+        !code.windows(2).any(|pair| matches!(
+            pair,
+            [Inst::Narrow { dst, .. }, Inst::Alu { op: Alu::Test, dst: tested, .. }] if dst == tested
+        )),
+        "{code:?}"
+    );
+}
