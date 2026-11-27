@@ -1,4 +1,4 @@
-use super::{Class, Program, Relation, conversions_taking_nothing};
+use super::{Class, Offset, Program, Relation, Width, conversions_taking_nothing};
 
 /// `v < 4` bounds `v` in the arm where it holds, so two bits keep all of
 /// it there; in the other arm, and before the branch, they need not.
@@ -65,4 +65,23 @@ fn a_comparison_the_other_way_bounds_the_arm_it_fails_in() {
     let whole = conversions_taking_nothing(&program);
     assert!(!whole[above.unwrap().index()]);
     assert!(whole[at_most.unwrap().index()]);
+}
+
+/// A byte a load read is below what eight bits keep, wherever it is read,
+/// and a word it read is not.
+#[test]
+fn a_load_narrower_than_a_word_bounds_what_it_reads() {
+    let (mut program, main) = Program::new_with_params("main", &[("address", Class::Word)]);
+    let (mut byte, mut word) = (None, None);
+    program.define(main, |b, args| {
+        let read = b.load(Width::Byte, args[0], Offset::Bytes(0));
+        byte = Some(b.convert(Class::fixed(8), read));
+        let whole = b.load(Width::Word, args[0], Offset::Bytes(0));
+        word = Some(b.convert(Class::fixed(8), whole));
+        let wide = b.convert(Class::Word, byte.unwrap());
+        b.ret(&[wide]);
+    });
+    let whole = conversions_taking_nothing(&program);
+    assert!(whole[byte.unwrap().index()]);
+    assert!(!whole[word.unwrap().index()]);
 }
