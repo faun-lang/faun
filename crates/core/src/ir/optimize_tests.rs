@@ -1181,3 +1181,38 @@ fn a_word_divided_by_a_held_power_of_two_is_moved_down() {
         "{held:?}"
     );
 }
+
+/// A word's every bit less `x` is `x` flipped, and that plus one is nought
+/// less `x`: `!x + 1` is the negation `0 - x` is, worked out the same way.
+#[test]
+fn a_words_complement_plus_one_is_its_negation() {
+    let word = Class::Held(Bounds {
+        low: 0,
+        high: Some(u64::MAX),
+    });
+    let (mut p, main) = Program::new_with_params("main", &[("x", word)]);
+    p.bind_layout(super::Layout { word_bits: 64 })
+        .expect("a layout the program allows");
+    p.define(main, |b, args| {
+        let ones = b.constant(word, u64::MAX);
+        let flipped = b.binary_at(word, Binary::Monus, ones, args[0]);
+        let one = b.constant(Class::Held(Bounds::at(1)), 1);
+        let negated = b.binary_at(word, Binary::Add, flipped, one);
+        let kept = b.binary_at(word, Binary::And, args[0], negated);
+        b.ret(&[kept]);
+    });
+    validate(&p).unwrap();
+    let held = optimize(&p);
+    validate(&held).unwrap();
+    let binaries = |wanted: Binary| {
+        count(
+            &held,
+            |op| matches!(*op, Op::Binary { op, .. } if op == wanted),
+        )
+    };
+    assert_eq!(
+        [Binary::Monus, Binary::Sub, Binary::Add].map(binaries),
+        [0, 1, 0],
+        "{held:?}"
+    );
+}
