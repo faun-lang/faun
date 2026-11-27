@@ -355,9 +355,24 @@ fn chaining_frames_changes_no_answer() {
 /// the operand copied and the sum written over the copy.
 #[test]
 fn a_sum_beside_what_it_was_worked_out_from_is_one_instruction() {
+    use faun_core::ir::Class;
+    // A sum bounded below 2^47 is worked out across the register all the
+    // same, so it answers anywhere as a word's does.
+    let held = |high| {
+        Class::Held(barb::Bounds {
+            low: 0,
+            high: Some(high),
+        })
+    };
+    for (operand, sum) in [(Class::Word, Class::Word), (held(1 << 46), held(1 << 47))] {
+        sum_is_one_instruction(operand, sum);
+    }
+}
+
+fn sum_is_one_instruction(operand: faun_core::ir::Class, sum: faun_core::ir::Class) {
     use crate::machine::{Alu, Inst};
     use faun_core::targets::Favour;
-    let program = TARGET.prepare(&sum_then_its_operand()).unwrap();
+    let program = TARGET.prepare(&sum_then_its_operand(operand, sum)).unwrap();
     let allocated =
         crate::selected::select_and_allocate_favouring(&program, Favour::Speed, false).unwrap();
     let code = allocated.instructions();
@@ -384,19 +399,25 @@ fn a_sum_beside_what_it_was_worked_out_from_is_one_instruction() {
     );
 }
 
-/// `(a + b) ^ a`, worked out by a function of its own from three and four.
-fn sum_then_its_operand() -> faun_core::ir::Program {
+/// `(a + b) ^ a`, worked out by a function of its own from three and four,
+/// each operand held at `operand` and the sum at `sum`.
+fn sum_then_its_operand(
+    operand: faun_core::ir::Class,
+    sum: faun_core::ir::Class,
+) -> faun_core::ir::Program {
     use faun_core::ir::{Binary, Class, Program};
     let (mut program, main) = Program::new("main");
-    let mixed = program.declare("mixed", &[Class::Word, Class::Word], &[Class::Word]);
+    let mixed = program.declare("mixed", &[operand, operand], &[Class::Word]);
     program.define(mixed, |b, params| {
-        let sum = b.binary(Binary::Add, params[0], params[1]);
-        let answer = b.binary(Binary::Xor, sum, params[0]);
+        let added = b.binary_at(sum, Binary::Add, params[0], params[1]);
+        let first = b.convert(Class::Word, params[0]);
+        let added = b.convert(Class::Word, added);
+        let answer = b.binary(Binary::Xor, added, first);
         b.ret(&[answer]);
     });
     program.define(main, |b, _| {
-        let three = b.constant(Class::Word, 3);
-        let four = b.constant(Class::Word, 4);
+        let three = b.constant(operand, 3);
+        let four = b.constant(operand, 4);
         let answer = b.call(mixed, &[three, four]);
         b.ret(&answer);
     });
