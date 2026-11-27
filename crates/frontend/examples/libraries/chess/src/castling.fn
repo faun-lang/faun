@@ -1,0 +1,94 @@
+# Which castles each side may still make: a right is lost for good once
+# its king or its rook moves, or its rook is taken.
+
+import piece {Color.*}
+
+export {CastlingSide.*, CastlingRights.*}
+
+# The side of the board a king castles toward: the king's side, toward
+# the `h` file, or the queen's, toward the `a` file.
+CastlingSide : [KingSide, QueenSide].(
+  # Both sides, the king's first.
+  all : List(CastlingSide)
+  all = [KingSide, QueenSide]
+  expect CastlingSide.all.len() == 2
+
+  cmp : (CastlingSide, CastlingSide) -> Order
+  to_str : CastlingSide -> Str
+)
+
+# The four rights, one for each side of each color.
+CastlingRights : {white_king: Bool, white_queen: Bool, black_king: Bool, black_queen: Bool}.(
+  # No right left, FEN's `-`.
+  none : CastlingRights
+  none = CastlingRights({white_king: False, white_queen: False, black_king: False, black_queen: False})
+  expect CastlingRights.none.to_str() == "-"
+
+  # Every right, as at the start, FEN's `KQkq`.
+  all : CastlingRights
+  all = CastlingRights({white_king: True, white_queen: True, black_king: True, black_queen: True})
+  expect CastlingRights.all.to_str() == "KQkq"
+
+  # Whether `color` may still castle on `side`.
+  has : (CastlingRights, Color, CastlingSide) -> Bool
+  has(CastlingRights(rights), White, KingSide) -> rights.white_king
+  has(CastlingRights(rights), White, QueenSide) -> rights.white_queen
+  has(CastlingRights(rights), Black, KingSide) -> rights.black_king
+  has(CastlingRights(rights), Black, QueenSide) -> rights.black_queen
+  expect CastlingRights.all.has(Black, QueenSide)
+  expect !CastlingRights.none.has(White, KingSide)
+
+  # The rights with `color`'s right on `side` gone.
+  without : (CastlingRights, Color, CastlingSide) -> CastlingRights
+  without(CastlingRights(rights), White, KingSide) -> CastlingRights({white_king: False, *rights})
+  without(CastlingRights(rights), White, QueenSide) -> CastlingRights({white_queen: False, *rights})
+  without(CastlingRights(rights), Black, KingSide) -> CastlingRights({black_king: False, *rights})
+  without(CastlingRights(rights), Black, QueenSide) -> CastlingRights({black_queen: False, *rights})
+  expect CastlingRights.all.without(White, QueenSide).to_str() == "Kkq"
+
+  # The rights with `color`'s right on `side` granted.
+  with : (CastlingRights, Color, CastlingSide) -> CastlingRights
+  with(CastlingRights(rights), White, KingSide) -> CastlingRights({white_king: True, *rights})
+  with(CastlingRights(rights), White, QueenSide) -> CastlingRights({white_queen: True, *rights})
+  with(CastlingRights(rights), Black, KingSide) -> CastlingRights({black_king: True, *rights})
+  with(CastlingRights(rights), Black, QueenSide) -> CastlingRights({black_queen: True, *rights})
+  expect CastlingRights.none.with(Black, KingSide).to_str() == "k"
+
+  # The rights FEN's castling field writes: `-`, or some of `KQkq`, each
+  # at most once, in that order.
+  from_str : Str -> Result(CastlingRights, [Malformed])
+  from_str("-") -> Ok(none)
+  from_str(text) -> (
+    rights = text.to_utf8().try_fold(none, |rights, letter| (
+      (color, side) = granted(letter)?
+      if rights.has(color, side) then Err(Malformed) else Ok(rights.with(color, side))
+    ))?
+    if rights.to_str() == text then Ok(rights) else Err(Malformed)
+  )
+  expect CastlingRights.from_str("Kq") == Ok(CastlingRights.none.with(White, KingSide).with(Black, QueenSide))
+  expect CastlingRights.from_str("-") == Ok(CastlingRights.none)
+  expect CastlingRights.from_str("qK") == Err(Malformed)
+  expect CastlingRights.from_str("KK") == Err(Malformed)
+  expect CastlingRights.from_str("") == Err(Malformed)
+
+  # The rights as FEN's castling field writes them: `-`, or some of
+  # `KQkq`, in that order.
+  to_str : CastlingRights -> Str
+  to_str(rights) -> (
+    letters = [(White, KingSide, 'K'), (White, QueenSide, 'Q'), (Black, KingSide, 'k'), (Black, QueenSide, 'q')]
+      .filter(|(color, side, _)| rights.has(color, side))
+      .map(|(_, _, letter)| letter)
+    if letters.is_empty() then "-" else Str.from_ascii(letters).ok_or("-")
+  )
+  expect CastlingRights.all.without(White, KingSide).without(Black, KingSide).to_str() == "Qq"
+
+  equals : (CastlingRights, CastlingRights) -> Bool
+)
+
+# The right a letter of FEN's castling field grants.
+granted : U8 -> Result((Color, CastlingSide), [Malformed])
+granted('K') -> Ok((White, KingSide))
+granted('Q') -> Ok((White, QueenSide))
+granted('k') -> Ok((Black, KingSide))
+granted('q') -> Ok((Black, QueenSide))
+granted(_) -> Err(Malformed)

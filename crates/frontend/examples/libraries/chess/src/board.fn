@@ -1,0 +1,159 @@
+# What stands where: a list of the 64 squares, `a1` first, each holding a
+# piece or nothing, the mailbox an engine is first written with. It says
+# which squares a side attacks, which is all the rules ask of it beyond
+# placing pieces; whose turn it is and what rights remain are the
+# position's.
+
+import square {File.*, Rank.*, Square.*, Direction.*}
+import piece {Color.*, Role.*, Piece.*}
+
+export {Board, forward, pawn_captures, knight_jumps}
+
+# Each square's piece, or `Empty`, `a1` first.
+Board : List(Result(Piece, [Empty])).(
+  # A board with nothing on it.
+  empty : Board
+  empty = Board(List.repeat(Err(Empty), 64))
+  expect Board.empty.pieces() == []
+
+  # What stands on `square`.
+  piece_at : (Board, Square) -> Result(Piece, [Empty])
+  piece_at(Board(cells), square) -> cells.get(square.to_nat()).ok_or(Err(Empty))
+  expect Board.empty.put(Square(4), Piece(White, King)).piece_at(Square(4)) == Ok(Piece(White, King))
+
+  # The board with `piece` on `square`, in place of whatever stood there.
+  put : (Board, Square, Piece) -> Board
+  put(Board(cells), square, piece) -> Board(cells.put(square.to_nat(), Ok(piece)))
+  expect Board.empty.put(Square(0), Piece(White, Rook)).pieces() == [(Square(0), Piece(White, Rook))]
+
+  # The board with nothing on `square`.
+  remove : (Board, Square) -> Board
+  remove(Board(cells), square) -> Board(cells.put(square.to_nat(), Err(Empty)))
+  expect Board.empty.put(Square(0), Piece(White, Rook)).remove(Square(0)) == Board.empty
+
+  # Every piece on the board and its square, `a1` first.
+  pieces : Board -> List((Square, Piece))
+  pieces(Board(cells)) -> cells.enumerate().flat_map(|(n, cell)| cell is (
+    Ok(piece) then [(Square(n), piece)]
+    Err(Empty) then []
+  ))
+  expect Board.start.pieces().len() == 32
+
+  # Where `color`'s king stands. A position always has one; a board
+  # without one answers `a1`.
+  king : (Board, Color) -> Square
+  king(Board(cells), color) -> Square(cells.find_index(|cell| cell == Ok(Piece(color, King))).ok_or(0))
+  expect Board.start.king(Black).to_str() == "e8"
+
+  # Whether a piece of `by` attacks `square`: could take a piece of the
+  # other side standing there.
+  is_attacked : (Board, Square, Color) -> Bool
+  is_attacked(board, square, by) ->
+    Direction.straight.any(|way| board.first_along(square, way) is Ok(Piece(==by, Rook | Queen)))
+      | Direction.diagonal.any(|way| board.first_along(square, way) is Ok(Piece(==by, Bishop | Queen)))
+      | knight_jumps(square).any(|from| board.piece_at(from) == Ok(Piece(by, Knight)))
+      | Direction.all.any(|way| square.step(way) is Ok(from) & board.piece_at(from) == Ok(Piece(by, King)))
+      | pawn_captures(by).any(|way| square.step(way.opposite()) is Ok(from) & board.piece_at(from) == Ok(Piece(by, Pawn)))
+  expect Board.start.is_attacked(Square(21), White)
+  expect !Board.start.is_attacked(Square(28), White)
+  expect Board.start.is_attacked(Square(45), Black)
+
+  # The first piece met going from `square` the way `direction` points,
+  # `square` itself left out.
+  first_along : (Board, Square, Direction) -> Result(Piece, [Empty])
+  first_along(board, square, direction) -> square.step(direction) is (
+    Ok(next) then board.piece_at(next) is (
+      Ok(piece) then Ok(piece)
+      Err(Empty) then board.first_along(next, direction)
+    )
+    Err(OffBoard) then Err(Empty)
+  )
+  expect Board.start.first_along(Square(4), North) == Ok(Piece(White, Pawn))
+  expect Board.start.first_along(Square(28), North) == Ok(Piece(Black, Pawn))
+  expect Board.start.first_along(Square(28), East) == Err(Empty)
+
+  # The pieces at the start of a game.
+  start : Board
+  start = (
+    back = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
+    middle = List.repeat(Err(Empty), 32)
+    Board(back.map(|role| Ok(Piece(White, role)))
+      .concat(List.repeat(Ok(Piece(White, Pawn)), 8))
+      .concat(middle)
+      .concat(List.repeat(Ok(Piece(Black, Pawn)), 8))
+      .concat(back.map(|role| Ok(Piece(Black, role)))))
+  )
+  expect Board.start.to_fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
+
+  # The board FEN's first field writes: each rank from the eighth down,
+  # parted by `/`, its squares from the `a` file, a piece's letter for a
+  # piece and a digit for so many empty squares.
+  from_fen : Str -> Result(Board, [InvalidBoard])
+  from_fen(text) -> (
+    rows = text.split("/")
+    if rows.len() != 8 return Err(InvalidBoard)
+    cells = rows.reverse().try_map(row)?
+    Ok(Board(cells.flatten()))
+  )
+  expect Board.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") == Ok(Board.start)
+  expect Board.from_fen("8/8/8/8/8/8/8/9") == Err(InvalidBoard)
+  expect Board.from_fen("8/8/8/8/8/8/8/7") == Err(InvalidBoard)
+  expect Board.from_fen("8/8/8/8/8/8/8") == Err(InvalidBoard)
+  expect Board.from_fen("8/8/8/8/8/8/8/7x") == Err(InvalidBoard)
+
+  # The board as FEN's first field writes it.
+  to_fen : Board -> Str
+  to_fen(Board(cells)) -> List.range(8).reverse()
+    .map(|rank| written(cells.drop(rank * 8).take(8), 0, []))
+    .join("/")
+  expect Board.empty.put(Square(4), Piece(White, King)).put(Square(60), Piece(Black, King)).to_fen() == "4k3/8/8/8/8/8/8/4K3"
+
+  equals : (Board, Board) -> Bool
+)
+
+# The way `color`'s pawns move.
+forward : Color -> Direction
+forward(White) -> North
+forward(Black) -> South
+
+# The two ways `color`'s pawns take.
+pawn_captures : Color -> List(Direction)
+pawn_captures(White) -> [NorthWest, NorthEast]
+pawn_captures(Black) -> [SouthWest, SouthEast]
+
+# The squares a knight on `square` jumps to: one step along a file or a
+# rank, then one along a diagonal leading on from it.
+knight_jumps : Square -> List(Square)
+knight_jumps(square) -> [
+  (North, NorthWest), (North, NorthEast), (East, NorthEast), (East, SouthEast),
+  (South, SouthEast), (South, SouthWest), (West, SouthWest), (West, NorthWest),
+].flat_map(|(first, second)| square.step(first).and_then(|middle| middle.step(second)) is (
+  Ok(landing) then [landing]
+  Err(OffBoard) then []
+))
+expect knight_jumps(Square(0)).map(Square.to_str) == ["b3", "c2"]
+expect knight_jumps(Square(27)).len() == 8
+
+# The eight squares of a rank FEN writes.
+row : Str -> Result(List(Result(Piece, [Empty])), [InvalidBoard])
+row(text) -> (
+  cells = text.to_utf8().try_fold([], |cells, letter| (
+    if letter >= '1' & letter <= '8' return Ok(cells.concat(List.repeat(Err(Empty), (letter - '0').to_nat())))
+    piece = Piece.from_char(letter).err_as(InvalidBoard)?
+    Ok(cells.append(Ok(piece)))
+  ))?
+  if cells.len() == 8 then Ok(cells) else Err(InvalidBoard)
+)
+
+# A rank's squares as FEN writes them, after `empty` empty squares not yet
+# written and the letters `out` holds.
+written : (List(Result(Piece, [Empty])), Nat, List(U8)) -> Str
+written([], empty, out) -> Str.from_ascii(counted(empty, out)).ok_or("")
+written([Err(Empty), *rest], empty, out) -> written(rest, empty + 1, out)
+written([Ok(piece), *rest], empty, out) -> written(rest, 0, counted(empty, out).append(piece.to_char()))
+
+# `out` with the count of `empty` squares written after it, where there
+# are any.
+counted : (Nat, List(U8)) -> List(U8)
+counted(0, out) -> out
+counted(empty, out) -> out.append('0' + U8.of_nat(empty))
