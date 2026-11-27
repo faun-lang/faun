@@ -18,7 +18,9 @@
 
 use barb::index::Range;
 
-use super::{Allocator, BlockId, Location, Register, Transition, VReg, edges};
+use super::{
+    Allocator, BlockId, BlockPoints, Location, Register, Transition, VReg, edges, function_count,
+};
 
 /// Each block's predecessors, and the arguments each hands it.
 type Predecessors = [Vec<(BlockId, Range)>];
@@ -79,18 +81,25 @@ impl<R: Register> Allocator<'_, R> {
     /// transition into memory that writes nothing new.
     pub(super) fn place_spills(&mut self, predecessors: &Predecessors) -> Spills {
         let at_definition = self.written_where_made();
+        // Each function's values written where they go into memory are
+        // numbered within it, so a block's set is as wide as its own
+        // function's.
+        let made = self.made_in();
+        let owners = function_count(self.code);
         let mut moved = vec![None; self.code.values];
-        let mut count = 0;
+        let mut counts = vec![0; owners];
         for (value, slot) in self.value_spills.iter().enumerate() {
-            if slot.is_some() && !at_definition[value] {
-                moved[value] = Some(count);
-                count += 1;
+            if let (Some(_), false, Some(block)) = (slot, at_definition[value], made[value]) {
+                let count = &mut counts[self.code.blocks[block].owner.index()];
+                moved[value] = Some(*count);
+                *count += 1;
             }
         }
-        let starts = self.starting_in_memory(&moved, count);
+        let count = |block: BlockId| counts[self.code.blocks[block].owner.index()];
+        let starts = self.starting_in_memory(&moved, &count);
         let writes = self.writes_by_block(&moved);
-        let written = self.written_at_ends(predecessors, count, &starts, &writes);
-        let quiet = self.quiet(predecessors, count, &starts, &writes, &written);
+        let written = self.written_at_ends(predecessors, &count, &starts, &writes);
+        let quiet = self.quiet(predecessors, &count, &starts, &writes, &written);
         let mut at = 0;
         self.transitions.retain(|_| {
             at += 1;
@@ -120,7 +129,7 @@ impl<R: Register> Allocator<'_, R> {
     fn quiet(
         &self,
         predecessors: &Predecessors,
-        count: usize,
+        count: &impl Fn(BlockId) -> usize,
         starts: &[Vec<usize>],
         writes: &Writes,
         written: &[Words],
@@ -128,7 +137,8 @@ impl<R: Register> Allocator<'_, R> {
         let mut quiet = vec![false; self.transitions.len()];
         for layout in &self.liveness.blocks {
             let block = layout.block.index();
-            let mut held = written_at_entry(predecessors, layout.block, count, written);
+            let mut held =
+                written_at_entry(predecessors, layout.block, count(layout.block), written);
             for &at in &starts[block] {
                 held.add(at);
             }
@@ -146,12 +156,16 @@ impl<R: Register> Allocator<'_, R> {
     /// The numbers of what each block starts with in memory, of the values
     /// written where they go there: it is in memory only because it was
     /// written.
-    fn starting_in_memory(&self, moved: &[Option<usize>], count: usize) -> Vec<Vec<usize>> {
+    fn starting_in_memory(
+        &self,
+        moved: &[Option<usize>],
+        count: &impl Fn(BlockId) -> usize,
+    ) -> Vec<Vec<usize>> {
         let mut starts = vec![Vec::new(); self.code.blocks.len()];
-        if count == 0 {
-            return starts;
-        }
         for layout in &self.liveness.blocks {
+            if count(layout.block) == 0 {
+                continue;
+            }
             if let Some(state) = self.state(layout.entry) {
                 starts[layout.block.index()] = self
                     .liveness
@@ -277,21 +291,58 @@ impl<R: Register> Allocator<'_, R> {
     fn written_at_ends(
         &self,
         predecessors: &Predecessors,
-        count: usize,
+        count: &impl Fn(BlockId) -> usize,
         starts: &[Vec<usize>],
         writes: &Writes,
     ) -> Vec<Words> {
-        let blocks = self.code.blocks.len();
-        if count == 0 {
-            return vec![Words::empty(0); blocks];
+        let mut written: Vec<Words> = self
+            .code
+            .blocks
+            .ids()
+            .map(|block| Words::full(count(block)))
+            .collect();
+        // Blocks of one function are consecutive, so each function is
+        // worked out on its own until nothing in it changes.
+        let blocks = &self.liveness.blocks;
+        let mut first = 0;
+        while first < blocks.len() {
+            let owner = self.code.blocks[blocks[first].block].owner;
+            let end = blocks[first..]
+                .iter()
+                .position(|layout| self.code.blocks[layout.block].owner != owner)
+                .map_or(blocks.len(), |run| first + run);
+            if count(blocks[first].block) > 0 {
+                Self::settle(
+                    &blocks[first..end],
+                    predecessors,
+                    count,
+                    starts,
+                    writes,
+                    &mut written,
+                );
+            }
+            first = end;
         }
-        let mut written = vec![Words::full(count); blocks];
+        written
+    }
+
+    /// Work out what each of `function`'s blocks ends having written until
+    /// none changes.
+    fn settle(
+        function: &[BlockPoints],
+        predecessors: &Predecessors,
+        count: &impl Fn(BlockId) -> usize,
+        starts: &[Vec<usize>],
+        writes: &Writes,
+        written: &mut [Words],
+    ) {
         let mut changed = true;
         while changed {
             changed = false;
-            for layout in &self.liveness.blocks {
+            for layout in function {
                 let block = layout.block.index();
-                let mut held = written_at_entry(predecessors, layout.block, count, &written);
+                let mut held =
+                    written_at_entry(predecessors, layout.block, count(layout.block), written);
                 for &at in &starts[block] {
                     held.add(at);
                 }
@@ -304,7 +355,6 @@ impl<R: Register> Allocator<'_, R> {
                 }
             }
         }
-        written
     }
 }
 

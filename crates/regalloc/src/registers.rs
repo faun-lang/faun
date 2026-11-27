@@ -855,6 +855,8 @@ struct Allocator<'a, R> {
     distances: Distances,
     /// The block and point being allocated.
     now: (BlockId, Point),
+    /// The most values live at once in each block.
+    pressure: Vec<usize>,
 }
 
 impl<'a, R: Register> Allocator<'a, R> {
@@ -886,6 +888,17 @@ impl<'a, R: Register> Allocator<'a, R> {
             hazards: hazards(code, liveness),
             distances: Distances::new(code, liveness),
             now: (BlockId::at(0), Point(0)),
+            pressure: liveness
+                .blocks
+                .iter()
+                .map(|points| {
+                    let (start, end) = (points.entry.index(), points.terminator.index());
+                    (start..=end)
+                        .map(|at| liveness.live_at(at).len())
+                        .max()
+                        .unwrap_or(0)
+                })
+                .collect(),
         })
     }
 
@@ -1056,14 +1069,9 @@ impl<'a, R: Register> Allocator<'a, R> {
 
     /// The most values live at once in the blocks `loop_blocks` numbers.
     fn loop_pressure(&self, loop_blocks: std::ops::RangeInclusive<usize>) -> usize {
-        loop_blocks
-            .flat_map(|at| {
-                let points = &self.liveness.blocks[at];
-                std::iter::once(points.entry)
-                    .chain(points.instructions.iter().map(|points| points.early))
-                    .chain(std::iter::once(points.terminator))
-            })
-            .map(|point| self.liveness.live(point).len())
+        self.pressure[loop_blocks]
+            .iter()
+            .copied()
             .max()
             .unwrap_or(0)
     }
