@@ -1387,8 +1387,12 @@ impl<'a> Lowering<'a> {
                             return Err("x86 branch condition is spilled".to_owned());
                         }
                     };
-                    self.asm.alu(Alu::Test, condition, condition, 64);
-                    (Condition::NotEqual, Condition::Equal)
+                    if let Some(set) = self.asm.just_set(condition) {
+                        (set, set.inverse())
+                    } else {
+                        self.asm.alu(Alu::Test, condition, condition, 64);
+                        (Condition::NotEqual, Condition::Equal)
+                    }
                 };
                 let edges_are_empty = self.edge_is_empty(layout.block, then_target)?
                     && self.edge_is_empty(layout.block, else_target)?;

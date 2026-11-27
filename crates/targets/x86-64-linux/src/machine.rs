@@ -993,6 +993,21 @@ impl AllocatedBuilder {
         });
     }
 
+    /// The condition `reg` was just set from, where nothing jumps in after
+    /// it: the flags that set it still say it, so a branch on `reg` reads
+    /// them rather than testing it again.
+    pub(crate) fn just_set(&self, reg: Reg) -> Option<Condition> {
+        let len = self.code.insts().len();
+        match self.code.insts().last() {
+            Some(&Inst::SetIf { condition, dst })
+                if dst == reg && !self.code.labelled_from(len) =>
+            {
+                Some(condition)
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn jump_if(&mut self, condition: Condition, target: Label) {
         self.push(Inst::Jump {
             condition: Some(condition),
