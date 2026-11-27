@@ -12,7 +12,7 @@ Name a conversion by the source or destination type, unless the caller is
 choosing a particular way to lose information:
 
 - `T.of_x(x) -> T` makes a `T` from an `x`, always: `Int.of_nat`,
-  `Set.of_list`, `F64.of_int`.
+  `U64.of_u8`.
 - `T.from_x(x) -> Result(T, …)` makes a `T` from an `x` where one fits,
   checked: `U8.from_nat`, `Nat.from_str`, `F64.from_nat`.
 - `t.to_x() -> X` is an `X` from a `t`: `to_str`, `to_nat`, `to_list`,
@@ -34,8 +34,9 @@ expect U8.wrap(300).to_nat() == 44
   than wrapping or rounding.
 - Use `of_` for exact value conversions such as `Int.of_nat`. Some
   existing `of_` operations lose information: the word types' `of_nat`
-  wraps and is still their numeral constructor, and `F64.of_nat` rounds.
-  For new modular conversions prefer the explicit `wrap`.
+  wraps and is still their numeral constructor. Some float conversions,
+  such as `F64.of_nat` and `F64.of_int`, round. For new modular conversions
+  prefer the explicit `wrap`.
 - The word types' `wrap` accepts a source with `to_nat : a -> Nat`.
   Document `to_nat` as an exact natural value, never a clamp, a rounded
   approximation or an absolute value. `Nat.to_nat` is the identity;
