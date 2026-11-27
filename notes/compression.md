@@ -308,6 +308,11 @@ a row spreading an alias, `[NotPng, *InflateError]`, would be the same
 idea for tags. The alternative the tags note gives, wrapping inflate's
 failures in one tag with `map_err`, changes what callers match on.
 
+`png.fn` now takes that alternative: inflate's failures arrive as one
+tag, `BadImageData(InflateError)`, with `.map_err(BadImageData)?`. It
+also tells them apart from PNG's own, since both have a `Truncated` and a
+`ChecksumMismatch`, and an Adler-32 gone wrong is not a chunk's CRC-32.
+
 ### A list built in a loop is built, even to be compared
 
 Fixed. Interlaced decoding first read each pixel through `List.range(width).fold`
@@ -509,12 +514,29 @@ same search with `windows`.
 
 ### Record update and rows of tags join without asking
 
-The example's flags update an `Encoding` as they are read,
-`{filtering: Unfiltered, *encoding}`, and its result joins the PAM
-reader's failure and the encoder's, `image_of(input).and_then(|image|
-encode(image, encoding))`, `[NotPam]` and `[BadSize]` becoming one row
-with nothing declared. A module can export a name it imported, so `png`
-hands out flate's `Level` and a caller imports one library.
+The example's flags update an `Options` as they are read,
+`{filter: Unfiltered, *options}`. Its result once joined the PAM
+reader's failure and the encoder's, `[NotPam]` and `[BadSize]` becoming
+one row with nothing declared; since encoding can no longer fail, there
+is nothing left to join. A module can export a name it imported, so `png`
+hands out flate's `Level` and `InflateError`, and a caller imports one
+library.
+
+### A closed row is not a part of a larger one
+
+The library's `Image` is a nominal type over a record, exported without
+its constructor, so an image is made only by `Image.from_pixels`, which
+checks that its size, colour and pixels agree, or by `decode`. Encoding
+then has nothing to refuse. Its colour is `[Grey, GreyAlpha, Rgb, Rgba]`,
+and a file's colour type is the same four tags and `Indexed`; tags are
+structural, so the decoder answers a `Color` from a `ColorType` by
+matching the same names. The other way is refused: handing a `Color` to a
+function over `ColorType` says "`Indexed` is not among the tags of
+`[Grey, GreyAlpha, Rgb, Rgba]`, which admits no others", though every
+value of the one is a value of the other. A closed row admits no other
+tags, so a function over a larger row cannot take a smaller one; the
+library writes its function over `Color`. Rust has the same rule for its
+enums, and would write a `From`.
 
 ## Throughput
 
@@ -780,10 +802,10 @@ keeps slicing-by-8: its eight tables are another algorithm, which no
 compiler derives from the byte-at-a-time one, as zlib and crc32fast chose
 it.
 
-## Two ratchet workloads
+## Three ratchet workloads
 
 The [ratchet](../RATCHET.md) improves the compiler against a suite of
-programs, each with a C twin. Compression is two of them: loops of words
+programs, each with a C twin. Compression is three of them: loops of words
 and table lookups with no allocation but a growing output, where this
 note's findings, a constant worked out at every use, a word's arithmetic
 left as calls and the search's spills, are each what a compiler change
@@ -807,6 +829,17 @@ would move.
   It measures 100 KB on x86-64 and 30 KB on wasm32. Its 6502 image ends
   near 170 KB, compression alone some 85 KB of it, so on the 6502 only its
   twin runs, at 200 bytes, and its image counts by where it would end.
+- **`png`**, taking a size as its argument: the program makes two images
+  that size square, gradients with a little noise in red, green, blue and
+  alpha, and products in grey, encodes each through the png library at
+  level 6 with adaptive filtering, decodes it and prints its size, the
+  CRC-32 of what came back and whether it is the image. Nothing printed
+  depends on how deflate chose its matches, so its C twin compresses with
+  zlib, filtering its rows as libpng does: it measures the library's whole
+  stack, the crc and flate libraries under it, against the C everyone
+  links. It measures 256 pixels a side on x86-64 and 128 on wasm32. Only
+  the x86-64 twin links zlib, and the image ends near 1.8 MB on the 6502,
+  so there it counts by where it would end.
 
 Writing the search turned up one more trap: the chains' insert as
 `{head: head.put(key, at + 1), prev: prev.put(at, head.get(key).ok_or(0))}`

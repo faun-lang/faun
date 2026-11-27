@@ -104,8 +104,10 @@
               # which tree-sitter evaluates with node.
               tree-sitter
               nodejs
-              # The benchmarks game's C pidigits does its arithmetic with GMP.
+              # The benchmarks game's C pidigits does its arithmetic with GMP,
+              # and the suite's C png compresses with zlib.
               gmp
+              zlib
             ]
             ++ testTools pkgs;
           # cc65's sim65 saying, where `SIM65_METRICS` is set, how many cycles
