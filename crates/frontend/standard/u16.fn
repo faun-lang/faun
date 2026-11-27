@@ -96,6 +96,49 @@ U16 : Nat.(
   rotate_right(word, amount) -> rotate_left(word, 16 - amount % 16)
   expect U16.of_nat(0x8001).rotate_right(1) == 0xc000
 
+  # How many of the word's bits are set, counted in place a pair, then a
+  # nibble, then a byte at a time, and the bytes summed by one
+  # multiplication: Hacker's Delight's count, with no loop.
+  count_ones : U16 -> Nat
+  count_ones(word) -> (
+    pairs = word - (word.shift_right(1) & 0x5555)
+    nibbles = (pairs & 0x3333) + (pairs.shift_right(2) & 0x3333)
+    bytes = (nibbles + nibbles.shift_right(4)) & 0x0f0f
+    (bytes * 0x0101).shift_right(8).to_nat()
+  )
+  expect U16.of_nat(0).count_ones() == 0
+  expect U16.of_nat(0x8000).count_ones() == 1
+  expect U16.of_nat(0xffff).count_ones() == 16
+  expect U16.of_nat(0x0580).count_ones() == 3
+
+  # How many bits are clear below the lowest set one, which is its index.
+  # Nought has none set, so all 16 are clear: the width. Taking one borrows
+  # from the lowest set bit, setting every bit below it, and those are the
+  # ones `word` has clear.
+  trailing_zeros : U16 -> Nat
+  trailing_zeros(word) -> count_ones(!word & (word - 1))
+  expect U16.of_nat(0).trailing_zeros() == 16
+  expect U16.of_nat(1).trailing_zeros() == 0
+  expect U16.of_nat(0x8000).trailing_zeros() == 15
+  expect U16.of_nat(0xffff).trailing_zeros() == 0
+  expect U16.of_nat(0x0580).trailing_zeros() == 7
+
+  # How many bits are clear above the highest set one. Nought has none set,
+  # so all 16 are clear: the width. The highest set bit is copied into
+  # every place below it, and the ones then counted.
+  leading_zeros : U16 -> Nat
+  leading_zeros(word) -> (
+    pairs = word | word.shift_right(1)
+    nibbles = pairs | pairs.shift_right(2)
+    bytes = nibbles | nibbles.shift_right(4)
+    16 - count_ones(bytes | bytes.shift_right(8))
+  )
+  expect U16.of_nat(0).leading_zeros() == 16
+  expect U16.of_nat(1).leading_zeros() == 15
+  expect U16.of_nat(0x8000).leading_zeros() == 0
+  expect U16.of_nat(0xffff).leading_zeros() == 0
+  expect U16.of_nat(0x0580).leading_zeros() == 5
+
   # `n` as a word when it fits, and a refusal when it does not: the
   # checked narrowing, for values worked out at run time.
   from_nat : Nat -> Result(U16, [TooBig])

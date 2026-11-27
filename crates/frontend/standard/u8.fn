@@ -142,6 +142,46 @@ U8 : Nat.(
   rotate_right(word, amount) -> rotate_left(word, 8 - amount % 8)
   expect U8.of_nat(0x81).rotate_right(1) == 0xc0
 
+  # How many of the word's bits are set, counted in place a pair, then a
+  # nibble at a time: Hacker's Delight's count, with no loop.
+  count_ones : U8 -> Nat
+  count_ones(word) -> (
+    pairs = word - (word.shift_right(1) & 0x55)
+    nibbles = (pairs & 0x33) + (pairs.shift_right(2) & 0x33)
+    ((nibbles + nibbles.shift_right(4)) & 0x0f).to_nat()
+  )
+  expect U8.of_nat(0).count_ones() == 0
+  expect U8.of_nat(0x80).count_ones() == 1
+  expect U8.of_nat(0xff).count_ones() == 8
+  expect U8.of_nat(0x58).count_ones() == 3
+
+  # How many bits are clear below the lowest set one, which is its index.
+  # Nought has none set, so all 8 are clear: the width. Taking one borrows
+  # from the lowest set bit, setting every bit below it, and those are the
+  # ones `word` has clear.
+  trailing_zeros : U8 -> Nat
+  trailing_zeros(word) -> count_ones(!word & (word - 1))
+  expect U8.of_nat(0).trailing_zeros() == 8
+  expect U8.of_nat(1).trailing_zeros() == 0
+  expect U8.of_nat(0x80).trailing_zeros() == 7
+  expect U8.of_nat(0xff).trailing_zeros() == 0
+  expect U8.of_nat(0x58).trailing_zeros() == 3
+
+  # How many bits are clear above the highest set one. Nought has none set,
+  # so all 8 are clear: the width. The highest set bit is copied into
+  # every place below it, and the ones then counted.
+  leading_zeros : U8 -> Nat
+  leading_zeros(word) -> (
+    pairs = word | word.shift_right(1)
+    nibbles = pairs | pairs.shift_right(2)
+    8 - count_ones(nibbles | nibbles.shift_right(4))
+  )
+  expect U8.of_nat(0).leading_zeros() == 8
+  expect U8.of_nat(1).leading_zeros() == 7
+  expect U8.of_nat(0x80).leading_zeros() == 0
+  expect U8.of_nat(0xff).leading_zeros() == 0
+  expect U8.of_nat(0x58).leading_zeros() == 1
+
   # `n` as a byte when it fits, and a refusal when it does not: the
   # checked narrowing, for values worked out at run time.
   from_nat : Nat -> Result(U8, [TooBig])

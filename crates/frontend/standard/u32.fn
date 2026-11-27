@@ -96,6 +96,50 @@ U32 : Nat.(
   rotate_right(word, amount) -> rotate_left(word, 32 - amount % 32)
   expect U32.of_nat(0x80000001).rotate_right(1) == 0xc0000000
 
+  # How many of the word's bits are set, counted in place a pair, then a
+  # nibble, then a byte at a time, and the bytes summed by one
+  # multiplication: Hacker's Delight's count, with no loop.
+  count_ones : U32 -> Nat
+  count_ones(word) -> (
+    pairs = word - (word.shift_right(1) & 0x55555555)
+    nibbles = (pairs & 0x33333333) + (pairs.shift_right(2) & 0x33333333)
+    bytes = (nibbles + nibbles.shift_right(4)) & 0x0f0f0f0f
+    (bytes * 0x01010101).shift_right(24).to_nat()
+  )
+  expect U32.of_nat(0).count_ones() == 0
+  expect U32.of_nat(0x80000000).count_ones() == 1
+  expect U32.of_nat(0xffffffff).count_ones() == 32
+  expect U32.of_nat(0x00058000).count_ones() == 3
+
+  # How many bits are clear below the lowest set one, which is its index.
+  # Nought has none set, so all 32 are clear: the width. Taking one borrows
+  # from the lowest set bit, setting every bit below it, and those are the
+  # ones `word` has clear.
+  trailing_zeros : U32 -> Nat
+  trailing_zeros(word) -> count_ones(!word & (word - 1))
+  expect U32.of_nat(0).trailing_zeros() == 32
+  expect U32.of_nat(1).trailing_zeros() == 0
+  expect U32.of_nat(0x80000000).trailing_zeros() == 31
+  expect U32.of_nat(0xffffffff).trailing_zeros() == 0
+  expect U32.of_nat(0x00058000).trailing_zeros() == 15
+
+  # How many bits are clear above the highest set one. Nought has none set,
+  # so all 32 are clear: the width. The highest set bit is copied into
+  # every place below it, and the ones then counted.
+  leading_zeros : U32 -> Nat
+  leading_zeros(word) -> (
+    pairs = word | word.shift_right(1)
+    nibbles = pairs | pairs.shift_right(2)
+    bytes = nibbles | nibbles.shift_right(4)
+    shorts = bytes | bytes.shift_right(8)
+    32 - count_ones(shorts | shorts.shift_right(16))
+  )
+  expect U32.of_nat(0).leading_zeros() == 32
+  expect U32.of_nat(1).leading_zeros() == 31
+  expect U32.of_nat(0x80000000).leading_zeros() == 0
+  expect U32.of_nat(0xffffffff).leading_zeros() == 0
+  expect U32.of_nat(0x00058000).leading_zeros() == 13
+
   # `n` as a word when it fits, and a refusal when it does not: the
   # checked narrowing, for values worked out at run time.
   from_nat : Nat -> Result(U32, [TooBig])
