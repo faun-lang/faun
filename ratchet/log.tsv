@@ -180,3 +180,4 @@ series	idea	score	speed	memory	size	small	compile	worst	verdict	report
 9	Where values waiting in memory are written is worked out a function at a time, and how full each block gets once	0.99865	0.99654	0.99985	0.99885	0.99885	1.00030	1.04887	accept	20261127T054238Z-eval-f5349367-vs-2f482590.json
 11	A U64's difference from nought is worked out in the word	0.99679	0.98969	0.99621	0.99960	0.99968	0.99957	0.99990	accept	20261127T220018Z-eval-f0cd85b3-vs-29c2bbdc.json
 12	A known list of small naturals is laid out in the image rather than built a push at a time	0.97521	0.99978	0.99846	0.95551	0.94385	0.99354	1.00601	accept	20261127T232124Z-eval-ab032b6c-vs-69a5b532.json
+12	A word's complement is its bits flipped, and that plus one its negation	0.99984	0.99982	1.00000	0.99978	0.99975	0.99989	0.99576	override: neutral, net gain 0.00016 below 0.001, kept so 0 - w and !w + 1 compile alike	20261127T231111Z-eval-1e34d9f4-vs-69a5b532.json
