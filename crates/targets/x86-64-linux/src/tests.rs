@@ -423,3 +423,46 @@ fn sum_then_its_operand(
     });
     program
 }
+
+/// A condition kept as a number and branched on as well is branched on by
+/// the flags that set it, not tested again.
+#[test]
+fn a_condition_kept_and_branched_on_is_not_tested_again() {
+    use crate::machine::{Alu, Inst};
+    use faun_core::ir::{Binary, Class, Program, Relation};
+    use faun_core::targets::Favour;
+    let (mut source, main) = Program::new("main");
+    let chosen = source.declare("chosen", &[Class::Word, Class::Word], &[Class::Word]);
+    source.define(chosen, |b, params| {
+        let below = b.compare(Relation::Less, params[0], params[1]);
+        let picked = b.if_(
+            below,
+            &[Class::Word],
+            |b| b.yield_(&[params[0]]),
+            |b| b.yield_(&[params[1]]),
+        );
+        let answer = b.binary(Binary::Xor, picked[0], below);
+        b.ret(&[answer]);
+    });
+    source.define(main, |b, _| {
+        let three = b.constant(Class::Word, 3);
+        let four = b.constant(Class::Word, 4);
+        let answer = b.call(chosen, &[three, four]);
+        b.ret(&answer);
+    });
+    let program = TARGET.prepare(&source).unwrap();
+    let allocated =
+        crate::selected::select_and_allocate_favouring(&program, Favour::Speed, false).unwrap();
+    let code = allocated.instructions();
+    assert!(
+        code.iter().any(|inst| matches!(inst, Inst::SetIf { .. })),
+        "{code:?}"
+    );
+    assert!(
+        !code.windows(2).any(|pair| matches!(
+            pair,
+            [Inst::SetIf { dst, .. }, Inst::Alu { op: Alu::Test, dst: tested, .. }] if dst == tested
+        )),
+        "{code:?}"
+    );
+}
