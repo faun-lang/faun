@@ -893,23 +893,15 @@ impl<'a> Lowering<'a> {
     }
 
     fn emit_moves(&mut self, moves: &[CopyMove], owner: FunctionId) {
-        self.emit_moves_keeping(moves, &[], owner);
+        self.emit_moves_keeping(moves, owner);
     }
 
-    /// The moves, but for those into memory a value was written to where it
-    /// was made, which already hold it -- other than into `defining`, the
-    /// slots of the parameters an edge hands values to.
-    fn emit_moves_keeping(
-        &mut self,
-        moves: &[CopyMove],
-        defining: &[FrameSlot],
-        owner: FunctionId,
-    ) {
+    /// The moves, each written: the allocation keeps only the moves into
+    /// memory that write something a slot does not already hold.
+    fn emit_moves_keeping(&mut self, moves: &[CopyMove], owner: FunctionId) {
         for movement in moves {
             let CopySource::Place(source) = movement.source();
             match (source, movement.destination()) {
-                (Place::Register(_), Place::Frame(dst))
-                    if Allocation::elides(dst) && !defining.contains(&dst) => {}
                 (Place::Register(src), Place::Register(dst)) if src != dst => {
                     self.mov_reg(dst, src, RegisterWidth::Word);
                 }
@@ -1505,16 +1497,8 @@ impl<'a> Lowering<'a> {
             self.open_frame(self.selected.blocks[from].owner);
         }
         let moves = self.edge_moves(from, target)?.to_vec();
-        let block = self.selected.blocks[target];
-        let defining: Vec<_> = self.allocation.params[block.params.range()]
-            .iter()
-            .filter_map(|&location| match location {
-                Location::Spill(SpillSlot(slot)) => Some(FrameSlot::at(slot)),
-                Location::Register(_) => None,
-            })
-            .collect();
         let owner = self.selected.blocks[from].owner;
-        self.emit_moves_keeping(&moves, &defining, owner);
+        self.emit_moves_keeping(&moves, owner);
         if self.opened[from.index()] && !self.opened[target.index()] {
             self.close_frame(owner);
         }

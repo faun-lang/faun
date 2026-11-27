@@ -19,6 +19,7 @@
 #[cfg(test)]
 mod banks_tests;
 mod distance;
+mod spills;
 
 use rustc_hash::FxHashMap as HashMap;
 
@@ -257,10 +258,12 @@ pub struct Allocation<R> {
     pub edge_cost: TransitionCost,
     pub edges: u32,
     pub spill_slots: Vec<u32>,
-    /// Where each value that ever waits in memory is written there: at the
-    /// point it is made, from the register it is made in, by point. A value
-    /// never changes, so its slot holds it from there on, and no other move
-    /// of it into memory needs writing: see [`Self::elides`].
+    /// Where each value written to memory where it is made is written
+    /// there: at the point it is made, from the register it is made in, by
+    /// point. A value never changes, so its slot holds it from there on.
+    /// Every other value is written where it goes into memory, and only
+    /// where no path there has written it already: the transitions and
+    /// edge moves keep only the moves into memory that write.
     pub stores: Vec<(Point, R, SpillSlot)>,
     /// The registers holding a value at each point, and whether a value
     /// waits in memory there.
@@ -888,9 +891,10 @@ impl<'a, R: Register> Allocator<'a, R> {
 
     fn run(mut self) -> Result<(Allocation<R>, States<R>), String> {
         self.allocate_blocks()?;
-        self.plan_edges()?;
+        let spills = self.place_spills(&predecessors(self.code, self.liveness));
+        self.plan_edges(&spills)?;
         self.verify_states()?;
-        let stores = self.stores();
+        let stores = self.stores(&spills);
         let placed = self.placed()?;
         let operand_moves =
             collect_instruction_data(std::mem::take(&mut self.operand_moves), "operand move plan")?;
@@ -931,6 +935,7 @@ impl<'a, R: Register> Allocator<'a, R> {
             self.owner = self.code.blocks[layout.block].owner;
             self.placement.keep(|_| false);
             self.inherit(layout, &predecessors[layout.block.index()]);
+            self.wait_out_loop(layout, &predecessors[layout.block.index()])?;
             self.allocate_entry(layout)?;
             for points in &layout.instructions {
                 self.allocate_instruction(layout.block, points)?;
@@ -940,14 +945,15 @@ impl<'a, R: Register> Allocator<'a, R> {
         Ok(())
     }
 
-    /// Each value that ever waits in memory, written there where it is
-    /// made, where it is made in a register: an instruction's result after
-    /// the instruction, and a block's parameter on entering it. One handed
-    /// to a block already in memory was written there by the edge.
-    fn stores(&self) -> Vec<(Point, R, SpillSlot)> {
+    /// Each value written to memory where it is made, written there where
+    /// it is made in a register: an instruction's result after the
+    /// instruction, and a block's parameter on entering it. One handed to a
+    /// block already in memory was written there by the edge.
+    fn stores(&self, spills: &spills::Spills) -> Vec<(Point, R, SpillSlot)> {
         let mut stores = Vec::new();
         let mut made = |point: Point, value: VReg| {
             if let Some(slot) = self.value_spills[value.index()]
+                && spills.at_definition[value.index()]
                 && let Ok(Location::Register(reg)) = self.location(point, value)
             {
                 stores.push((point, reg, slot));
@@ -983,6 +989,83 @@ impl<'a, R: Register> Allocator<'a, R> {
                 self.placement.set(value, location);
             }
         }
+    }
+
+    /// At the head of a loop, as many of what nothing in the loop reads as
+    /// the loop holds more values than there are registers wait in memory
+    /// from there, as Braun and Hack start a loop's head.
+    fn wait_out_loop(
+        &mut self,
+        layout: &BlockPoints,
+        predecessors: &[(BlockId, Range)],
+    ) -> Result<(), String> {
+        let Some(last) = predecessors
+            .iter()
+            .filter(|&&(from, _)| {
+                self.state(self.liveness.blocks[from.index()].terminator)
+                    .is_none()
+            })
+            .map(|&(from, _)| from.index())
+            .max()
+        else {
+            return Ok(());
+        };
+        let mut waiting = self.unread_in_loop(layout);
+        let Some(&first) = waiting.first() else {
+            return Ok(());
+        };
+        let room = self
+            .code
+            .registers
+            .iter()
+            .filter(|&&reg| self.homes[first.index()].contains(reg))
+            .count();
+        let most = self.loop_pressure(layout.block.index()..=last);
+        // What already waits in memory makes room of its own.
+        let waited = self
+            .liveness
+            .live(layout.entry)
+            .iter()
+            .filter(|&value| matches!(self.placement.get(value), Some(Location::Spill(_))))
+            .count();
+        waiting.truncate(most.saturating_sub(room + waited));
+        for value in waiting {
+            let slot = self.spill(value)?;
+            self.placement.set(value, slot);
+        }
+        Ok(())
+    }
+
+    /// What a loop's head holds in registers that nothing in the loop reads
+    /// before leaving it.
+    fn unread_in_loop(&self, layout: &BlockPoints) -> Vec<VReg> {
+        let block = self.code.blocks[layout.block];
+        let params = &self.code.block_params[block.params.range()];
+        self.liveness
+            .live(layout.entry)
+            .iter()
+            .filter(|value| !params.contains(value))
+            .filter(|&value| matches!(self.placement.get(value), Some(Location::Register(_))))
+            .filter(|&value| {
+                self.distances
+                    .next(self.liveness, layout.block, layout.entry, value)
+                    >= distance::LEAVING
+            })
+            .collect()
+    }
+
+    /// The most values live at once in the blocks `loop_blocks` numbers.
+    fn loop_pressure(&self, loop_blocks: std::ops::RangeInclusive<usize>) -> usize {
+        loop_blocks
+            .flat_map(|at| {
+                let points = &self.liveness.blocks[at];
+                std::iter::once(points.entry)
+                    .chain(points.instructions.iter().map(|points| points.early))
+                    .chain(std::iter::once(points.terminator))
+            })
+            .map(|point| self.liveness.live(point).len())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Where the first predecessor already allocated leaves each value the
@@ -1647,7 +1730,7 @@ impl<'a, R: Register> Allocator<'a, R> {
         clippy::too_many_lines,
         reason = "parameter and live-through transfers form one edge copy set"
     )]
-    fn plan_edges(&mut self) -> Result<(), String> {
+    fn plan_edges(&mut self, spills: &spills::Spills) -> Result<(), String> {
         for layout in &self.liveness.blocks {
             let terminator = self.code.blocks[layout.block].terminator;
             for (target, args) in edges(terminator) {
@@ -1677,10 +1760,18 @@ impl<'a, R: Register> Allocator<'a, R> {
                             value.index()
                         ));
                     }
-                    let copy = ParallelCopy::between(
-                        place(self.location(layout.terminator, value)?),
-                        place(self.location(target_layout.entry, value)?),
+                    let (from, to) = (
+                        self.location(layout.terminator, value)?,
+                        self.location(target_layout.entry, value)?,
                     );
+                    // Into a slot already holding the value is no move.
+                    if matches!(from, Location::Register(_))
+                        && matches!(to, Location::Spill(slot) if self.value_spills[value.index()] == Some(slot))
+                        && spills.holds(layout.block, value)
+                    {
+                        continue;
+                    }
+                    let copy = ParallelCopy::between(place(from), place(to));
                     if !copies.contains(&copy) {
                         copies.push(copy);
                     }
@@ -2488,14 +2579,6 @@ impl<R: Register> Allocation<R> {
             .map(|&(_, reg, slot)| (reg, slot))
     }
 
-    /// Whether a move into `slot` writes nothing new: every slot but the
-    /// one breaking a cycle of moves is a value's, written where the value
-    /// was made. A move defining a block's parameter is not such a move.
-    #[must_use]
-    pub const fn elides(slot: FrameSlot) -> bool {
-        slot.number() != 0
-    }
-
     /// The transitions made at `point`.
     #[must_use]
     pub fn transitions_at(&self, point: Point) -> &[Transition<R>] {
@@ -2700,5 +2783,103 @@ mod tests {
         let spilled = |value: usize| spilled(&liveness, &states, value);
         assert!(spilled(0));
         assert!(!spilled(1));
+    }
+
+    /// A value put out of its register once, where nothing loops, is
+    /// written to memory there rather than where it is made: the store
+    /// stands where the value goes, and nothing writes it twice.
+    #[test]
+    fn a_value_spilled_once_is_written_where_it_goes_into_memory() {
+        let code = made_then_read(3, &[1, 2, 0]);
+        let (liveness, allocation, states) = allocate_recording(&code).unwrap();
+        assert!(spilled(&liveness, &states, 0));
+        assert!(allocation.stores.is_empty(), "{:?}", allocation.stores);
+        let written = allocation
+            .transitions
+            .iter()
+            .filter(|transition| {
+                transition.value == VReg::at(0)
+                    && matches!(transition.from, Location::Register(_))
+                    && matches!(transition.to, Location::Spill(_))
+            })
+            .count();
+        assert_eq!(written, 1, "{:?}", allocation.transitions);
+    }
+
+    /// One instruction appended to `code`'s order, every place it names
+    /// in any register.
+    fn append(code: &mut Code<Two>, operands: &[VReg], result: Option<VReg>) {
+        let start = code.operands.len();
+        code.operands.extend_from_slice(operands);
+        let specs = code.specs.len();
+        let count = usize::from(result.is_some()) + operands.len();
+        code.specs.extend((0..count).map(|_| ANY));
+        let id = code.instructions.push(Inst {
+            operands: Range::of(start, operands.len()),
+            result,
+            specs: Range::of(specs, count),
+            scratch: RegSet::EMPTY,
+            clobbers: RegSet::EMPTY,
+        });
+        code.order.push(id);
+    }
+
+    /// A block of what `code`'s order holds from `from` on.
+    fn close(code: &mut Code<Two>, from: usize, terminator: Terminator<Two>) {
+        code.blocks.push(Block {
+            owner: FunctionId::at(0),
+            params: Range::EMPTY,
+            instructions: Range::of(from, code.order.len() - from),
+            terminator,
+        });
+    }
+
+    /// `v0` made, then a loop reading `v1` round and round and making two
+    /// values of its own each time, then `v0` read.
+    fn loop_past() -> Code<Two> {
+        let mut code = made_then_read(0, &[]);
+        code.values = 4;
+        code.blocks = Pool::default();
+        append(&mut code, &[], Some(VReg::at(0)));
+        append(&mut code, &[], Some(VReg::at(1)));
+        let jump = Terminator::Jump {
+            target: BlockId::at(1),
+            args: Range::EMPTY,
+        };
+        close(&mut code, 0, jump);
+        let body = code.order.len();
+        append(&mut code, &[VReg::at(1)], Some(VReg::at(2)));
+        append(&mut code, &[VReg::at(2), VReg::at(1)], Some(VReg::at(3)));
+        let round = Terminator::Branch {
+            condition: VReg::at(3),
+            allowed: RegSet(u64::MAX),
+            then_target: BlockId::at(1),
+            then_args: Range::EMPTY,
+            else_target: BlockId::at(2),
+            else_args: Range::EMPTY,
+        };
+        close(&mut code, body, round);
+        let after = code.order.len();
+        append(&mut code, &[VReg::at(0)], None);
+        close(&mut code, after, Terminator::Halt);
+        code
+    }
+
+    /// A loop holding more than two registers hold, with `v0` made before
+    /// it and read only after: from the loop's head `v0` waits in memory,
+    /// so the loop's own values have both registers and nothing comes back
+    /// each time round.
+    #[test]
+    fn what_a_loop_never_reads_waits_in_memory_from_its_head() {
+        let (liveness, _, states) = allocate_recording(&loop_past()).unwrap();
+        let head = liveness.blocks[1].entry;
+        assert!(matches!(
+            states.location(&liveness, head, VReg::at(0)),
+            Some(Location::Spill(_))
+        ));
+        assert!(matches!(
+            states.location(&liveness, head, VReg::at(1)),
+            Some(Location::Register(_))
+        ));
     }
 }

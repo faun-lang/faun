@@ -236,6 +236,22 @@ fn fixed_duplicate_copies_cannot_be_reused_by_another_operand() {
     assert!(allocate(&code).unwrap_err().contains("more registers"));
 }
 
+/// The registers each write to memory is from, where a value is made or
+/// where it goes into memory.
+fn written_from(allocation: &Allocation<Reg>) -> Vec<Reg> {
+    allocation
+        .stores
+        .iter()
+        .map(|&(_, reg, _)| reg)
+        .chain(allocation.transitions.iter().filter_map(|transition| {
+            match (transition.from, transition.to) {
+                (Location::Register(reg), Location::Spill(_)) => Some(reg),
+                _ => None,
+            }
+        }))
+        .collect()
+}
+
 #[test]
 fn bank_pressure_and_call_clobbers_spill_and_reload_float_values() {
     let mut code = code(5);
@@ -260,13 +276,11 @@ fn bank_pressure_and_call_clobbers_spill_and_reload_float_values() {
     }
     halt(&mut code);
     let (live, allocation, states) = allocate_recording(&code).unwrap();
-    assert_eq!(allocation.stores.len(), 5);
-    assert!(
-        allocation
-            .stores
-            .iter()
-            .all(|(_, reg, _)| FP.contains(*reg))
-    );
+    // Each value is written to memory once, from a float register: where
+    // it is made, or where it goes into memory.
+    let written = written_from(&allocation);
+    assert_eq!(written.len(), 5);
+    assert!(written.iter().all(|&reg| FP.contains(reg)));
     let after_call = live.blocks[0].instructions[5].late;
     for at in 0..5 {
         assert!(matches!(

@@ -12,7 +12,7 @@ use std::collections::BinaryHeap;
 use super::{BlockId, Code, Liveness, Point, Register, VReg, successors, visit_terminator_values};
 
 /// What leaving one loop counts as, in points.
-const LEAVING: u32 = 1 << 16;
+pub(super) const LEAVING: u32 = 1 << 16;
 
 /// No read ahead at all.
 pub(super) const NEVER: u32 = u32::MAX;
