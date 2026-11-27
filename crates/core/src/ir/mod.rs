@@ -72,6 +72,7 @@ mod hoist;
 mod layout;
 mod legalize;
 mod lower;
+mod merge_ifs;
 mod model;
 pub mod natural;
 mod optimize;
@@ -98,6 +99,7 @@ pub use fit::{Budget, fit};
 pub use layout::Layout;
 pub use legalize::legalize;
 pub use lower::{MAKE_ARGUMENTS, lower, lower_counting_arguments};
+pub use merge_ifs::merge_ifs;
 pub use model::{
     Binary, Class, DataId, Definition, Direction, Exit, Function, FunctionId, Offset, Op, Origin,
     Range, Region, RegionId, Relation, Returns, ShapeId, Span, Terminator, ValueId, Width,
@@ -132,6 +134,8 @@ mod hoist_tests;
 mod interpreter_tests;
 #[cfg(test)]
 mod legalize_tests;
+#[cfg(test)]
+mod merge_ifs_tests;
 #[cfg(test)]
 mod natural_tests;
 #[cfg(test)]

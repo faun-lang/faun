@@ -49,6 +49,12 @@ impl Budget {
         }
     }
 
+    /// How many values an `if` or a loop carries into or out of itself.
+    #[must_use]
+    pub const fn transfers(self) -> usize {
+        self.transfers
+    }
+
     /// Whether a call taking `params` values and answering `results` fits.
     #[must_use]
     pub const fn carries(self, params: usize, results: usize) -> bool {

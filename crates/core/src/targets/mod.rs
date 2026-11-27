@@ -303,6 +303,9 @@ fn prepare_counting<T: Target + ?Sized>(
     let program = &crate::ir::split(program, target.word());
     crate::ir::validate(program).map_err(|error| format!("after splitting: {error}"))?;
     let program = &crate::ir::fit(program, target.budget());
+    // Branches on one condition, one after another, are one branch, as wide
+    // as the target carries.
+    let program = &crate::ir::merge_ifs(program, target.budget().transfers());
     let compared = crate::ir::lower_word_comparisons(program, target.word());
     let prepared = crate::ir::legalize(
         compared.as_ref().unwrap_or(program),
