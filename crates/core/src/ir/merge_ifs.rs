@@ -11,7 +11,9 @@
 //! which answers rather than leaving, are one branch: its first arm does
 //! what each first arm did, in order, and its second what each second arm
 //! did, each reading what those before it answered there. What the
-//! program does is the same, with one test and one jump.
+//! program does is the same, with one test and one jump. What an earlier
+//! branch answered that only later arms of its run read is not answered by
+//! the merged branch, so nothing holds it longer than it was held.
 
 use rustc_hash::FxHashMap as HashMap;
 
@@ -33,6 +35,7 @@ pub fn merge_ifs(source: &Program, transfers: usize) -> Program {
         &mut Merge {
             runs,
             merged: vec![false; source.values_count()],
+            reads: reads(source),
         },
     )
 }
@@ -91,6 +94,50 @@ fn arms(op: &Op, results: &[ValueId]) -> (RegionId, RegionId, Vec<ValueId>) {
     (then_region, else_region, results.to_vec())
 }
 
+/// How many times each value is read, anywhere.
+fn reads(source: &Program) -> Vec<u32> {
+    let mut reads = vec![0; source.values_count()];
+    for (region, held) in source.regions.iter_enumerated() {
+        for (op, _) in source.walk(region) {
+            for value in source.operands(op) {
+                reads[value.index()] += 1;
+            }
+        }
+        if let Some(terminator) = held.terminator {
+            for value in source.values(terminator.values) {
+                reads[value.index()] += 1;
+            }
+        }
+    }
+    reads
+}
+
+/// How many times each value is read in `region` and what it holds.
+fn reads_within(source: &Program, region: RegionId, reads: &mut HashMap<ValueId, u32>) {
+    for (op, _) in source.walk(region) {
+        for value in source.operands(op) {
+            *reads.entry(value).or_default() += 1;
+        }
+        match *op {
+            Op::If {
+                then_region,
+                else_region,
+                ..
+            } => {
+                reads_within(source, then_region, reads);
+                reads_within(source, else_region, reads);
+            }
+            Op::Loop { body, .. } => reads_within(source, body, reads),
+            _ => {}
+        }
+    }
+    if let Some(terminator) = source.region(region).terminator {
+        for &value in source.values(terminator.values) {
+            *reads.entry(value).or_default() += 1;
+        }
+    }
+}
+
 /// The condition a branch both of whose arms answer is on.
 fn branch_on(source: &Program, op: &Op) -> Option<ValueId> {
     let Op::If {
@@ -113,12 +160,35 @@ struct Merge {
     runs: HashMap<ValueId, (ValueId, Run)>,
     /// The results of branches already written as part of a run.
     merged: Vec<bool>,
+    /// How many times each value is read, anywhere.
+    reads: Vec<u32>,
 }
 
 impl Merge {
+    /// Which of `all`, what `run` answers, is read after it: what only the
+    /// run's later arms read stays inside the merged arms.
+    fn kept(&self, source: &Program, run: &Run, all: &[ValueId]) -> Vec<bool> {
+        let mut inside = HashMap::default();
+        for &(then_region, else_region, _) in &run[1..] {
+            reads_within(source, then_region, &mut inside);
+            reads_within(source, else_region, &mut inside);
+        }
+        all.iter()
+            .map(|value| self.reads[value.index()] > inside.get(value).copied().unwrap_or(0))
+            .collect()
+    }
+
     /// The first arm of the merged branch, or its second: each branch's arm
-    /// on that side in order, then everything they answered.
-    fn arm(&mut self, rebuild: &Rebuild<'_>, b: &mut Builder, run: &Run, first: bool) {
+    /// on that side in order, then what they answered that `kept` says is
+    /// read after the run.
+    fn arm(
+        &mut self,
+        rebuild: &Rebuild<'_>,
+        b: &mut Builder,
+        run: &Run,
+        kept: &[bool],
+        first: bool,
+    ) {
         let source = rebuild.source();
         let mut answered = Vec::new();
         for (then_region, else_region, results) in run {
@@ -139,6 +209,11 @@ impl Merge {
             }
             answered.extend(values);
         }
+        let answered: Vec<ValueId> = answered
+            .into_iter()
+            .zip(kept)
+            .filter_map(|(value, &kept)| kept.then_some(value))
+            .collect();
         b.yield_(&answered);
     }
 }
@@ -159,19 +234,27 @@ impl Pass for Merge {
             .iter()
             .flat_map(|(_, _, results)| results.iter().copied())
             .collect();
-        let classes = rebuild.classes(&all);
+        let kept = self.kept(rebuild.source(), &run, &all);
+        let answered: Vec<ValueId> = all
+            .iter()
+            .zip(&kept)
+            .filter_map(|(&value, &kept)| kept.then_some(value))
+            .collect();
+        let classes = rebuild.classes(&answered);
         let condition = rebuild.value(condition);
         let fresh = {
             let pass = std::cell::RefCell::new(&mut *self);
             b.if_(
                 condition,
                 &classes,
-                |b| pass.borrow_mut().arm(rebuild, b, &run, true),
-                |b| pass.borrow_mut().arm(rebuild, b, &run, false),
+                |b| pass.borrow_mut().arm(rebuild, b, &run, &kept, true),
+                |b| pass.borrow_mut().arm(rebuild, b, &run, &kept, false),
             )
         };
-        for (&was, now) in all.iter().zip(fresh) {
+        for (&was, now) in answered.iter().zip(fresh) {
             rebuild.stands_for(was, now);
+        }
+        for was in all {
             self.merged[was.index()] = true;
         }
         true
