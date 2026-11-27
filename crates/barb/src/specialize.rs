@@ -59,6 +59,9 @@ use super::{Atom, Body, ConstId, Expr, ExprId, FnId, Local, Program};
 const COPIES: usize = 4;
 /// The largest definition copied, in what copying it allocates.
 const LARGEST: usize = 4096;
+/// A copy small enough to keep whatever it decided, in what copying it
+/// allocates.
+const SMALL: usize = 64;
 
 /// Copy each such definition for the values its callers hand it, then bind
 /// the values every caller hands alike, and simplify again what was given one.
@@ -104,11 +107,14 @@ fn copy_for_values(program: &mut Program) {
             continue;
         }
         let before = branches(program, body);
+        let size = super::inline::cost(program, body);
         for key in keys.into_iter().filter(Key::known).take(COPIES) {
             let copied = copied(program, id, body, &key);
             super::normalize::resimplify(program, &[copied]);
             let body = program.function(copied).body().expect("a copy has a body");
-            if branches(program, body) >= before {
+            if branches(program, body) >= before
+                || !worth_copying(size, super::inline::cost(program, body))
+            {
                 continue;
             }
             for call in calls.iter().filter(|call| call.key(passed) == key) {
@@ -119,6 +125,15 @@ fn copy_for_values(program: &mut Program) {
             }
         }
     }
+}
+
+/// Whether a copy costing `copy`, of a definition costing `original`, earns
+/// the room it takes: a small one always does, and a larger one only where
+/// what its value decided took away a good part of the work, at least a
+/// quarter of it. A copy deciding one match deep in a large loop saves a
+/// branch a round and holds the whole loop again.
+const fn worth_copying(original: usize, copy: usize) -> bool {
+    copy <= SMALL || copy * 4 <= original * 3
 }
 
 /// Bind in each definition the values every call of it from outside hands
