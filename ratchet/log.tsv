@@ -173,3 +173,4 @@ series	idea	score	speed	memory	size	small	compile	worst	verdict	report
 9	A sum wider than 32 bits answers anywhere, whatever its class bounds it by	0.98952	0.97150	1.00000	0.99222	0.99107	1.00000	1.00220	accept	20261127T034210Z-eval-299db776-vs-f9ceace7.json
 9	A branch on a condition just set reads the flags that set it	0.98938	0.97128	1.00000	0.99208	0.99088	1.00000	1.00220	accept	20261127T034427Z-eval-234beb83-vs-f9ceace7.json
 9	A known number read at a wider class is the same number to simplify	0.98468	0.96496	1.00000	0.98650	0.98306	0.99785	1.00110	accept	20261127T035048Z-eval-ae0afb85-vs-f9ceace7.json
+9	A branch on a value just masked by an and reads the flags it set	0.98236	0.95922	0.99835	0.98436	0.98254	0.99785	1.00110	accept	20261127T035351Z-eval-29cdbb00-vs-f9ceace7.json
