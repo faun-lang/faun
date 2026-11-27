@@ -426,6 +426,13 @@ const XMMS: faun_regalloc::RegSet = faun_regalloc::RegSet(0xFFFF_0000);
 const SCALARS: faun_regalloc::RegSet = faun_regalloc::RegSet(0xFFFF_FFFF);
 
 impl Inst {
+    /// Whether what this answers may be anywhere rather than where its
+    /// first operand is: a full-width sum, which written as an address
+    /// worked out reads both operands where they stand.
+    fn answers_anywhere(self) -> bool {
+        self.opcode == Opcode::Add && self.immediate == Immediate::Bits(64)
+    }
+
     fn operand_spec(self, at: usize) -> Option<OperandSpec> {
         let def = usize::from(self.result.is_some());
         if at < def {
@@ -444,7 +451,7 @@ impl Inst {
             {
                 Constraint::Tied(0)
             }
-            op if op.in_place() && use_at == 0 => Constraint::Tied(0),
+            op if op.in_place() && use_at == 0 && !self.answers_anywhere() => Constraint::Tied(0),
             Opcode::Divide | Opcode::Modulo if use_at == 0 => Constraint::Fixed(Reg::Rax),
             Opcode::ShiftUp
             | Opcode::ShiftDown

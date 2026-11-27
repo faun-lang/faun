@@ -963,6 +963,25 @@ impl<'a> Lowering<'a> {
             (Opcode::DataAddress, Immediate::Data(data)) => {
                 self.load_data_address(result()?, data);
             }
+            (Opcode::Add, Immediate::Bits(64)) => {
+                let source = self.selected.operands[inst.operands.range()][1];
+                let (left, right, dst) = (reg(0)?, reg(1)?, result()?);
+                if dst == left {
+                    if self.is_unique_constant(source)
+                        && self.asm.fold_alu_immediate(Alu::Add, dst, right, 64)
+                    {
+                        self.forget(right);
+                    } else {
+                        self.asm.alu(Alu::Add, dst, right, 64);
+                    }
+                } else if dst == right {
+                    self.asm.alu(Alu::Add, dst, left, 64);
+                } else if self.is_unique_constant(source) && self.asm.fold_add3(dst, left, right) {
+                    self.forget(right);
+                } else {
+                    self.asm.add3(dst, left, Some(right), 0);
+                }
+            }
             (
                 Opcode::Add | Opcode::Subtract | Opcode::And | Opcode::Or | Opcode::Xor,
                 Immediate::Bits(bits),
