@@ -1151,3 +1151,33 @@ fn a_known_number_added_to_an_address_is_the_offset_it_is_read_at() {
         1
     );
 }
+
+/// A word divided by eight, the eight held as exactly itself and read as a
+/// word, is the word moved down three places, as legalization writes a
+/// small natural's quotient.
+#[test]
+fn a_word_divided_by_a_held_power_of_two_is_moved_down() {
+    let (mut p, main) = Program::new_with_params("main", &[("x", Class::Word)]);
+    p.bind_layout(super::Layout { word_bits: 64 })
+        .expect("a layout the program allows");
+    p.define(main, |b, args| {
+        let eight = b.constant(Class::Held(Bounds::at(8)), 8);
+        let eight = b.convert(Class::Word, eight);
+        let halved = b.shift(Class::Word, super::Direction::Down, args[0], 1);
+        let quotient = b.binary_at(Class::Word, Binary::Div, halved, eight);
+        b.ret(&[quotient]);
+    });
+    validate(&p).unwrap();
+    let held = optimize(&p);
+    assert_eq!(
+        count(&held, |op| matches!(
+            op,
+            Op::Binary {
+                op: Binary::Div,
+                ..
+            }
+        )),
+        0,
+        "{held:?}"
+    );
+}

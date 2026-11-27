@@ -697,12 +697,30 @@ impl Simplify {
         number.is_power_of_two().then(|| number.trailing_zeros())
     }
 
-    /// The number an old value is, where a constant wrote it or it was
-    /// worked out here from ones.
+    /// The number an old value is, where a constant wrote it, it was
+    /// worked out here from ones, or it is one of those held wider: a
+    /// number is the same number at any class it fits.
     fn number(&self, value: ValueId) -> Option<u64> {
         self.wrote
             .number(value)
             .or_else(|| self.folded[value.index()])
+            .or_else(|| {
+                let (Op::Convert { value: from }, class, _) = self.wrote.0[value.index()]? else {
+                    return None;
+                };
+                let number = self
+                    .wrote
+                    .number(from)
+                    .or_else(|| self.folded[from.index()])?;
+                let fits = match class {
+                    Class::Word => true,
+                    Class::Held(facts) => {
+                        number >= facts.low && facts.high.is_none_or(|high| number <= high)
+                    }
+                    _ => false,
+                };
+                fits.then_some(number)
+            })
     }
 
     /// An address a known number past another, as that other and an offset
