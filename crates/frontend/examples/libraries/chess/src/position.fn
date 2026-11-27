@@ -1,20 +1,15 @@
-# A position of a game and the moves from it. A `Position` is the board,
-# whose turn it is, the castling rights left, the square a pawn may be
-# taken on in passing, and the two clocks: everything FEN writes, and
-# everything the rules ask. A `Move` is made only by the position it is
-# played from, and holds the position it leads to, so no move can be
-# played anywhere else.
+# A position of a game, and the moves that may be played from it. A
+# `Position` is the board, whose turn it is, the castling rights left,
+# the square a pawn may be taken on in passing, and the two clocks:
+# everything FEN writes, and everything the rules ask.
 #
 # A move is legal where it is one the piece may make and leaves its own
 # king unattacked. The library finds each the plain way: every move the
 # pieces could make, each played, and those that leave the king attacked
 # dropped. Pins, checks, discovered checks and the en passant capture
 # that uncovers a king along its rank all fall out of that one test,
-# with none of them a case of its own.
-#
-# `Move` lives here beside `Position`, rather than in a module of its own,
-# because each names the other: a position's legal moves are moves, and a
-# move holds the position it leads to, and modules form no cycle.
+# with none of them a case of its own. `play` asks the same of a move
+# from anywhere, and `play_unchecked` trusts a move `legal_moves` gave.
 
 import file {File.*}
 import rank {Rank.*}
@@ -25,10 +20,10 @@ import role {Role.*}
 import piece {Piece.*}
 import castling_side {CastlingSide.*, castle_squares}
 import castling_rights {CastlingRights.*, untouched}
-import move_kind {MoveKind.*}
+import move {Move.*, MoveKind.*, uci_parts}
 import board {Board, forward, pawn_captures, knight_jumps}
 
-export {Position, Move, FenError}
+export {Position, FenError}
 
 # Why a FEN was refused: the field that is wrong, or what makes the
 # position it writes one no game can reach.
@@ -200,117 +195,62 @@ Position : {
   )
 
   # Every legal move of the side to move: those its pieces may make that
-  # leave its own king unattacked. Each holds the position it leads to.
+  # leave its own king unattacked.
   legal_moves : Position -> List(Move)
-  legal_moves(position) -> candidates(position).flat_map(|candidate| legal(position, candidate))
+  legal_moves(position) -> candidates(position).filter(|move| leaves_king_safe(position, move))
   expect Position.start.legal_moves().len() == 20
   expect Position.start.legal_moves().map(Move.to_uci).take(3) == ["b1a3", "b1c3", "g1f3"]
+
+  # The legal move UCI's `text` writes from this position: `Malformed`
+  # where `text` is not UCI, and `NoLegalMove` where it is, but names no
+  # legal move here. UCI says only the squares and a promotion; the
+  # position says which piece moves, what it takes and what kind of move
+  # it is.
+  move_from_uci : (Position, Str) -> Result(Move, [Malformed, NoLegalMove])
+  move_from_uci(position, text) -> (
+    (from, to, promotion) = uci_parts(text.to_utf8())?
+    matching = position.legal_moves().find(|move|
+      move.from() == from & move.to() == to & move.promotion() == promotion)
+    matching.err_as(NoLegalMove)
+  )
+  expect Position.start.move_from_uci("e2e4").map_ok(Move.kind) == Ok(DoublePush)
+  expect Position.start.move_from_uci("g1f3").map_ok(Move.to_uci) == Ok("g1f3")
+  expect Position.start.move_from_uci("e2e5") == Err(NoLegalMove)
+  expect Position.start.move_from_uci("e2") == Err(Malformed)
+  expect Position.start.move_from_uci("e2e4x") == Err(Malformed)
+
+  # The position after `move`, where it is one of this position's legal
+  # moves, and `IllegalMove` holding the move where it is not: a move of
+  # another position, or one that would leave the mover's king attacked.
+  play : (Position, Move) -> Result(Position, [IllegalMove(Move)])
+  play(position, move) ->
+    if position.legal_moves().contains(move) then Ok(position.play_unchecked(move)) else Err(IllegalMove(move))
+  expect Position.start.move_from_uci("e2e4").and_then(|move| Position.start.play(move).err_as(NoLegalMove)).map_ok(Position.to_fen)
+    == Ok("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
+  expect (
+    reply = Position.from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
+    e4 = Position.start.move_from_uci("e2e4")
+    (reply, e4) is (Ok(black), Ok(move)) & black.play(move) == Err(IllegalMove(move))
+  )
+
+  # The position after `move`, without asking whether it is legal: for a
+  # move `legal_moves` just gave, which needs no asking again. The move
+  # must be one of this position's `legal_moves`. Any other is still
+  # played, and answers a position, since nothing in Faun panics, but one
+  # no game reaches, a king taken or the side not to move in check, and
+  # nothing asked of it then means anything.
+  play_unchecked : (Position, Move) -> Position
+  play_unchecked(position, move) -> played(position, move)
+  expect (
+    # Every position one move from the start, each move found by
+    # `legal_moves` and so played unchecked.
+    replies = Position.start.legal_moves().map(|move| Position.start.play_unchecked(move))
+    replies.len() == 20 & replies.all(|after| after.turn() == Black & after.legal_moves().len() == 20)
+  )
 
   equals : (Position, Position) -> Bool
 )
 
-
-# A move a piece may make, before it is known to leave its king safe: the
-# piece's square and where it lands, its role, the role it takes and the
-# role it becomes, if any, and the kind of move.
-Candidate = {
-  from: Square,
-  to: Square,
-  role: Role,
-  captured: Result(Role, [NoCapture]),
-  promotion: Result(Role, [NoPromotion]),
-  kind: MoveKind,
-}
-
-# A legal move, as one of a position's `legal_moves` or read from UCI by
-# `Move.from_uci`. It holds the position it leads to, `after`, so it is
-# played by asking for that, and cannot be played on another position.
-Move : {candidate: Candidate, after: Position}.(
-  # The square the piece moves from: for a castle, the king's.
-  from : Move -> Square
-  from(Move({candidate, *})) -> candidate.from
-  expect Move.from_uci(Position.start, "g1f3").map_ok(|move| move.from().to_str()) == Ok("g1")
-
-  # The square the piece lands on: for a castle, the king's.
-  to : Move -> Square
-  to(Move({candidate, *})) -> candidate.to
-  expect Move.from_uci(Position.start, "g1f3").map_ok(|move| move.to().to_str()) == Ok("f3")
-
-  # The role of the piece that moves: for a castle, the king.
-  role : Move -> Role
-  role(Move({candidate, *})) -> candidate.role
-  expect Move.from_uci(Position.start, "g1f3").map_ok(Move.role) == Ok(Knight)
-
-  # The role of the piece taken, if one is.
-  captured : Move -> Result(Role, [NoCapture])
-  captured(Move({candidate, *})) -> candidate.captured
-  expect Move.from_uci(Position.start, "e2e4").map_ok(Move.captured) == Ok(Err(NoCapture))
-
-  # The role a pawn becomes on the last rank, if it does.
-  promotion : Move -> Result(Role, [NoPromotion])
-  promotion(Move({candidate, *})) -> candidate.promotion
-  expect Move.from_uci(Position.start, "e2e4").map_ok(Move.promotion) == Ok(Err(NoPromotion))
-
-  # What kind of move it is.
-  kind : Move -> MoveKind
-  kind(Move({candidate, *})) -> candidate.kind
-  expect Move.from_uci(Position.start, "e2e4").map_ok(Move.kind) == Ok(DoublePush)
-
-  # The position the move leads to: the move played.
-  after : Move -> Position
-  after(Move({after, *})) -> after
-  expect Move.from_uci(Position.start, "e2e4").map_ok(|move| move.after().to_fen())
-    == Ok("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
-
-  # The move as UCI writes it: the squares it goes from and to, and the
-  # small letter of the role a pawn becomes. A castle is the king's move
-  # of two squares, `e1g1`.
-  to_uci : Move -> Str
-  to_uci(Move({candidate, *})) -> (
-    promoted = candidate.promotion is (
-      Ok(role) then Str.from_ascii([role.to_char()]).ok_or("")
-      Err(NoPromotion) then ""
-    )
-    "${candidate.from}${candidate.to}${promoted}"
-  )
-  expect Move.from_uci(Position.start, "b1c3").map_ok(Move.to_uci) == Ok("b1c3")
-
-  # The legal move from `position` that UCI's `text` writes: `Malformed`
-  # where `text` is not UCI, and `IllegalMove` where it is, but no legal
-  # move of the position.
-  from_uci : (Position, Str) -> Result(Move, [Malformed, IllegalMove])
-  from_uci(position, text) -> (
-    (from, to, promotion) = uci_parts(text.to_utf8())?
-    matching = position.legal_moves().find(|move|
-      move.from() == from & move.to() == to & move.promotion() == promotion)
-    matching.err_as(IllegalMove)
-  )
-  expect Move.from_uci(Position.start, "e2e4").is_ok()
-  expect Move.from_uci(Position.start, "e2e5") == Err(IllegalMove)
-  expect Move.from_uci(Position.start, "e2") == Err(Malformed)
-  expect Move.from_uci(Position.start, "e2e4x") == Err(Malformed)
-
-  # The move as UCI writes it, as `to_uci` does.
-  to_str : Move -> Str
-  to_str(move) -> move.to_uci()
-  expect Move.from_uci(Position.start, "e2e4").map_ok(|move| "${move}") == Ok("e2e4")
-
-  equals : (Move, Move) -> Bool
-)
-
-# The squares, and the role a pawn becomes, UCI's text writes.
-uci_parts : List(U8) -> Result((Square, Square, Result(Role, [NoPromotion])), [Malformed])
-uci_parts([a, b, c, d]) -> Ok((square(a, b)?, square(c, d)?, Err(NoPromotion)))
-uci_parts([a, b, c, d, letter]) -> (
-  role = Role.from_char(letter)?
-  if !Role.promotions.contains(role) | letter.is_ascii_upper() return Err(Malformed)
-  Ok((square(a, b)?, square(c, d)?, Ok(role)))
-)
-uci_parts(_) -> Err(Malformed)
-
-# The square a file's letter and a rank's digit name.
-square : (U8, U8) -> Result(Square, [Malformed])
-square(letter, digit) -> Ok(Square.of_coords(File.from_char(letter)?, Rank.from_char(digit)?))
 
 # `position`, where a game could reach it: the checks `from_fen` makes
 # past each field's own.
@@ -353,14 +293,14 @@ passed_over(board, turn, square) -> (
 
 # Every move the side to move's pieces may make, before asking whether
 # each leaves its king attacked.
-candidates : Position -> List(Candidate)
+candidates : Position -> List(Move)
 candidates(position is Position({board, turn, *})) -> board.pieces()
   .filter(|(_, piece)| piece.color() == turn)
   .flat_map(|(from, piece)| moves_of(position, from, piece.role()))
   .concat(castles(position))
 
 # The moves of the piece of `role` on `from`, castles aside.
-moves_of : (Position, Square, Role) -> List(Candidate)
+moves_of : (Position, Square, Role) -> List(Move)
 moves_of(position, from, Pawn) -> pawn_moves(position, from)
 moves_of(position, from, Knight) -> knight_jumps(from).flat_map(|to| landing(position, from, Knight, to))
 moves_of(position, from, Bishop) -> Direction.diagonal.flat_map(|way| sliding(position, from, Bishop, way))
@@ -373,7 +313,7 @@ moves_of(position, from, King) -> Direction.all.flat_map(|way| from.step(way) is
 
 # A move of the piece of `role` from `from` to `to`, unless a piece of its
 # own stands there: none, or one, taking what stands there.
-landing : (Position, Square, Role, Square) -> List(Candidate)
+landing : (Position, Square, Role, Square) -> List(Move)
 landing(Position({board, turn, *}), from, role, to) -> board.piece_at(to) is (
   Ok(Piece(==turn, _)) then []
   Ok(Piece(_, taken)) then [plain(from, to, role, Ok(taken))]
@@ -381,17 +321,17 @@ landing(Position({board, turn, *}), from, role, to) -> board.piece_at(to) is (
 )
 
 # A move with nothing special about it.
-plain : (Square, Square, Role, Result(Role, [NoCapture])) -> Candidate
-plain(from, to, role, captured) -> {from, to, role, captured, promotion: Err(NoPromotion), kind: Normal}
+plain : (Square, Square, Role, Result(Role, [NoCapture])) -> Move
+plain(from, to, role, captured) -> Move({from, to, role, captured, promotion: Err(NoPromotion), kind: Normal})
 
 # The moves along `way` of the piece of `role` from `from`: each square to
 # the first piece in the way, and that piece's too where it is the other
 # side's.
-sliding : (Position, Square, Role, Direction) -> List(Candidate)
+sliding : (Position, Square, Role, Direction) -> List(Move)
 sliding(position, from, role, way) -> sliding_from(position, from, from, role, way)
 
 # The same, going on from `at`.
-sliding_from : (Position, Square, Square, Role, Direction) -> List(Candidate)
+sliding_from : (Position, Square, Square, Role, Direction) -> List(Move)
 sliding_from(position is Position({board, *}), from, at, role, way) -> at.step(way) is (
   Ok(to) then board.piece_at(to) is (
     Err(Empty) then [plain(from, to, role, Err(NoCapture)), *sliding_from(position, from, to, role, way)]
@@ -404,7 +344,7 @@ sliding_from(position is Position({board, *}), from, at, role, way) -> at.step(w
 # where both are empty, a step forward to either side onto a piece of the
 # other side or onto the en passant square, and on the last rank, each as
 # every role it may become.
-pawn_moves : (Position, Square) -> List(Candidate)
+pawn_moves : (Position, Square) -> List(Move)
 pawn_moves(Position({board, turn, en_passant, *}), from) -> (
   ahead = forward(turn)
   start = if turn == White then Rank(1) else Rank(6)
@@ -412,7 +352,7 @@ pawn_moves(Position({board, turn, en_passant, *}), from) -> (
     Ok(one) if board.piece_at(one) == Err(Empty) then (
       double = one.step(ahead) is (
         Ok(two) if from.rank() == start & board.piece_at(two) == Err(Empty) then
-          [{from, to: two, role: Pawn, captured: Err(NoCapture), promotion: Err(NoPromotion), kind: DoublePush}]
+          [Move({from, to: two, role: Pawn, captured: Err(NoCapture), promotion: Err(NoPromotion), kind: DoublePush})]
         _ then []
       )
       promoting(from, one, Err(NoCapture)).concat(double)
@@ -423,7 +363,7 @@ pawn_moves(Position({board, turn, en_passant, *}), from) -> (
     Ok(to) then board.piece_at(to) is (
       Ok(Piece(color, taken)) if color != turn then promoting(from, to, Ok(taken))
       Err(Empty) if en_passant == Ok(to) then
-        [{from, to, role: Pawn, captured: Ok(Pawn), promotion: Err(NoPromotion), kind: EnPassant}]
+        [Move({from, to, role: Pawn, captured: Ok(Pawn), promotion: Err(NoPromotion), kind: EnPassant})]
       _ then []
     )
     Err(OffBoard) then []
@@ -433,37 +373,37 @@ pawn_moves(Position({board, turn, en_passant, *}), from) -> (
 
 # A pawn's move from `from` to `to`, as each role it may become where `to`
 # is on the last rank.
-promoting : (Square, Square, Result(Role, [NoCapture])) -> List(Candidate)
+promoting : (Square, Square, Result(Role, [NoCapture])) -> List(Move)
 promoting(from, to, captured) if to.rank() == Rank(0) | to.rank() == Rank(7) ->
-  Role.promotions.map(|role| {from, to, role: Pawn, captured, promotion: Ok(role), kind: Normal})
+  Role.promotions.map(|role| Move({from, to, role: Pawn, captured, promotion: Ok(role), kind: Normal}))
 promoting(from, to, captured) -> [plain(from, to, Pawn, captured)]
 
 # The castles the side to move may make: where it has the right, the
 # squares between king and rook are empty, and the king is not in check
 # and crosses no attacked square. Whether it lands in check is asked of
 # every move alike.
-castles : Position -> List(Candidate)
+castles : Position -> List(Move)
 castles(Position({board, turn, castling, *})) -> CastlingSide.all
   .filter(|side| castling.has(turn, side))
   .map(|side| (side, castle_squares(turn, side)))
   .filter(|(_, castle)| castle.empty.all(|square| board.piece_at(square) == Err(Empty))
     & castle.safe.all(|square| !board.is_attacked(square, turn.other())))
-  .map(|(side, castle)| {from: castle.king_from, to: castle.king_to, role: King, captured: Err(NoCapture), promotion: Err(NoPromotion), kind: Castle(side)})
+  .map(|(side, castle)| Move({from: castle.king_from, to: castle.king_to, role: King, captured: Err(NoCapture), promotion: Err(NoPromotion), kind: Castle(side)}))
 
-# The move, where it leaves the mover's king unattacked.
-legal : (Position, Candidate) -> List(Move)
-legal(position is Position({turn, *}), candidate) -> (
-  after = played(position, candidate)
-  Position({board, *}) = after
-  if board.is_attacked(board.king(turn), turn.other()) then [] else [Move({candidate, after})]
+# Whether `move` leaves the mover's king unattacked: the move played, and
+# the king looked at.
+leaves_king_safe : (Position, Move) -> Bool
+leaves_king_safe(position is Position({turn, *}), move) -> (
+  Position({board, *}) = played(position, move)
+  !board.is_attacked(board.king(turn), turn.other())
 )
 
-# The position `candidate` leads to: its piece moved, and what it takes
+# The position `move` leads to: its piece moved, and what it takes
 # removed; a castle's rook moved too; the rights its king or rooks lose
 # gone; the en passant square of a pawn's double step; the clocks moved
 # on; and the other side to move.
-played : (Position, Candidate) -> Position
-played(Position(position), candidate is {from, to, role, captured, promotion, kind}) -> (
+played : (Position, Move) -> Position
+played(Position(position), Move({from, to, role, captured, promotion, kind})) -> (
   turn = position.turn
   becomes = promotion.ok_or(role)
   moved = position.board.remove(from).put(to, Piece(turn, becomes))
