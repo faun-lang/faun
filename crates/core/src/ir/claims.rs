@@ -41,7 +41,9 @@ pub fn place(source: &Program, word_bits: u16, grows: bool) -> Program {
         Plan::default()
     };
     let owned = ownership::owned_parameters(source);
+    let borrows = ownership::Borrows::of(source, &owned);
     let placing = Placing {
+        borrows,
         rebuild: Rebuild::new(source),
         borrowed_cells: ownership::borrowed_cells(source, &owned),
         immortal: immortal(source),
@@ -88,6 +90,8 @@ const fn top(scopes: &mut [Scope]) -> &mut Scope {
 
 struct Placing<'a> {
     rebuild: Rebuild<'a>,
+    /// Which parameters each loop borrows.
+    borrows: ownership::Borrows,
     plan: Plan,
     owned: Vec<Vec<bool>>,
     borrowed_cells: Vec<bool>,
@@ -159,7 +163,7 @@ impl Placing<'_> {
             ScopeKind::Loop => source
                 .values(old.params)
                 .iter()
-                .zip(ownership::borrowed_loop(source, region, &self.owned))
+                .zip(self.borrows.of_loop(region))
                 .enumerate()
                 .filter(|&(_, (_, borrowed))| borrowed)
                 .map(|(at, (&param, _))| (at, param))
@@ -448,7 +452,7 @@ impl Placing<'_> {
     ) -> Vec<ValueId> {
         let source = self.source();
         let params = source.values(source.region(body).params);
-        let borrowed = ownership::borrowed_loop(source, body, &self.owned);
+        let borrowed: Vec<bool> = self.borrows.of_loop(body).take(params.len()).collect();
         let carried: Vec<_> = params
             .iter()
             .zip(&borrowed)
@@ -492,9 +496,19 @@ impl Placing<'_> {
 #[must_use]
 pub fn elide(source: &Program, word_bits: u16) -> Program {
     let bits = natural_bits(source);
+    let mut laid_out = vec![false; source.values_count()];
+    for (id, _) in source.regions.iter_enumerated() {
+        for (op, results) in source.walk(id) {
+            if matches!(op, Op::NaturalConstant(_)) {
+                for &value in results {
+                    laid_out[value.index()] = true;
+                }
+            }
+        }
+    }
     let inert = |value: ValueId| {
         bits[value.index()].is_some_and(|bits| bits < u32::from(word_bits))
-            || matches!(writer(source, value), Some(Op::NaturalConstant(_)))
+            || laid_out[value.index()]
     };
     let mut pass = Elide {
         drop: (0..source.values_count())
@@ -551,16 +565,6 @@ fn yielded_bits(
         Class::Natural => bits[value.index()],
         class => class.width().map(u32::from),
     }
-}
-
-/// What wrote `value`, where an instruction did.
-fn writer(source: &Program, value: ValueId) -> Option<Op> {
-    source.regions.iter_enumerated().find_map(|(id, _)| {
-        source
-            .walk(id)
-            .find(|(_, results)| results.contains(&value))
-            .map(|(op, _)| *op)
-    })
 }
 
 /// The most bits each natural can have, where its instructions say: what

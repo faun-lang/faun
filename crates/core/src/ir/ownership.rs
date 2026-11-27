@@ -104,12 +104,13 @@ pub(super) fn owned_parameters(source: &Program) -> Vec<Vec<bool>> {
         .collect();
     loop {
         let mut changed = false;
+        let borrows = Borrows::of(source, &owned);
         for (id, function) in source.functions.iter_enumerated() {
             let Some(body) = function.body() else {
                 continue;
             };
             let mut consumed = Vec::new();
-            consumed_in(source, body, &owned, &mut consumed);
+            consumed_in(source, body, (&owned, &borrows), &mut consumed);
             for (at, &param) in source.values(source.region(body).params).iter().enumerate() {
                 if managed(source.class(param))
                     && !owned[id.index()][at]
@@ -177,19 +178,24 @@ fn sequence_taken(op: &Op, operands: &[ValueId], out: &mut Vec<ValueId>) {
 }
 
 /// The values some instruction in a region, or its exit, takes a claim to.
-fn consumed_in(source: &Program, region: RegionId, owned: &[Vec<bool>], out: &mut Vec<ValueId>) {
+fn consumed_in(
+    source: &Program,
+    region: RegionId,
+    (owned, borrows): (&[Vec<bool>], &Borrows),
+    out: &mut Vec<ValueId>,
+) {
     for (op, results) in source.walk(region) {
-        taken_by(source, op, results, owned, out);
+        taken_by(source, op, results, (owned, borrows), out);
         match *op {
             Op::If {
                 then_region,
                 else_region,
                 ..
             } => {
-                consumed_in(source, then_region, owned, out);
-                consumed_in(source, else_region, owned, out);
+                consumed_in(source, then_region, (owned, borrows), out);
+                consumed_in(source, else_region, (owned, borrows), out);
             }
-            Op::Loop { body, .. } => consumed_in(source, body, owned, out),
+            Op::Loop { body, .. } => consumed_in(source, body, (owned, borrows), out),
             _ => {}
         }
     }
@@ -204,7 +210,7 @@ pub(super) fn taken_by(
     source: &Program,
     op: &Op,
     results: &[ValueId],
-    owned: &[Vec<bool>],
+    (owned, borrows): (&[Vec<bool>], &Borrows),
     out: &mut Vec<ValueId>,
 ) {
     match *op {
@@ -231,7 +237,7 @@ pub(super) fn taken_by(
             source
                 .values(initial)
                 .iter()
-                .zip(borrowed_loop(source, body, owned))
+                .zip(borrows.of_loop(body))
                 .filter(|&(_, borrowed)| !borrowed)
                 .map(|(&value, _)| value),
         ),
@@ -245,7 +251,11 @@ pub(super) fn taken_by(
 /// The value it started from lives past the loop, so no claim of the
 /// loop's own is needed to keep it: none is taken on the way in, none
 /// carried round, and none given up on the way out.
-pub(super) fn borrowed_loop(source: &Program, body: RegionId, owned: &[Vec<bool>]) -> Vec<bool> {
+fn borrowed_loop(
+    source: &Program,
+    body: RegionId,
+    (owned, borrows): (&[Vec<bool>], &Borrows),
+) -> Vec<bool> {
     let params = source.values(source.region(body).params);
     let mut passed = vec![true; params.len()];
     let mut consumed = Vec::new();
@@ -253,7 +263,7 @@ pub(super) fn borrowed_loop(source: &Program, body: RegionId, owned: &[Vec<bool>
         source,
         body,
         (params, true),
-        owned,
+        (owned, borrows),
         (&mut passed, &mut consumed),
     );
     params
@@ -272,11 +282,11 @@ fn loop_reads(
     source: &Program,
     region: RegionId,
     (params, own): (&[ValueId], bool),
-    owned: &[Vec<bool>],
+    (owned, borrows): (&[Vec<bool>], &Borrows),
     (passed, consumed): (&mut Vec<bool>, &mut Vec<ValueId>),
 ) {
     for (op, results) in source.walk(region) {
-        taken_by(source, op, results, owned, consumed);
+        taken_by(source, op, results, (owned, borrows), consumed);
         match *op {
             Op::If {
                 then_region,
@@ -287,19 +297,25 @@ fn loop_reads(
                     source,
                     then_region,
                     (params, own),
-                    owned,
+                    (owned, borrows),
                     (passed, consumed),
                 );
                 loop_reads(
                     source,
                     else_region,
                     (params, own),
-                    owned,
+                    (owned, borrows),
                     (passed, consumed),
                 );
             }
             Op::Loop { body, .. } => {
-                loop_reads(source, body, (params, false), owned, (passed, consumed));
+                loop_reads(
+                    source,
+                    body,
+                    (params, false),
+                    (owned, borrows),
+                    (passed, consumed),
+                );
             }
             _ => {}
         }
@@ -337,4 +353,51 @@ fn leaving_reads(
 /// Whether each parameter of `function` is owned.
 pub(super) fn taken(owned: &[Vec<bool>], function: FunctionId) -> &[bool] {
     &owned[function.index()]
+}
+
+/// Which parameters each loop borrows, by its body, worked out once for
+/// the whole program: a loop's after every loop within it, which reading
+/// it asks of.
+pub(super) struct Borrows(Vec<Option<Vec<bool>>>);
+
+impl Borrows {
+    pub(super) fn of(source: &Program, owned: &[Vec<bool>]) -> Self {
+        let mut borrows = Self(vec![None; source.regions.len()]);
+        for function in source.functions() {
+            if let Some(body) = function.body() {
+                borrows.visit(source, body, owned);
+            }
+        }
+        borrows
+    }
+
+    fn visit(&mut self, source: &Program, region: RegionId, owned: &[Vec<bool>]) {
+        for (op, _) in source.walk(region) {
+            match *op {
+                Op::If {
+                    then_region,
+                    else_region,
+                    ..
+                } => {
+                    self.visit(source, then_region, owned);
+                    self.visit(source, else_region, owned);
+                }
+                Op::Loop { body, .. } => {
+                    self.visit(source, body, owned);
+                    let borrowed = borrowed_loop(source, body, (owned, self));
+                    self.0[body.index()] = Some(borrowed);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Which parameters the loop of body `body` borrows, in order.
+    pub(super) fn of_loop(&self, body: RegionId) -> impl Iterator<Item = bool> + '_ {
+        self.0[body.index()]
+            .iter()
+            .flatten()
+            .copied()
+            .chain(std::iter::repeat(false))
+    }
 }

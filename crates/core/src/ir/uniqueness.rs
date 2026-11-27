@@ -57,9 +57,10 @@ pub(super) fn unique(
         .collect();
     let ownable = |shape: ShapeId| plain(shape) && replaced.contains(&shape);
     let mut found = Unique::default();
+    let borrows = ownership::Borrows::of(source, owned);
     for function in source.functions() {
         if let Some(body) = function.body() {
-            let mut walk = Walk::new(source, owned);
+            let mut walk = Walk::new(source, owned, &borrows);
             walk.region(body, (None, None), 0);
             walk.decide((plain, &ownable), &mut found);
         }
@@ -106,6 +107,8 @@ type Fresh = HashMap<ValueId, bool>;
 struct Walk<'a> {
     source: &'a Program,
     owned: &'a [Vec<bool>],
+    /// Which parameters each loop borrows.
+    borrows: &'a ownership::Borrows,
     ops: Vec<(Op, Vec<ValueId>, Site)>,
     defs: HashMap<ValueId, Def>,
     /// The innermost loop each value is made in, by its body: a value made
@@ -127,10 +130,11 @@ struct Walk<'a> {
 }
 
 impl<'a> Walk<'a> {
-    fn new(source: &'a Program, owned: &'a [Vec<bool>]) -> Self {
+    fn new(source: &'a Program, owned: &'a [Vec<bool>], borrows: &'a ownership::Borrows) -> Self {
         Self {
             source,
             owned,
+            borrows,
             ops: Vec::new(),
             defs: HashMap::default(),
             homes: HashMap::default(),
@@ -217,7 +221,13 @@ impl<'a> Walk<'a> {
             path,
         };
         let mut taken = Vec::new();
-        ownership::taken_by(source, &op, &results, self.owned, &mut taken);
+        ownership::taken_by(
+            source,
+            &op,
+            &results,
+            (self.owned, self.borrows),
+            &mut taken,
+        );
         for operand in source.operands(&op) {
             let claim = taken.contains(&operand);
             self.read(operand, site, claim);
