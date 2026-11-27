@@ -934,7 +934,9 @@ impl<H: Host> Machine<'_, H> {
                 Number::from(self.buffers.len())
             }
             Op::BufferAt { .. } => return Err(invalid("a buffer's address before layout")),
-            Op::Keep { .. } => return self.bind(results, &[]),
+            Op::Keep { .. } | Op::Claim { .. } | Op::Release { .. } => {
+                return self.bind(results, &[]);
+            }
             // A sequence built here is a buffer of its own, starting at its
             // first element.
             Op::BufferPush { operands, .. } => {

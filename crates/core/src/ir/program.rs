@@ -237,6 +237,8 @@ impl Program {
             | Op::CellField { cell: value, .. }
             | Op::BufferRoom { count: value, .. }
             | Op::Keep { value }
+            | Op::Claim { value }
+            | Op::Release { value }
             | Op::Load { address: value, .. }
             | Op::Convert { value }
             | Op::Shift { value, .. }

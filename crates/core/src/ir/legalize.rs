@@ -1,13 +1,9 @@
-//! Target-sized representation and reference-count placement for managed values.
+//! Target-sized representation and reference counts for managed values.
 //!
-//! Every local managed result owns a claim, and so do loop parameters and the
-//! parameters [`super::ownership`] finds owned; the rest borrow. A claim is
-//! released right after its value's last use in its region. A use that takes
-//! a claim -- an exit, a cell field, a loop's initial state, a same-class
-//! conversion, an owned parameter -- moves the value's own claim where that
-//! use is its last and retains a new one otherwise. A value whose last use is
-//! an `if` hands its claim to both arms, and each releases it at its own last
-//! use. An exit releases whatever the scopes it leaves still hold.
+//! Where each claim is taken and given up is decided first, by
+//! [`super::claims`], which writes every one into the program as an
+//! instruction; here each [`Op::Claim`] and [`Op::Release`] becomes the
+//! count it asks for, and nothing decides a claim of its own.
 //!
 //! A replacement asks whether anything else holds its buffer, unless
 //! [`super::uniqueness`] knows nothing does: then it writes where the
@@ -24,7 +20,7 @@ use num_bigint::BigUint;
 
 use super::cell::{self, Library as CellLibrary};
 use super::natural::{self, Config, Helper, Inline, Library, Needs};
-use super::ownership::{self, Liveness, managed};
+use super::ownership::{self, managed};
 use super::packing::Packed;
 use super::region::{self, Chunks, Plan};
 use super::sequence::{self, Growth, Library as SequenceLibrary};
@@ -53,6 +49,9 @@ use super::{
 /// which [`crate::ir::split`] makes it before this runs.
 pub fn legalize(source: &Program, config: Config) -> Result<Program, String> {
     validate(source)?;
+    let placed = super::claims::place(source, config.word_bits, config.grows);
+    validate(&placed).map_err(|error| format!("after placing claims: {error}"))?;
+    let source = &placed;
     if !matches!(config.word_bits, 16 | 32 | 64) {
         return Err("natural representation needs a 16, 32, or 64 bit word".into());
     }
@@ -77,10 +76,6 @@ pub fn legalize(source: &Program, config: Config) -> Result<Program, String> {
 
 /// Lay out the managed shapes and build the ownership and region plans
 /// before rewriting any function bodies.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one constructor for every table the pass reads"
-)]
 fn prepare_pass<'a>(
     source: &'a Program,
     output: &mut Program,
@@ -125,16 +120,13 @@ fn prepare_pass<'a>(
         divisors,
         values: vec![Cell::new(None); source.values_count()],
         unique,
-        borrowed_cells: ownership::borrowed_cells(source, &owned),
-        immortal: immortal(source),
-        owned,
     })
 }
 
 /// Which values are buffers laid out before the program runs: immortal, so a
 /// claim to one counts nothing, and a use taking one need neither retain nor
 /// later release it. A table read in a loop is not counted every time round.
-fn immortal(source: &Program) -> Vec<bool> {
+pub(super) fn immortal(source: &Program) -> Vec<bool> {
     let mut immortal = vec![false; source.values_count()];
     for body in source.functions().iter().filter_map(super::Function::body) {
         for (op, results) in source.walk_within(body) {
@@ -307,11 +299,6 @@ fn word(b: &mut Builder, value: ValueId) -> ValueId {
     }
 }
 
-/// The innermost scope, which is the region being walked.
-const fn top(scopes: &mut [Scope]) -> &mut Scope {
-    scopes.last_mut().expect("a region being walked")
-}
-
 /// Each way a program grows a sequence, and the shape of its elements, each
 /// once. With `joins`, a join of two sequences is made a routine of its own.
 fn growths(source: &Program, joins: bool) -> std::collections::BTreeSet<(Growth, ShapeId)> {
@@ -385,7 +372,7 @@ fn laid_out(
 }
 
 /// Every shape a program holds laid out.
-fn packed(source: &Program, word_bits: u16) -> Vec<Packed> {
+pub(super) fn packed(source: &Program, word_bits: u16) -> Vec<Packed> {
     // Small numbers are packed by their bits only in the elements of a
     // sequence the program builds as it runs, where room is what every
     // copy moves; a cell, or a table laid out in the image, keeps each
@@ -716,30 +703,9 @@ struct Pass<'a> {
     // Cells let the builder's two sequential branch callbacks share this table
     // without cloning it or borrowing a whole Pass mutably.
     values: Vec<Cell<Option<ValueId>>>,
-    /// Which parameters of each function own a claim.
-    owned: Vec<Vec<bool>>,
-    /// A field borrowed from a caller-owned root needs a claim only when
-    /// an operation takes it or it leaves the activation.
-    borrowed_cells: Vec<bool>,
-    /// Which values are immortal buffers, whose claims count nothing.
-    immortal: Vec<bool>,
     /// Which replacements write a buffer nothing else holds, and which
     /// loops make theirs one on entry.
     unique: super::uniqueness::Unique,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ScopeKind {
-    Ordinary,
-    /// Parameters own the claims carried by this iteration.
-    Loop,
-}
-
-/// The claims a region holds at one point of its walk, by source value.
-#[derive(Clone)]
-struct Scope {
-    held: Vec<ValueId>,
-    kind: ScopeKind,
 }
 
 impl Pass<'_> {
@@ -756,22 +722,10 @@ impl Pass<'_> {
             self.nullable_builder
                 .set(self.plan.nullable.builders.contains(&id));
             self.constructing.set(self.plan.constructors.contains(&id));
-            let held = self.owned_parameters(id, body);
             output.define(id, |b, params| {
-                self.region(b, body, &mut Vec::new(), ScopeKind::Ordinary, params, held);
+                self.region(b, body, params);
             });
         }
-    }
-
-    /// The parameters of a function's body that arrive holding a claim.
-    fn owned_parameters(&self, id: super::FunctionId, body: RegionId) -> Vec<ValueId> {
-        self.source
-            .values(self.source.region(body).params)
-            .iter()
-            .zip(ownership::taken(&self.owned, id))
-            .filter(|&(_, &owned)| owned)
-            .map(|(&param, _)| param)
-            .collect()
     }
 
     fn value(&self, old: ValueId) -> ValueId {
@@ -785,18 +739,6 @@ impl Pass<'_> {
             self.values[old.index()].replace(Some(new)).is_none(),
             "each SSA definition is rebuilt once"
         );
-    }
-
-    fn region_cell(&self, old: ValueId) -> bool {
-        self.constructing.get() && self.source.class(old) == Class::Cell
-    }
-
-    fn claim(&self, b: &mut Builder, old: ValueId) -> ValueId {
-        if self.region_cell(old) || self.immortal[old.index()] {
-            self.value(old)
-        } else {
-            self.retained(b, self.source.class(old), self.value(old))
-        }
     }
 
     fn release_held(&self, b: &mut Builder, old: ValueId) {
@@ -928,11 +870,9 @@ impl Pass<'_> {
         } else {
             b.convert(represented, value)
         };
-        if self.borrowed_cells[old_result.index()] {
-            value
-        } else {
-            self.retained(b, class, value)
-        }
+        // The claim a managed field's value holds is its own instruction.
+        let _ = class;
+        value
     }
 
     /// Push one element, whose leaves' claims it takes, onto a sequence
@@ -1065,162 +1005,31 @@ impl Pass<'_> {
         self.load_leaf(b, old_result, (self.value(cell), fields), (packed, index))
     }
 
-    /// Walk one region holding `held` on entry: claims handed down by an
-    /// enclosing `if`, owned parameters, or a loop's carried state.
-    fn region(
-        &self,
-        b: &mut Builder,
-        region: RegionId,
-        scopes: &mut Vec<Scope>,
-        kind: ScopeKind,
-        params: &[ValueId],
-        held: Vec<ValueId>,
-    ) {
+    /// Walk one region, writing each instruction for the target, a claim
+    /// taken or given up among them.
+    fn region(&self, b: &mut Builder, region: RegionId, params: &[ValueId]) {
         let old = self.source.region(region);
         for (&old, &new) in self.source.values(old.params).iter().zip(params) {
             self.mapped(old, new);
         }
-        let live = Liveness::of(self.source, region);
-        scopes.push(Scope { held, kind });
-        self.release_dead(b, scopes, &live, None);
-        for (at, (op, results)) in self.source.walk(region).enumerate() {
-            let fresh = self.op(b, *op, results, scopes, &live, at);
+        for (op, results) in self.source.walk(region) {
+            let fresh = self.op(b, *op, results);
             for (&old, new) in results.iter().zip(fresh) {
                 self.mapped(old, new);
-                if managed(self.source.class(old))
-                    && !self.borrowed_cells[old.index()]
-                    && !self.immortal[old.index()]
-                    && !self.region_cell(old)
-                {
-                    top(scopes).held.push(old);
-                }
-            }
-            // A terminal loop, if or call has no continuation. Returns
-            // from its child scopes have already released their live roots.
-            if old.terminator.is_some() || at + 1 < self.source.ops(region).len() {
-                self.release_dead(b, scopes, &live, Some(at));
             }
         }
-        // Terminal child transfers already cleaned their scopes. A Never
-        // call must not be followed by cleanup at this region's end.
         if let Some(terminator) = old.terminator {
-            self.exit(b, scopes, terminator);
-        }
-        scopes.pop();
-    }
-
-    /// Release what the innermost scope holds and nothing reads from `at` on.
-    fn release_dead(
-        &self,
-        b: &mut Builder,
-        scopes: &mut [Scope],
-        live: &Liveness,
-        at: Option<usize>,
-    ) {
-        let scope = top(scopes);
-        let (dead, kept): (Vec<_>, Vec<_>) =
-            scope.held.iter().partition(|&&value| live.dead(value, at));
-        scope.held = kept;
-        for &value in dead.iter().rev() {
-            self.release_held(b, value);
+            self.exit(b, terminator);
         }
     }
 
-    /// A claim to `old` for a use at `at` that takes one: its own, where
-    /// this region holds it and this is its only and last reading, and a
-    /// new one otherwise.
-    fn take(
-        &self,
-        b: &mut Builder,
-        scopes: &mut [Scope],
-        live: &Liveness,
-        at: usize,
-        old: ValueId,
-    ) -> ValueId {
-        self.take_times(b, scopes, live, (at, 1), old)
-    }
-
-    /// Claims to each of `olds` for a use at `at` that takes them all: a
-    /// value read nowhere else there and last there gives its own claim to
-    /// its first place and a new one to each other, so a buffer joined to a
-    /// run of itself, `out.concat(out.drop(k).take(n))`, is held twice and
-    /// not three times.
-    fn take_all(
-        &self,
-        b: &mut Builder,
-        scopes: &mut [Scope],
-        live: &Liveness,
-        at: usize,
-        olds: &[ValueId],
-    ) -> Vec<ValueId> {
-        olds.iter()
-            .enumerate()
-            .map(|(place, &old)| {
-                let times = olds.iter().filter(|&&other| other == old).count();
-                if olds.iter().position(|&other| other == old) == Some(place) {
-                    self.take_times(b, scopes, live, (at, times), old)
-                } else {
-                    self.claim(b, old)
-                }
-            })
-            .collect()
-    }
-
-    /// [`Self::take`] for a use at `at` reading `old` `times` times.
-    fn take_times(
-        &self,
-        b: &mut Builder,
-        scopes: &mut [Scope],
-        live: &Liveness,
-        (at, times): (usize, usize),
-        old: ValueId,
-    ) -> ValueId {
-        let class = self.source.class(old);
-        let scope = top(scopes);
-        if managed(class)
-            && live.last_times(old, at, times)
-            && let Some(held) = scope.held.iter().position(|&value| value == old)
-        {
-            scope.held.remove(held);
-            return self.value(old);
-        }
-        self.claim(b, old)
-    }
-
-    fn exit(&self, b: &mut Builder, scopes: &mut [Scope], terminator: Terminator) {
-        let start = match terminator.exit {
-            Exit::Return => 0,
-            Exit::Yield => scopes.len() - 1,
-            Exit::Break | Exit::Continue => scopes
-                .iter()
-                .rposition(|s| s.kind == ScopeKind::Loop)
-                .expect("validated loop exit"),
-        };
-        let leaving = self.source.values(terminator.values);
-        let outgoing: Vec<_> = leaving
+    fn exit(&self, b: &mut Builder, terminator: Terminator) {
+        let outgoing: Vec<_> = self
+            .source
+            .values(terminator.values)
             .iter()
-            .map(|&old| {
-                // Everything the exited scopes hold dies here, so a claim
-                // one of them holds moves out, unless it leaves twice.
-                let once = leaving.iter().filter(|&&value| value == old).count() == 1;
-                let held = scopes[start..].iter_mut().find_map(|scope| {
-                    let at = scope.held.iter().position(|&value| value == old)?;
-                    Some((scope, at))
-                });
-                match held {
-                    Some((scope, at)) if once => {
-                        scope.held.remove(at);
-                        self.value(old)
-                    }
-                    _ => self.claim(b, old),
-                }
-            })
+            .map(|&old| self.value(old))
             .collect();
-        for scope in scopes[start..].iter().rev() {
-            for &value in scope.held.iter().rev() {
-                self.release_held(b, value);
-            }
-        }
         match terminator.exit {
             Exit::Yield => b.yield_(&outgoing),
             Exit::Return => b.ret(&outgoing),
@@ -1233,15 +1042,7 @@ impl Pass<'_> {
         clippy::too_many_lines,
         reason = "exhaustive operation dispatch keeps scalar cloning beside each representation rewrite"
     )]
-    fn op(
-        &self,
-        b: &mut Builder,
-        op: Op,
-        results: &[ValueId],
-        scopes: &mut [Scope],
-        live: &Liveness,
-        at: usize,
-    ) -> Vec<ValueId> {
+    fn op(&self, b: &mut Builder, op: Op, results: &[ValueId]) -> Vec<ValueId> {
         let v = |old| self.value(old);
         let classes = || {
             results
@@ -1266,7 +1067,7 @@ impl Pass<'_> {
                     .source
                     .values(fields)
                     .iter()
-                    .map(|&old| self.take(b, scopes, live, at, old))
+                    .map(|&old| v(old))
                     .collect();
                 self.construct_cell(b, tag, shape, &claimed)
             }
@@ -1313,36 +1114,35 @@ impl Pass<'_> {
             }
             // What it holds is released after it, as after any last use.
             Op::Keep { .. } => return Vec::new(),
+            Op::Claim { value } => {
+                self.retained(b, self.source.class(value), v(value));
+                return Vec::new();
+            }
+            Op::Release { value } => {
+                self.release_held(b, value);
+                return Vec::new();
+            }
             Op::BufferPush { operands, shape } => {
                 let operands = self.source.values(operands);
-                let buffer = self.take(b, scopes, live, at, operands[0]);
+                let buffer = v(operands[0]);
                 let (start, len) = (word(b, v(operands[1])), word(b, v(operands[2])));
-                let claimed: Vec<_> = operands[3..]
-                    .iter()
-                    .map(|&old| self.take(b, scopes, live, at, old))
-                    .collect();
+                let claimed: Vec<_> = operands[3..].iter().map(|&old| v(old)).collect();
                 return self.push(b, (buffer, start, len), shape, &claimed).to_vec();
             }
             Op::BufferAppend { operands, shape } => {
                 let operands = self.source.values(operands);
-                let buffer = self.take(b, scopes, live, at, operands[0]);
+                let buffer = v(operands[0]);
                 let (start, len) = (word(b, v(operands[1])), word(b, v(operands[2])));
-                let claimed: Vec<_> = operands[3..]
-                    .iter()
-                    .map(|&old| self.take(b, scopes, live, at, old))
-                    .collect();
+                let claimed: Vec<_> = operands[3..].iter().map(|&old| v(old)).collect();
                 return self
                     .append(b, (buffer, start, len), shape, &claimed)
                     .to_vec();
             }
             Op::BufferReplace { operands, shape } => {
                 let operands = self.source.values(operands);
-                let buffer = self.take(b, scopes, live, at, operands[0]);
+                let buffer = v(operands[0]);
                 let [start, len, index] = [1, 2, 3].map(|at| word(b, v(operands[at])));
-                let claimed: Vec<_> = operands[4..]
-                    .iter()
-                    .map(|&old| self.take(b, scopes, live, at, old))
-                    .collect();
+                let claimed: Vec<_> = operands[4..].iter().map(|&old| v(old)).collect();
                 let unique = self.unique.replaced.contains(&results[0]);
                 return self
                     .replace(b, (buffer, start, len), (index, unique), shape, &claimed)
@@ -1350,10 +1150,7 @@ impl Pass<'_> {
             }
             Op::BufferPrepend { operands, shape } => {
                 let operands = self.source.values(operands);
-                let [buffer, from] = self
-                    .take_all(b, scopes, live, at, &[operands[0], operands[3]])
-                    .try_into()
-                    .expect("two claims");
+                let [buffer, from] = [v(operands[0]), v(operands[3])];
                 let [start, len, from_start, count] =
                     [1, 2, 4, 5].map(|at| word(b, v(operands[at])));
                 return self
@@ -1370,10 +1167,7 @@ impl Pass<'_> {
             }
             Op::BufferExtend { operands, shape } => {
                 let operands = self.source.values(operands);
-                let [first, then] = self
-                    .take_all(b, scopes, live, at, &[operands[0], operands[3]])
-                    .try_into()
-                    .expect("two claims");
+                let [first, then] = [v(operands[0]), v(operands[3])];
                 let [first_start, first_len, then_start, then_len] =
                     [1, 2, 4, 5].map(|at| word(b, v(operands[at])));
                 return self
@@ -1503,9 +1297,7 @@ impl Pass<'_> {
             Op::Convert { value } => {
                 let class = self.source.class(results[0]);
                 match (self.source.class(value), class) {
-                    (Class::Natural, Class::Natural) | (Class::Cell, Class::Cell) => {
-                        self.take(b, scopes, live, at, value)
-                    }
+                    (Class::Natural, Class::Natural) | (Class::Cell, Class::Cell) => v(value),
                     // A number narrower than half a word is an immediate.
                     (from, Class::Natural) if always_small(from, self.word_bits()) => {
                         let number = word(b, v(value));
@@ -1548,20 +1340,7 @@ impl Pass<'_> {
                 function,
                 args: held,
             } => {
-                let owned = ownership::taken(&self.owned, function);
-                let args: Vec<_> = self
-                    .source
-                    .values(held)
-                    .iter()
-                    .zip(owned)
-                    .map(|(&old, &owned)| {
-                        if owned {
-                            self.take(b, scopes, live, at, old)
-                        } else {
-                            v(old)
-                        }
-                    })
-                    .collect();
+                let args: Vec<_> = self.source.values(held).iter().map(|&old| v(old)).collect();
                 let fresh = b.call(function, &args);
                 if let [root] = results
                     && self.plan.roots.contains(root)
@@ -1576,45 +1355,21 @@ impl Pass<'_> {
                 then_region,
                 else_region,
             } => {
-                // What this region holds and reads last here is each arm's
-                // to release, where that arm last reads it.
-                let scope = top(scopes);
-                let (handed, kept): (Vec<_>, Vec<_>) = scope
-                    .held
-                    .iter()
-                    .partition(|&&value| live.dead(value, Some(at)));
-                scope.held = kept;
-                let arms: &[Scope] = scopes;
                 return b.if_(
                     v(condition),
                     &classes(),
-                    |b| {
-                        let mut scopes = arms.to_vec();
-                        let kind = ScopeKind::Ordinary;
-                        self.region(b, then_region, &mut scopes, kind, &[], handed.clone());
-                    },
-                    |b| {
-                        let mut scopes = arms.to_vec();
-                        let kind = ScopeKind::Ordinary;
-                        self.region(b, else_region, &mut scopes, kind, &[], handed.clone());
-                    },
+                    |b| self.region(b, then_region, &[]),
+                    |b| self.region(b, else_region, &[]),
                 );
             }
             Op::Loop { initial, body } => {
-                let carried: Vec<_> = self
-                    .source
-                    .values(self.source.region(body).params)
-                    .iter()
-                    .copied()
-                    .filter(|&param| managed(self.source.class(param)))
-                    .collect();
                 let initial: Vec<_> = self
                     .source
                     .values(initial)
                     .iter()
                     .zip(self.source.values(self.source.region(body).params))
                     .map(|(&old, &parameter)| {
-                        let value = self.take(b, scopes, live, at, old);
+                        let value = v(old);
                         // Builder derives loop parameter classes from initial
                         // values. Valid IR may initialize a wider carried slot
                         // from a narrower scalar, so preserve the declared slot.
@@ -1627,10 +1382,8 @@ impl Pass<'_> {
                     })
                     .collect();
                 let initial = self.owned_on_entry(b, body, initial);
-                let outer: &[Scope] = scopes;
                 return b.loop_(&initial, &classes(), |b, params| {
-                    let mut scopes = outer.to_vec();
-                    self.region(b, body, &mut scopes, ScopeKind::Loop, params, carried);
+                    self.region(b, body, params);
                 });
             }
         };

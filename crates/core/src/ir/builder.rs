@@ -242,6 +242,16 @@ impl Builder<'_> {
         self.push(Op::Keep { value }, &[]);
     }
 
+    /// Take another claim to `value`.
+    pub fn claim(&mut self, value: ValueId) {
+        self.push(Op::Claim { value }, &[]);
+    }
+
+    /// Give up a claim to `value`.
+    pub fn release(&mut self, value: ValueId) {
+        self.push(Op::Release { value }, &[]);
+    }
+
     /// An instruction answering a sequence's buffer and start.
     fn two(&mut self, op: Op) -> [ValueId; 2] {
         let [buffer, start] = self.push(op, &[Class::Buffer, Class::Word])[..] else {

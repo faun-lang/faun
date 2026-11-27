@@ -386,7 +386,7 @@ impl Read {
                 results.iter().any(|value| self.values[value.index()])
             }
             Op::Store { address, .. } => !self.unread.written_through(address),
-            Op::Call { .. } | Op::Keep { .. } => true,
+            Op::Call { .. } | Op::Keep { .. } | Op::Claim { .. } | Op::Release { .. } => true,
             Op::If { then_region, .. } => self.regions[then_region.index()],
             Op::Loop { body, .. } => self.regions[body.index()],
             _ => results.iter().any(|value| self.values[value.index()]),
@@ -477,7 +477,7 @@ impl Read {
         match *op {
             Op::Call { function, .. } if source.function(function).inert => answered(),
             Op::Store { address, .. } => !self.unread.written_through(address),
-            Op::Call { .. } | Op::Keep { .. } => true,
+            Op::Call { .. } | Op::Keep { .. } | Op::Claim { .. } | Op::Release { .. } => true,
             Op::If {
                 then_region,
                 else_region,
@@ -506,7 +506,7 @@ impl Read {
     fn acts(&self, source: &Program, region: RegionId) -> bool {
         source.every(region).any(|op| match *op {
             Op::Store { address, .. } => !self.unread.written_through(address),
-            Op::Call { .. } | Op::Keep { .. } => true,
+            Op::Call { .. } | Op::Keep { .. } | Op::Claim { .. } | Op::Release { .. } => true,
             _ => false,
         })
     }

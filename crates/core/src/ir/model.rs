@@ -312,6 +312,16 @@ pub enum Op {
     Keep {
         value: ValueId,
     },
+    /// Take another claim to `value`, a natural, cell or buffer: one more
+    /// holder that must give it up. Legalization writes the count.
+    Claim {
+        value: ValueId,
+    },
+    /// Give up a claim to `value`: one holder fewer, and where it was the
+    /// last, what it held freed. Legalization writes the count.
+    Release {
+        value: ValueId,
+    },
     /// Read leaf `index` of element `start` of `buffer`, whose elements are
     /// of `shape`. The result value says the class it is read as.
     BufferField {

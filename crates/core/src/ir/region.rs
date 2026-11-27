@@ -71,18 +71,35 @@ fn constructor(p: &Program, id: FunctionId, packed: &[Packed]) -> bool {
             {
                 builds |= !fields.is_empty();
             }
-            Op::If { .. }
+            ref op if scalar(op) => {}
+            _ => return false,
+        }
+    }
+    recursive && builds && connected(p, body, super::Exit::Return)
+}
+
+/// Whether a constructor may hold an instruction without leaving its
+/// region: a branch, a claim counted, or scalar work.
+const fn scalar(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::If { .. }
+            | Op::Claim { .. }
+            | Op::Release { .. }
             | Op::Constant { .. }
             | Op::NaturalConstant(_)
             | Op::Compare { .. }
             | Op::Binary { .. }
             | Op::Shift { .. }
             | Op::Float { .. }
-            | Op::Convert { .. } => {}
-            _ => return false,
-        }
-    }
-    recursive && builds && connected(p, body, super::Exit::Return)
+            | Op::Convert { .. }
+    )
+}
+
+/// Whether an instruction only counts a claim: it reads a cell without
+/// building, publishing or handing on anything.
+const fn counts(op: &Op) -> bool {
+    matches!(op, Op::Claim { .. } | Op::Release { .. })
 }
 
 /// Every cell created here becomes a field or an outgoing value in the
@@ -97,6 +114,10 @@ fn connected(p: &Program, region: RegionId, exit: super::Exit) -> bool {
     }
     let mut live = HashSet::default();
     for (op, results) in p.walk(region) {
+        // Counting a claim neither builds nor hands on a cell.
+        if counts(op) {
+            continue;
+        }
         for v in p.operands(op).filter(|&v| p.class(v) == Class::Cell) {
             if !matches!(op, Op::Cell { .. }) || !live.remove(&v) {
                 return false;
@@ -147,6 +168,7 @@ fn reader(p: &Program, id: FunctionId) -> bool {
         }
         for op in p.ops(r) {
             if p.operands(op).any(|v| p.class(v) == Class::Cell)
+                && !counts(op)
                 && !matches!(*op, Op::CellTag { .. } | Op::CellField { .. })
                 && !matches!(*op, Op::Call { function, .. } if function == id)
             {
@@ -248,9 +270,10 @@ impl Plan {
         let readers: HashSet<_> = p.functions.ids().filter(|&id| reader(p, id)).collect();
         let mut roots = caller_roots(p, &constructors);
         for r in p.regions.ids() {
-            let uses = p.ops(r).iter().filter(
-                |op| !matches!(op, Op::Call { function, .. } if readers.contains(function)),
-            );
+            let uses = p.ops(r).iter().filter(|op| {
+                !counts(op)
+                    && !matches!(op, Op::Call { function, .. } if readers.contains(function))
+            });
             for value in uses
                 .flat_map(|op| p.operands(op))
                 .chain(p.outgoing(r).iter().copied())

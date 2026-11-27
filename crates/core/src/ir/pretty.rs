@@ -240,6 +240,8 @@ impl Program {
                 shape.index()
             ),
             Op::Keep { value } => format!("keep v{}", value.index()),
+            Op::Claim { value } => format!("claim v{}", value.index()),
+            Op::Release { value } => format!("release v{}", value.index()),
             Op::BufferField {
                 buffer,
                 start,
