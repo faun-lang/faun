@@ -1,0 +1,32 @@
+# Gzip standard input at the default level, gunzip what that wrote, and
+# check it is the input again, through the gzip library: deflate's search
+# and codes, CRC-32, and inflate. Prints the length read back, its CRC-32
+# and whether the round trip matched.
+
+package {
+  uses: {
+    crc: "../../../crates/frontend/examples/libraries/crc/src/crc",
+    gzip: "../../../crates/frontend/examples/libraries/gzip/src/gzip"
+  }
+}
+
+import std.host {Host}
+import crc {crc32}
+import gzip {compress, decompress, Level}
+
+report : List(U8) -> Str
+report(input) -> decompress(compress(input, Level.default)) is (
+  Ok(back) then "length ${back.len()}\ncrc32 ${crc32(back)}\nround trip ${if back == input then "matched" else "differed"}"
+  Err(_) then "round trip failed"
+)
+
+expect report([]) == "length 0\ncrc32 0\nround trip matched"
+expect report("123456789".to_utf8()) == "length 9\ncrc32 3421780262\nround trip matched"
+
+main! : Host -> []
+main!(host) -> (
+  input = host.stdin.read_to_end!()
+  input is Ok(bytes) else return host.exit!(1)
+  printed = host.println!(report(bytes))
+  host.exit!(0)
+)

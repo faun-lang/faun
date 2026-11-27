@@ -1,0 +1,49 @@
+# Compresses standard input to a gzip file on standard output, as `gzip`
+# does a pipe. `-0` to `-9` say how hard, nought storing it as it is, 6
+# where none does; `--name NAME` and `--comment TEXT` put them in the
+# header. A command line not understood gives the usage, with status two.
+
+package {
+  uses: {
+    gzip: "../src/gzip"
+  }
+}
+
+import std.host {Host}
+import gzip {Header, Level}
+
+usage : Str
+usage = "usage: gzip [-0 ... -9] [--name NAME] [--comment TEXT] < input > output"
+
+# The header and level the flags ask for, or nothing where they are not
+# understood.
+options : (List(Str), Header, Level) -> Result((Header, Level), [Usage])
+options(flags, header, level) -> flags is (
+  [] then Ok((header, level))
+  ["--name", name, *rest] then options(rest, header.with_name(name.to_utf8()), level)
+  ["--comment", text, *rest] then options(rest, header.with_comment(text.to_utf8()), level)
+  [flag, *rest] then options(rest, header, level_of(flag)?)
+)
+
+level_of : Str -> Result(Level, [Usage])
+level_of(flag) -> flag.to_utf8() is (
+  ['-', digit] if digit.is_digit() then Ok(Level.of_nat((digit - '0').to_nat()))
+  _ then Err(Usage)
+)
+
+main! : Host -> []
+main!(host) -> (
+  options(host.args.drop(1), Header.empty, Level.default) is Ok((header, level)) else return (
+    written = host.stderr.write_all!("${usage}\n".to_utf8())
+    host.exit!(2)
+  )
+  read = host.stdin.read_to_end!()
+  read is Ok(input) else return host.exit!(1)
+  wrote = host.stdout.write_all!(header.compress(input, level))
+  host.exit!(if wrote.is_ok() then 0 else 1)
+)
+
+expect options([], Header.empty, Level.default) == Ok((Header.empty, Level.default))
+expect options(["-9", "--name", "a.txt"], Header.empty, Level.default) == Ok((Header.empty.with_name("a.txt".to_utf8()), Level.best))
+expect options(["--name"], Header.empty, Level.default) == Err(Usage)
+expect options(["-x"], Header.empty, Level.default) == Err(Usage)

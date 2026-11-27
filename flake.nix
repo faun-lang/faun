@@ -105,7 +105,7 @@
               tree-sitter
               nodejs
               # The benchmarks game's C pidigits does its arithmetic with GMP,
-              # and the suite's C png compresses with zlib.
+              # and the C twins of the compression workloads compress with zlib.
               gmp
               zlib
             ]

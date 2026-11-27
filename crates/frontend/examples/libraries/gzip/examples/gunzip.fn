@@ -1,0 +1,61 @@
+# Decompresses a gzip file on standard input to standard output, every
+# member of it, as `gunzip` does a pipe. With `--list` it writes instead
+# a line for each member: its length, its time, its system, its name and
+# its comment. A file refused says why on standard error, with status
+# one; a command line not understood gives the usage, with status two.
+
+package {
+  uses: {
+    gzip: "../src/gzip"
+  }
+}
+
+import std.host {Host}
+import gzip {members, Member}
+
+usage : Str
+usage = "usage: gunzip [--list] < input > output"
+
+# A line saying what a member holds and what its header says.
+listing : Member -> Str
+listing({header, data}) -> (
+  name = text(header.name())
+  comment = text(header.comment())
+  "${data.len()} ${header.mtime()} ${header.os()} ${name} ${comment}\n"
+)
+
+# A header's text as it was written, or a hyphen where there is none.
+text : Result(List(U8), [Missing]) -> Str
+text(Ok(bytes)) -> Str.from_utf8(bytes) is (
+  Ok(decoded) then decoded
+  Err(_) then Str.hex(bytes)
+)
+text(Err(Missing)) -> "-"
+
+main! : Host -> []
+main!(host) -> (
+  list = host.args.drop(1) is (
+    [] then False
+    ["--list"] then True
+    _ return (
+      written = host.stderr.write_all!("${usage}\n".to_utf8())
+      host.exit!(2)
+    )
+  )
+  read = host.stdin.read_to_end!()
+  read is Ok(input) else return host.exit!(1)
+  found = members(input) is (
+    Ok(found) then found
+    Err(why) return (
+      written = host.stderr.write_all!("gunzip: ${why}\n".to_utf8())
+      host.exit!(1)
+    )
+  )
+  output = if list then found.map(|member| listing(member).to_utf8()).flatten()
+    else found.map(|member| member.data).flatten()
+  wrote = host.stdout.write_all!(output)
+  host.exit!(if wrote.is_ok() then 0 else 1)
+)
+
+expect text(Err(Missing)) == "-" & text(Ok("a.txt".to_utf8())) == "a.txt"
+expect text(Ok([0xff])) == "ff"

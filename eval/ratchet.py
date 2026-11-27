@@ -179,6 +179,9 @@ WORKLOADS = [
     # which only the x86-64 twin links, and its image is far past the 6502's
     # 64 KiB, so there it counts by where its image would end.
     Workload("png", KERNELS, "argument", sizes(256, 128, 8), 1, ("-lz",)),
+    # The gzip library's round trip; the C twin is zlib's, which there is
+    # none of beyond x86-64.
+    Workload("gzip", KERNELS, "bytes", sizes(1 << 19, 1 << 17, 256), 1, ("-lz",)),
     Workload("queens", KERNELS, "argument", sizes(9, 8, 6)),
     Workload("sieve", KERNELS, "argument", sizes(1_000_000, 500_000, 1000)),
     Workload("sort", KERNELS, "argument", sizes(100_000, 30_000, 24)),
