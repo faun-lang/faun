@@ -11,7 +11,7 @@ package {
   }
 }
 
-import chess {Position, Move, divide}
+import chess {Position, divide}
 
 # The lines to print for the program's arguments, its own name first.
 report : List(Str) -> Result(Str, _)

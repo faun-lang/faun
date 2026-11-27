@@ -17,12 +17,12 @@ import chess {Position, Move, Square, Piece, White, Knight, DoublePush, perft}
 expect Position.start.legal_moves().len() == 20
 expect perft(Position.start, 2) == 400
 
-# A move is read from UCI against the position it is played from, and
-# holds the position it leads to.
-expect Move.from_uci(Position.start, "e2e4").map_ok(Move.kind) == Ok(DoublePush)
-expect Move.from_uci(Position.start, "e2e4").map_ok(|move| move.after().to_fen())
-  == Ok("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
-expect Move.from_uci(Position.start, "e2e5") == Err(IllegalMove)
+# A move is read from UCI against the position it is played from, which
+# says which piece moves and how, and `play` checks it is legal there.
+expect Position.start.move_from_uci("e2e4").map_ok(Move.kind) == Ok(DoublePush)
+expect Position.start.move_from_uci("e2e4").and_then(|move| Position.start.play(move).err_as(NoLegalMove)).map_ok(Position.to_fen)
+    == Ok("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
+expect Position.start.move_from_uci("e2e5") == Err(NoLegalMove)
 
 expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") == Ok(Position.start)
 expect Square.from_str("e4").map_ok(Square.to_nat) == Ok(28)
@@ -43,6 +43,8 @@ everything FEN writes and everything the rules ask.
   one; `"${position}"` writes it too. The two clocks may be left out, as
   EPD leaves them.
 - `position.legal_moves()` is every legal move of the side to move.
+- `position.play(move)` plays a move, and `play_unchecked(move)` plays
+  one `legal_moves` just gave, as below.
 - `position.is_check()`, `is_checkmate()` and `is_stalemate()` say how
   the side to move stands.
 - `position.piece_at(square)`, `pieces()`, `king(color)`, `turn()`,
@@ -60,12 +62,25 @@ failure of its own for a board without a king.
 
 ## Moves
 
-A `Move` is made only by a position: as one of its `legal_moves()`, or by
-`Move.from_uci(position, text)`, which answers `Malformed` for text that
-is not UCI and `IllegalMove` for a move the position does not have. Each
-holds the position it leads to, and **`move.after()` plays it**. There is
-no `play(position, move)` to hand the wrong position, so a move is never
-played anywhere but where it came from.
+A `Move` is plain data: which piece goes from where to where, and what it
+takes and becomes. It says nothing of the position it is played on, so
+playing one checks it:
+
+- `position.play(move)` answers the position after `move` where it is one
+  of the position's legal moves, and `Err(IllegalMove(move))` where it is
+  not, holding the move refused. This is the way to play a move from
+  anywhere: a person, a UCI command, a file.
+- `position.play_unchecked(move)` plays a move without asking. The move
+  must be one of the position's `legal_moves()`: the loop that generates
+  moves and then plays each, as `perft` does, needs no asking again. Any
+  other move still answers a position, since nothing in Faun panics, but
+  possibly one no game reaches, a king taken or the side not to move in
+  check, and nothing asked of it then means anything.
+- `position.move_from_uci(text)` reads a move as UCI writes it, and
+  answers `Malformed` for text that is not UCI and `NoLegalMove` for text
+  naming no legal move of the position. UCI gives only the squares and a
+  promotion; the position says which piece moves, what it takes and what
+  kind of move it is, so reading goes through it.
 
 A move says `from()`, `to()`, the `role()` that moves, the role it
 `captured()` and the role a pawn becomes, `promotion()`, each a `Result`
@@ -98,13 +113,23 @@ departs where Faun makes something simpler.
   variants, with `Chess` for the standard game, and cozy-chess one
   `Board`. Faun has no traits and this library no variants, so
   `Position` is the one type, as cozy-chess's `Board` is.
-- **A move holds what it leads to.** shakmaty's `play` checks the move
-  and answers a `Result`, and its `play_unchecked` trusts the caller;
-  cozy-chess's `play` panics on an illegal move, and `try_play` checks.
-  Here a move is legal by construction, so nothing is checked and
-  nothing can go wrong. It costs nothing: a move is found legal by
-  playing it and looking at the king, so the position after it is
-  already made.
+- **A move is data, and playing it is checked.** As in shakmaty, a
+  `Move` is plain data and `play` checks it, answering a `Result`, while
+  `play_unchecked` trusts the caller; cozy-chess's `play` panics on an
+  illegal move, and `try_play` checks. Most moves come from outside, so
+  a check where they are played is where it belongs, and `legal_moves`
+  keeps no position for each move, most of which are never played. A
+  `Move`'s constructor stays in the library: a move is had from a
+  position, which knows what it takes and what kind of move it is.
+- **UCI through the position.** shakmaty has a `UciMove` type, turned
+  into a move by `to_move(position)`. Here `move_from_uci` reads the text
+  against the position in one step, since text alone cannot say which
+  piece moves, and a type holding the text between the two would add a
+  name and do nothing else.
+- **Two refusals.** `play` refuses with `IllegalMove(move)`, holding the
+  move as shakmaty's `PlayError` does; `move_from_uci` with `NoLegalMove`,
+  having no move to hold. They are named apart so both may join one row
+  through `?`.
 - **Sealed values.** `File`, `Rank` and `Square` are numbers no one
   outside the library can make out of range, as shakmaty's and
   cozy-chess's enums are; `Square.from_nat`, `from_str` and the like
@@ -138,10 +163,7 @@ Each type has a module of its own in [`src/`](src), named for it, as
 `square.fn` holds `Square` and `castling_rights.fn` holds
 `CastlingRights`, with the helpers that serve it beside it.
 [`src/chess.fn`](src/chess.fn) is the root, and the one entry point: it
-exports the whole public API, and `perft` and `divide` with it. `Move`
-lives in `position.fn`, beside `Position`, since each names the other: a
-position's legal moves are moves, and a move holds the position it leads
-to, and Faun's modules form no cycle.
+exports the whole public API, and `perft` and `divide` with it.
 
 Not here yet: SAN, Chess960, the draw rules (repetition, fifty moves,
 insufficient material) and Zobrist hashing.
@@ -149,11 +171,12 @@ insufficient material) and Zobrist hashing.
 ## Speed
 
 Written as one would teach it, in the most natural Faun: where that runs
-slowly, the compiler has a bug to fix. On x86-64 it finds about 1.7
+slowly, the compiler has a bug to fix. On x86-64 it finds nearly two
 million positions a second: the start's perft to depth 5, 4,865,609, in
-2.9 seconds. A plain C mailbox generator that plays and tests each move
-the same way, the twin in [`eval/workloads/perft`](../../../../../eval/workloads/perft),
-is about 14 times as fast. The ratchet measures it, so making it faster
+about two and a half seconds. A plain C mailbox generator that plays and
+tests each move the same way, the twin in
+[`eval/workloads/perft`](../../../../../eval/workloads/perft), is some
+twenty times as fast. The ratchet measures it, so making it faster
 is the compiler's work.
 
 ## Example
