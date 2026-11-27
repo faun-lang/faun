@@ -9,13 +9,14 @@ import dijkstra {Weight}
 
 export {bellman_ford}
 
-# The least cost of a path from `source` to each node, `Err(Unreachable)`
-# where none reaches it, or `Err(NegativeCycle)` where a cycle the source
-# reaches costs less than nought.
-bellman_ford : (g, Nat) -> Result(List(Result(e, [Unreachable])), [NegativeCycle]) where Walkable(g, e), Weight(e)
+# The least cost of a path from `source` to each node, with
+# `Err(Unreachable)` for nodes that have no path from the source.
+# Returns `Err(InvalidSource)` if the source does not exist, or
+# `Err(NegativeCycle)` if a cycle the source reaches costs less than nought.
+bellman_ford : (g, Nat) -> Result(List(Result(e, [Unreachable])), [InvalidSource, NegativeCycle]) where Walkable(g, e), Weight(e)
 bellman_ford(graph, source) -> (
   n = graph.node_count()
-  start = List.repeat(Err(Unreachable), n).put(source, Ok(e.zero))
+  List.repeat(Err(Unreachable), n).set(source, Ok(e.zero)) is Ok(start) else return Err(InvalidSource)
   costs = List.range(n).fold(start, |costs, _| relaxed(graph, costs).costs)
   if relaxed(graph, costs).changed then Err(NegativeCycle) else Ok(costs)
 )

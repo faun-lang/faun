@@ -121,4 +121,5 @@ expect (
 )
 expect bellman_ford(diamond, 0) == Ok([Ok(0), Ok(1), Ok(3), Ok(4)])
 expect bellman_ford(diamond, 2) == Ok([Err(Unreachable), Err(Unreachable), Ok(0), Ok(1)])
+expect bellman_ford(diamond, 4) == Err(InvalidSource)
 expect bellman_ford(DiGraph.from_weighted_edges(3, [(0, 1, 1), (1, 2, -2), (2, 1, 1)]), 0) == Err(NegativeCycle)
