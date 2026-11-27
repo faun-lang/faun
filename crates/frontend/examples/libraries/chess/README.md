@@ -130,7 +130,9 @@ departs where Faun makes something simpler.
   can make off the board; `Square.from_coords` and `from_str` check once.
   Squares are numbered as both crates number them, `a1` 0 to `h8` 63.
 - **No flags.** A side is a `Color`, never a `Bool`, and a `Piece` is
-  `Piece(color, role)`, as shakmaty's is a color and a role.
+  `Piece(color, role)`, as shakmaty's is a color and a role. Like a
+  `Bool`, a side flips with `!`: `!White` is `Black`, as `Not` gives in
+  both crates, and `other` says the same in words.
 - **Failures as tags.** FEN's errors are shakmaty's `ParseFenError` and
   `PositionError` in one row of tags, `FenError`, each named for its
   cause, so a caller's own failures join it through `?`.

@@ -140,7 +140,7 @@ Position : {
 
   # Whether the side to move is in check.
   is_check : Position -> Bool
-  is_check(Position({board, turn, *})) -> board.is_attacked(board.king(turn), turn.other())
+  is_check(Position({board, turn, *})) -> board.is_attacked(board.king(turn), !turn)
   expect !Position.start.is_check()
 
   # Whether the side to move is in check and has no move: the game is
@@ -211,7 +211,7 @@ checked(position is Position({board, turn, castling, en_passant, *})) -> (
   homes = [White, Black].cross(CastlingSide.all)
   if !homes.all(|(color, side)| !castling.has(color, side) | castle_ready(board, color, side)) return Err(InvalidCastling)
   if en_passant is Ok(passed) & !passed_over(board, turn, passed) return Err(InvalidEnPassant)
-  if board.is_attacked(board.king(turn.other()), turn) return Err(OpponentInCheck)
+  if board.is_attacked(board.king(!turn), turn) return Err(OpponentInCheck)
   Ok(position)
 )
 
@@ -228,7 +228,7 @@ castle_ready(board, color, side) -> (
 # from are empty.
 passed_over : (Board, Color, Square) -> Bool
 passed_over(board, turn, square) -> (
-  mover = turn.other()
+  mover = !turn
   third = if mover == White then 2 else 5
   if square.rank() != third return False
   step(square, forward(mover)) is Ok(landed)
@@ -333,7 +333,7 @@ castles(Position({board, turn, castling, *})) -> CastlingSide.all
   .filter(|side| castling.has(turn, side))
   .map(|side| (side, castle_squares(turn, side)))
   .filter(|(_, castle)| castle.empty.all(|square| board.piece_at(square) == Err(Empty))
-    & castle.safe.all(|square| !board.is_attacked(square, turn.other())))
+    & castle.safe.all(|square| !board.is_attacked(square, !turn)))
   .map(|(_, castle)| plain(castle.king_from, castle.king_to))
 
 # Whether `move` leaves the mover's king unattacked: the move played, and
@@ -341,7 +341,7 @@ castles(Position({board, turn, castling, *})) -> CastlingSide.all
 leaves_king_safe : (Position, Move) -> Bool
 leaves_king_safe(position is Position({turn, *}), move) -> (
   Position({board, *}) = played(position, move)
-  !board.is_attacked(board.king(turn), turn.other())
+  !board.is_attacked(board.king(turn), !turn)
 )
 
 # The position `move` leads to: its piece moved, and what it takes
@@ -374,7 +374,7 @@ played(position is Position(fields), move) -> (
   en_passant = if doubled then step(from, forward(turn)).err_as(NoEnPassant) else Err(NoEnPassant)
   halfmoves = if role == Pawn | taken then 0 else fields.halfmoves + 1
   fullmoves = if turn == Black then fields.fullmoves + 1 else fields.fullmoves
-  Position({board, turn: turn.other(), castling, en_passant, halfmoves, fullmoves})
+  Position({board, turn: !turn, castling, en_passant, halfmoves, fullmoves})
 )
 
 # How far apart two files, or two ranks, are.
