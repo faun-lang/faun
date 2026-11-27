@@ -159,7 +159,8 @@ have `&`, `|`, `^`, `!`, `shift_left` and `shift_right`, written `<<` and
 `>>`, `rotate_left` and `rotate_right`; a shift by the width or more is
 zero. They count their bits as Rust's integers do: `count_ones`,
 `trailing_zeros`, the index of the lowest set bit, and `leading_zeros`,
-each a `Nat`, and the last two the width for nought. `Int` has no bitwise
+each a `Nat`, and the last two the width for nought; `count_zeros`,
+`leading_ones` and `trailing_ones` count the complement's. `Int` has no bitwise
 operations. `wrap` keeps the destination's low bits, whether the input is a `Nat` or
 another word: `U8.wrap(256)` is 0 and `U8.wrap(U16.of_nat(300))` is 44.
 Use `from_nat` when a value must fit: `U8.from_nat(256)` is `Err(TooBig)`.

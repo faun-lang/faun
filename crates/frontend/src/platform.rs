@@ -3,8 +3,10 @@
 //! A target says a great deal more -- how wide its word is, what each
 //! routine reads and leaves in a machine's terms, how its image is written
 //! -- and all of that is the tiers below Barb's to read. The frontend reads
-//! three things: which host module says what `Host` offers, which routines
-//! the target answers for, and which of them use up what they are handed.
+//! four things: which host module says what `Host` offers, which routines
+//! the target answers for, which of them use up what they are handed, and
+//! which counts of a word's bits it answers with an instruction, which is
+//! what Barb keeps whole rather than inlines.
 //! Whoever drives the compile says those, from the target it chose.
 
 /// What the frontend reads of a target.
@@ -12,6 +14,7 @@
 pub struct Platform {
     name: String,
     routines: Vec<Routine>,
+    counts: barb::Counts,
 }
 
 /// A routine a target answers for, as the frontend reads one.
@@ -35,7 +38,22 @@ impl Platform {
         Self {
             name: name.into(),
             routines: routines.into_iter().collect(),
+            counts: barb::Counts::NONE,
         }
+    }
+
+    /// The same, answering `counts` of a word's bits with instructions of
+    /// its own: see [`barb::Program::answer_counts`].
+    #[must_use]
+    pub const fn with_counts(mut self, counts: barb::Counts) -> Self {
+        self.counts = counts;
+        self
+    }
+
+    /// Which counts of a word's bits it answers with instructions.
+    #[must_use]
+    pub const fn counts(&self) -> barb::Counts {
+        self.counts
     }
 
     /// What names the target, and its host module.

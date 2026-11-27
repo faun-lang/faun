@@ -391,6 +391,16 @@ pub enum Op {
         float: barb::float::Float,
         operands: Range,
     },
+    /// A count of the bits of `value`, a number below two to the power of
+    /// `count.bits`: how many are set, or how many are clear below the
+    /// lowest set one or above the highest, each the width for nought. What
+    /// it writes is at most the width. Written only for a target that works
+    /// it out itself (see [`crate::platform::Routines::with_counts`]); one
+    /// that does not runs the definition's body instead.
+    Count {
+        count: barb::BitCount,
+        value: ValueId,
+    },
     If {
         condition: ValueId,
         then_region: RegionId,

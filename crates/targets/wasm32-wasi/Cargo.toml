@@ -6,10 +6,10 @@ license.workspace = true
 description = "The wasm32-wasi target for Faun"
 
 [dependencies]
+faun-barb.workspace = true
 faun-core.workspace = true
 
 [dev-dependencies]
-faun-barb.workspace = true
 faun-driver.workspace = true
 faun-frontend.workspace = true
 

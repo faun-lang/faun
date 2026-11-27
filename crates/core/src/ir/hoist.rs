@@ -123,6 +123,7 @@ const fn pure(op: &Op) -> bool {
             | Op::Shift { .. }
             | Op::Convert { .. }
             | Op::Float { .. }
+            | Op::Count { .. }
     )
 }
 

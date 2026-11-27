@@ -21,6 +21,7 @@ enum Expression {
     Convert(ValueId),
     Shift(Direction, ValueId, u16),
     Float(Float, ValueId, Option<ValueId>),
+    Count(barb::BitCount, ValueId),
 }
 
 pub(super) fn common(source: &Program) -> Program {
@@ -104,6 +105,7 @@ impl rewrite::Pass for Common {
                     operands.get(1).copied().map(value),
                 )
             }
+            Op::Count { count, value: from } => Expression::Count(count, value(from)),
             // Loads, allocations and calls are deliberately not candidates.
             _ => return false,
         };

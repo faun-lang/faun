@@ -217,6 +217,7 @@ fn scalar_arm(p: &Program, region: RegionId) -> bool {
                 | Op::Convert { .. }
                 | Op::Binary { .. }
                 | Op::Float { .. }
+                | Op::Count { .. }
                 | Op::Shift { .. }
                 | Op::Compare { .. }
         ) && results

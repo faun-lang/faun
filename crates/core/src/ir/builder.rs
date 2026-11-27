@@ -432,6 +432,17 @@ impl Builder<'_> {
         )
     }
 
+    /// `count` of the bits of `value`, a number of its width.
+    pub fn count(&mut self, count: barb::BitCount, value: ValueId) -> ValueId {
+        self.push_one(
+            Op::Count { count, value },
+            Class::Held(barb::Bounds {
+                low: 0,
+                high: Some(u64::from(count.bits)),
+            }),
+        )
+    }
+
     pub fn convert(&mut self, class: Class, value: ValueId) -> ValueId {
         self.push_one(Op::Convert { value }, class)
     }

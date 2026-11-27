@@ -885,10 +885,10 @@ impl rewrite::Pass for Split {
                 self.call(rebuild, b, (function, args), results);
                 return true;
             }
-            Op::Load { .. } | Op::Store { .. } | Op::Float { .. } => {
+            Op::Load { .. } | Op::Store { .. } | Op::Float { .. } | Op::Count { .. } => {
                 assert!(
                     !wide_result && !source.operands(&op).any(|v| self.wide(rebuild, v)),
-                    "nothing wider than a word is loaded, stored or computed as a float"
+                    "nothing wider than a word is loaded, stored, computed as a float or counted"
                 );
                 return false;
             }

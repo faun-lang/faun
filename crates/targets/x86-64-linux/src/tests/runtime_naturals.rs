@@ -109,6 +109,51 @@ fn source_rotates_select_native_widths_and_wrap_the_count() {
     }
 }
 
+/// A count of zeros is one scan and a jump past what nought answers, where
+/// the definition's own arithmetic, a count of ones, takes a multiplication
+/// and a dozen more; a count of ones keeps that arithmetic at the baseline,
+/// as rustc does, and writes no `popcnt`.
+#[test]
+fn counts_of_zeros_scan_and_a_count_of_ones_is_its_arithmetic() {
+    use crate::machine::Inst;
+    let target = crate::X86_64Linux;
+    for (method, scan) in [
+        ("trailing_zeros", Some(true)),
+        ("leading_zeros", Some(false)),
+        ("count_ones", None),
+    ] {
+        let source = format!(
+            "import std.host {{Host}}
+
+             main! : Host -> []
+             main!(host) -> host.exit!(U8.of_nat(U64.of_nat(host.args.len()).{method}()))"
+        );
+        let prepared = target
+            .prepare(&faun::lower(&source, &target).unwrap())
+            .unwrap();
+        let code = crate::selected::select_and_allocate(&prepared).unwrap();
+        let code = code.instructions();
+        let scans = code
+            .iter()
+            .filter_map(|inst| match inst {
+                Inst::BitScan { forward, .. } => Some(*forward),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(scans, Vec::from_iter(scan), "{method}: {code:?}");
+        let multiplies = code
+            .iter()
+            .any(|inst| matches!(inst, Inst::Multiply { .. } | Inst::MultiplyImmediate { .. }));
+        assert_eq!(multiplies, scan.is_none(), "{method}: {code:?}");
+        assert!(
+            !code
+                .iter()
+                .any(|inst| matches!(inst, Inst::PopCount { .. })),
+            "{method}: {code:?}"
+        );
+    }
+}
+
 #[test]
 fn unsigned_comparisons_at_the_sign_bit_test_the_full_operand_width() {
     use crate::machine::{Condition, Inst};

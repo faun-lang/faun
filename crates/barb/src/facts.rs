@@ -130,6 +130,9 @@ pub(super) struct Recognised {
     /// routine for.
     pub floats: Vec<Option<Float>>,
     pub rotations: Vec<Option<super::Rotation>>,
+    /// The count of a word's bits a definition works out, where a target
+    /// answers it.
+    pub counts: Vec<Option<super::BitCount>>,
 }
 
 impl Recognised {
@@ -140,6 +143,7 @@ impl Recognised {
             sequences: vec![None; functions],
             floats: vec![None; functions],
             rotations: vec![None; functions],
+            counts: vec![None; functions],
         }
     }
 
@@ -150,6 +154,7 @@ impl Recognised {
             || self.sequences[id.index()].is_some()
             || self.floats[id.index()].is_some()
             || self.rotations[id.index()].is_some()
+            || self.counts[id.index()].is_some()
     }
 
     /// The first definition recognized as `operation` over `params`,
@@ -232,6 +237,17 @@ impl Facts {
         (rotation.bits == 64 || high < (1u64 << rotation.bits)).then_some(rotation)
     }
 
+    /// The count of a word's bits `id` is recognized as working out, where
+    /// its input range fits the count's width: an answer a target with the
+    /// instruction gives in its place. Only the counts the program was told
+    /// a target answers are recognized; see [`Program::answer_counts`].
+    #[must_use]
+    pub fn bit_count(&self, id: FnId) -> Option<super::BitCount> {
+        let count = self.recognised.counts.get(id.index()).copied().flatten()?;
+        let high = self.takes(id).first()?.high?;
+        (count.bits == 64 || high < (1u64 << count.bits)).then_some(count)
+    }
+
     /// Whether a call to `id` is answered as what it was recognized as,
     /// rather than by walking its body.
     #[must_use]
@@ -240,6 +256,7 @@ impl Facts {
             || self.sequence_operation(id).is_some()
             || self.float(id).is_some()
             || self.rotation(id).is_some()
+            || self.bit_count(id).is_some()
     }
     /// The IEEE 754 operation `id`'s code is recognized as: an answer a
     /// target with the instruction gives in its place, and one without it

@@ -284,6 +284,9 @@ pub struct Routines {
     /// Whether its machine computes IEEE 754 arithmetic itself: see
     /// [`Self::with_floats`].
     floats: bool,
+    /// Which counts of a word's bits its machine answers with instructions
+    /// of its own: see [`Self::with_counts`].
+    counts: barb::Counts,
 }
 
 impl Routines {
@@ -391,6 +394,7 @@ impl Routines {
             word: None,
             address: None,
             floats: false,
+            counts: barb::Counts::NONE,
         }
     }
 
@@ -444,6 +448,22 @@ impl Routines {
     #[must_use]
     pub const fn floats(&self) -> bool {
         self.floats
+    }
+
+    /// Say that the machine works out each of `counts` of a word's bits
+    /// with instructions of its own, at every width up to its word, so that
+    /// a definition recognized as one is answered by them rather than by
+    /// its body. Barb keeps such a definition whole, and inlines the others.
+    #[must_use]
+    pub const fn with_counts(mut self, counts: barb::Counts) -> Self {
+        self.counts = counts;
+        self
+    }
+
+    /// Which counts of a word's bits its machine answers itself.
+    #[must_use]
+    pub const fn counts(&self) -> barb::Counts {
+        self.counts
     }
 
     /// What a sequence's length can be. A sequence is held in memory, and
@@ -522,6 +542,7 @@ impl Routines {
             word: self.word,
             address: self.address,
             floats: self.floats,
+            counts: self.counts,
         }
     }
 

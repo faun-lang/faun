@@ -592,6 +592,7 @@ fn region_bits(source: &Program, region: RegionId, bits: &mut Vec<Option<u32>>) 
         let answer = match *op {
             Op::Constant { value } => Some(u64::BITS - value.leading_zeros()),
             Op::Convert { value } => of(bits, value),
+            Op::Count { count, .. } => Some(u16::BITS - count.bits.leading_zeros()),
             Op::Binary { op, left, right } => binary_bits(op, of(bits, left), of(bits, right)),
             Op::If {
                 then_region,

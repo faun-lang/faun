@@ -1055,6 +1055,13 @@ impl<H: Host> Machine<'_, H> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Number::from(float.calculate(&patterns))
             }
+            Op::Count { count, value } => {
+                let value = self
+                    .value(value)?
+                    .small()
+                    .ok_or_else(|| invalid("a counted word"))?;
+                Number::from(count.calculate(value))
+            }
             Op::Load {
                 width,
                 address,

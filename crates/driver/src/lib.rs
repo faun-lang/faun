@@ -39,6 +39,7 @@ fn platform_for(name: &str, routines: &Routines) -> Platform {
             consumes: routine.consumes,
         }),
     )
+    .with_counts(routines.counts())
 }
 
 /// Lower optimized Barb to the machine IR `target` compiles.

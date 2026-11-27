@@ -109,6 +109,7 @@ mod calls;
 mod cleanup;
 mod constant;
 mod copy;
+mod counting;
 mod descent;
 mod evaluate;
 mod facts;
@@ -165,6 +166,7 @@ pub use ranges::{Assumed, bounds_of_constants};
 // question from how a value is held. Representation selection asks
 // `TypeShape`, so nothing outside this tier needs this one.
 pub(crate) use constant::Shape;
+pub use counting::{BitCount, Count, Counts};
 pub use facts::{Facts, Operation, SequenceOperation};
 pub use float_compare::FloatComparison;
 pub use rotation::Rotation;
@@ -232,6 +234,8 @@ mod arithmetic_tests;
 mod bitwise_tests;
 #[cfg(test)]
 mod constant_tests;
+#[cfg(test)]
+mod counting_tests;
 #[cfg(test)]
 mod library_tests;
 #[cfg(test)]

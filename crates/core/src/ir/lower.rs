@@ -290,6 +290,9 @@ enum Callee<'a> {
     /// Answered by the target's own IEEE 754 instruction.
     Float(barb::float::Float),
     Rotation(barb::Rotation),
+    /// Answered by the target's own count of a word's bits, on a machine
+    /// whose word is this many bits.
+    Count(barb::BitCount, u16),
     /// Answered from how the sequence it is handed is held.
     Sequence(barb::SequenceOperation),
     Function(FunctionId),
@@ -313,6 +316,83 @@ enum Callee<'a> {
         built: &'a Built,
         primitive: FunctionId,
     },
+}
+
+/// `count` of each word of `value`, a number wider than one word, at a
+/// word's width, the lowest word's first.
+fn word_counts(
+    b: &mut super::Builder,
+    count: barb::BitCount,
+    value: ValueId,
+    word: u16,
+) -> Vec<ValueId> {
+    let part = barb::BitCount {
+        count: count.count,
+        bits: word,
+    };
+    (0..count.bits / word)
+        .map(|at| {
+            let moved = if at == 0 {
+                value
+            } else {
+                // A shift answers at its operand's width, and the word is
+                // then read below it.
+                let class = b.class(value);
+                b.shift(class, super::Direction::Down, value, at * word)
+            };
+            let piece = b.convert(Class::fixed(word), moved);
+            b.count(part, piece)
+        })
+        .collect()
+}
+
+/// `count` of the bits of `value`, on a machine whose word is `word` bits:
+/// one count where the value fits a word, and otherwise one a word, put
+/// together. A word's count of zeros is the word's width only where the
+/// word is nought, and only then does the count go on into the next word.
+fn bits_counted(
+    b: &mut super::Builder,
+    count: barb::BitCount,
+    value: ValueId,
+    word: u16,
+) -> ValueId {
+    if count.bits <= word {
+        return b.count(count, value);
+    }
+    let most = Class::Held(barb::Bounds {
+        low: 0,
+        high: Some(u64::from(count.bits)),
+    });
+    let counts = word_counts(b, count, value, word);
+    // Where a word is nought, its count, the word's width, and what the
+    // words after it count.
+    let onward = |b: &mut super::Builder, here: ValueId, after: ValueId| {
+        let class = b.class(here);
+        let whole = b.shift(
+            class,
+            super::Direction::Down,
+            here,
+            u16::try_from(word.trailing_zeros()).expect("a word's width"),
+        );
+        let more = b.binary_at(most, Binary::Mul, whole, after);
+        b.binary_at(most, Binary::Add, here, more)
+    };
+    match count.count {
+        barb::Count::Ones => counts[1..].iter().fold(counts[0], |sum, &next| {
+            b.binary_at(most, Binary::Add, sum, next)
+        }),
+        barb::Count::TrailingZeros => counts
+            .iter()
+            .rev()
+            .copied()
+            .reduce(|after, here| onward(b, here, after))
+            .expect("a count of at least one word"),
+        barb::Count::LeadingZeros => counts
+            .iter()
+            .copied()
+            .reduce(|after, here| onward(b, here, after))
+            .expect("a count of at least one word"),
+    }
 }
 
 /// What one argument of a call to something outside becomes.
@@ -376,6 +456,12 @@ fn declare<'a>(
         }
         if let Some(float) = facts.float(id) {
             callees.push(Callee::Float(float));
+            continue;
+        }
+        if let Some(count) = facts.bit_count(id)
+            && routines.counts().has(count.count)
+        {
+            callees.push(Callee::Count(count, routines.word().unwrap_or(64)));
             continue;
         }
         if let Some(operation) = facts.sequence_operation(id) {
@@ -3080,6 +3166,19 @@ impl Lowering<'_> {
             Callee::Float(float) => {
                 let args = self.call_arguments(function, arguments, locals);
                 return Answer::Value(Held::One(b.float(*float, &args)));
+            }
+            &Callee::Count(count, word) => {
+                let args = self.call_arguments(function, arguments, locals);
+                // What is counted is below the count's width, which facts
+                // proved before recognizing it, so reading it there takes
+                // nothing off.
+                let value = if b.class(args[0]).fits(Class::fixed(count.bits)) {
+                    args[0]
+                } else {
+                    b.convert(Class::fixed(count.bits), args[0])
+                };
+                let counted = bits_counted(b, count, value, word);
+                return Answer::Value(Held::One(b.convert(self.width(expr), counted)));
             }
             Callee::Sequence(barb::SequenceOperation::Length) => {
                 return Answer::Value(Held::One(self.length(b, expr, arguments, locals, statics)));

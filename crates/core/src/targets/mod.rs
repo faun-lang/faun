@@ -111,11 +111,20 @@ pub trait Target: fmt::Debug {
         false
     }
 
+    /// Which counts of a word's bits it works out with instructions of its
+    /// own, at every width up to its word; see
+    /// [`crate::platform::Routines::with_counts`]. A count it leaves out
+    /// runs the definition's body, as any definition does.
+    fn counts(&self) -> barb::Counts {
+        barb::Counts::NONE
+    }
+
     fn routines(&self) -> crate::platform::Routines {
         let routines = crate::platform::Routines::builtin()
             .only(self.provides())
             .with_word(self.word())
-            .with_address(self.address());
+            .with_address(self.address())
+            .with_counts(self.counts());
         if self.floats() {
             routines.with_floats()
         } else {
@@ -363,6 +372,13 @@ fn accepts_op<T: Target + ?Sized>(
         && !target.shifts_by_register()
     {
         return Err(format!("{name} shifts by a known distance only"));
+    }
+    // A count of bits is written only for a machine that works it out
+    // itself, within a word.
+    if let Op::Count { count, .. } = *op
+        && (!target.counts().has(count.count) || count.bits > word)
+    {
+        return Err(format!("{name} works out no {count} itself"));
     }
     // Only a machine computing IEEE values compares them itself.
     if let Op::Compare {

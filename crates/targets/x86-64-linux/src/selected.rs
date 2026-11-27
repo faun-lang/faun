@@ -144,6 +144,9 @@ pub(crate) enum Opcode {
     ShiftUp,
     ShiftDown,
     RotateLeft,
+    /// A count of the operand's bits, at its width: `bsf` or `bsr` and a
+    /// jump past what nought answers, or `popcnt`.
+    CountBits,
     Equal,
     Below,
     Load,
@@ -306,6 +309,7 @@ impl Opcode {
             | Self::ShiftUp
             | Self::ShiftDown
                 | Self::RotateLeft
+            | Self::CountBits
             | Self::Shift => arithmetic,
             Self::ArgumentVector => Effects {
                 clobbers: RegSet::of(&[Reg::Rcx]),
@@ -367,6 +371,7 @@ impl Opcode {
             | Self::ReadByte
             | Self::ArgumentVector
             | Self::FloatNotAbove
+            | Self::CountBits
             | Self::Float => Expansion::Sequence,
             _ => Expansion::Single,
         };
@@ -409,6 +414,7 @@ enum Immediate {
     },
     Function(FunctionId),
     Float(barb::float::Float),
+    Count(barb::BitCount),
     /// A word slot in a call's area: overflow arguments, then overflow results.
     Slot(u32),
 }
@@ -868,6 +874,7 @@ impl Selected {
             | Opcode::LoadOutgoing => 0,
             Opcode::Load
             | Opcode::Convert
+            | Opcode::CountBits
             | Opcode::Shift
             | Opcode::Exit
             | Opcode::Grow
@@ -1324,6 +1331,7 @@ fn verify_effects(opcode: Opcode, id: InstId) -> Result<(), String> {
             | Opcode::Modulo
             | Opcode::Shift
             | Opcode::RotateLeft
+            | Opcode::CountBits
             | Opcode::ArgumentVector => effects.flags == Access::Write,
             Opcode::DataAddress
             | Opcode::Equal
@@ -1381,6 +1389,13 @@ fn verify_immediate(inst: Inst, id: InstId) -> Result<(), String> {
             | (Opcode::Call, Immediate::Function(_))
             | (Opcode::FloatNotAbove, Immediate::Bits(32 | 64))
             | (Opcode::Float, Immediate::Float(_))
+            | (
+                Opcode::CountBits,
+                Immediate::Count(barb::BitCount {
+                    bits: 8 | 16 | 32 | 64,
+                    ..
+                })
+            )
             | (
                 Opcode::LoadIncoming
                     | Opcode::LoadOutgoing
@@ -1836,6 +1851,13 @@ impl Selector<'_> {
                         by: u8::try_from(by).map_err(|_| "x86 shift distance exceeds 255")?,
                         bits: source.class(results[0]).bits(WORD_BITS),
                     },
+                ),
+                SourceOp::Count { count, value } => self.emit(
+                    block,
+                    Opcode::CountBits,
+                    results.first().copied(),
+                    &[value],
+                    Immediate::Count(count),
                 ),
                 SourceOp::Float { float, operands } => {
                     let operands = source.values(operands).to_vec();

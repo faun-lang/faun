@@ -46,6 +46,9 @@ pub struct Program {
     /// Whether every float operation answers by its body: see
     /// [`Program::walk_floats`].
     floats_walked: bool,
+    /// Which counts of a word's bits are not recognized, but answered by
+    /// their bodies: see [`Program::answer_counts`].
+    counts_walked: super::Counts,
 }
 
 /// What was worked out from a program rather than said by it. Two programs
@@ -200,11 +203,16 @@ impl Program {
             .map(|function| function.float)
             .collect();
         let rotations = super::rotation::recognize(self, &operations);
+        let counts = super::counting::recognize(self, &operations)
+            .into_iter()
+            .map(|count| count.filter(|count| !self.counts_walked.has(count.count)))
+            .collect();
         Recognised {
             operations,
             sequences,
             floats,
             rotations,
+            counts,
         }
     }
 
@@ -528,6 +536,16 @@ impl Program {
         for function in &mut self.functions {
             function.float = None;
         }
+    }
+
+    /// Recognize only these counts of a word's bits, the ones a target
+    /// answers with an instruction of its own. Each other definition
+    /// counting bits answers by its body, and is inlined and optimized as any
+    /// definition is, rather than kept whole for an instruction nothing will
+    /// write. Every count is recognized until this says otherwise.
+    pub fn answer_counts(&mut self, counts: super::Counts) {
+        self.redefined();
+        self.counts_walked = super::Counts::ALL.without(counts);
     }
 
     /// Whether [`Program::walk_floats`] was asked for.

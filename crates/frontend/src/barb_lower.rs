@@ -52,9 +52,11 @@ pub(crate) fn lower_package_to_barb(
     cx: &Context,
     platform: &Platform,
 ) -> Result<barb::Program, Diagnostic> {
-    Lowerer::new(program, cx, Some(platform))
+    let mut program = Lowerer::new(program, cx, Some(platform))
         .and_then(Lowerer::lower)
-        .map_err(|error| cx.told(error))
+        .map_err(|error| cx.told(error))?;
+    program.answer_counts(platform.counts());
+    Ok(program)
 }
 
 /// How a widening rebuilds each constructor, or a product's fields.
