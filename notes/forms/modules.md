@@ -65,6 +65,29 @@ A module may export what it imported. The standard library's root does
 nothing else: it imports `bool {Bool.*}` and its siblings, and its export
 list is the prelude.
 
+## Dividing a library
+
+A module is small and mainly carries one type: the type, its methods, and
+what exists only to serve it, such as its error type or a private record
+its methods pass between them. A chess library has a `square` module for
+`Square`, a `file` for `File`, a `rank` for `Rank` and a `position` for
+`Position`, with the position's `FenError` beside it, rather than one
+module of squares, files, ranks and directions. Functions that belong to no
+one type go in the module of the operation they serve, as `perft` does
+beside `Position`.
+
+The library's root module imports its siblings and exports the public
+surface, as the standard library's root does, so a user imports from one
+place and the layout behind it can change without changing their imports.
+A sibling exports a type with its constructors where another sibling must
+build its values; the root decides what the library exports, and exports
+it sealed.
+
+Two types that refer to each other share a module, since imports cannot
+form a cycle. A type whose methods are all helpers to one other type may
+live with that type; a type a user names in a signature gets a module of
+its own.
+
 ## Packages
 
 A package is its root module's directory and every module it imports from
@@ -427,6 +450,17 @@ The standard library's types are one such vocabulary across files, `Bool`
 answering `Str` and `Str` measured in `Nat`, and that works because every
 module sees the prelude rather than importing it.
 
+### Why a module for each type?
+
+So that what a type is, everything it does and everything that can break it
+are read in one file, and a change to one type touches one module and the
+modules that use it. A module of several types grows in every direction at
+once, and its imports and exports say less about what depends on what. A
+small module also keeps its expectations beside the type they show, where a
+reader looking for an example finds it. The cost is more files, and an
+import line in each naming its neighbours; the root module keeps that from
+reaching the library's users.
+
 ### Why `package {}` headers with path dependencies?
 
 A package should mean the same wherever it sits. Its root's header holds
@@ -607,6 +641,11 @@ example's own call already says what it shows.
   33 tests an example now shows were dropped. Before, a method block held
   only signatures and clauses, and a std definition's examples were prose
   in its comment, where it had any.
+
+- **2026-11-27:** a library came to divide into small modules, each mainly
+  carrying one type, behind a root module that exports its surface. Before,
+  a library's modules grouped related types, a chess library's `square`
+  module holding files, ranks, squares and directions.
 
 ## Related
 
