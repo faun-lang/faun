@@ -1439,3 +1439,20 @@ fn programs_answer_what_they_say() {
         assert_eq!(Package::new(name, source).run(), *expected, "{name}");
     }
 }
+
+#[test]
+fn wrapping_uses_a_library_types_natural_projection() {
+    let package = Package::new(
+        "wrapping-a-natural-projection",
+        r"
+        Count : [Count(Nat)].(
+          to_nat : Count -> Nat
+          to_nat(Count(n)) -> n
+        )
+
+        main! : Host -> []
+        main!(host) -> host.exit!(U8.wrap(Count(299 + host.args.len())))
+        ",
+    );
+    assert_eq!(package.run(), 44);
+}

@@ -14,7 +14,8 @@ A numeral takes its type from its position, as in Ori, and may be only a
 `Nat`, `Int`, `U8`, `U16`, `U32` or `U64`; nothing else is made numeric by the
 methods it defines. A word is built through its own `of_nat`, and its module's
 private `numerals_below` bounds what may be written: `300` is not a `U8`,
-though `U8.of_nat(300)` is 44. A numeral nothing types is a `Nat`, or an `Int`
+though `U8.wrap(300)` is 44. Use `U8.from_nat(300)` to check the fit
+instead. A numeral nothing types is a `Nat`, or an `Int`
 when it is negated. A character literal is its scalar value, and at a `U8`
 must be ASCII: `'é'` is two bytes in UTF-8, so it is no `U8`, and is
 refused with its bytes shown. The words are rings: they wrap by definition, and `sub`
@@ -378,7 +379,7 @@ Chunk    = [Data(List(U8)), End]
 ```
 
 A status is a `U8`, since a byte is all of one every target keeps, so a
-status worked out from a `Nat` says how it is cut down, `U8.of_nat(n)`,
+status worked out from a `Nat` says how it is cut down, `U8.wrap(n)`,
 rather than a target wrapping it or not as it happens to.
 
 Each error is a row of tags of its own, holding only what that operation can

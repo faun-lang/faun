@@ -16,9 +16,19 @@ U8 : Nat.(
   zero = U8(0)
   expect U8.zero == 0
 
+  # Compatibility spelling for explicit Nat calls; also the compiler's
+  # numeral constructor. Use `wrap` to request modular narrowing.
   of_nat : Nat -> U8
   of_nat(n) -> U8(n % 256)
   expect U8.of_nat(300) == 44
+
+  # The low 8 bits of the source's natural value, with no fit check.
+  wrap : a -> U8 where a.to_nat : a -> Nat
+  wrap(value) -> of_nat(value.to_nat())
+  expect U8.wrap(256) == 0
+  expect U8.wrap(U16.of_nat(0x1234)) == 0x34
+  expect U8.wrap(U32.of_nat(0x12345678)) == 0x78
+  expect U8.wrap(True) == 1 & U8.wrap(False) == 0
 
   to_nat : U8 -> Nat
   to_nat(U8(value)) -> value

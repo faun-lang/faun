@@ -8,7 +8,8 @@ are the nearest counterpart; where Faun differs, it says why.
 
 ## Conversions
 
-A conversion is named by the type it comes from or goes to:
+Name a conversion by the source or destination type, unless the caller is
+choosing a particular way to lose information:
 
 - `T.of_x(x) -> T` makes a `T` from an `x`, always: `Int.of_nat`,
   `Set.of_list`, `F64.of_int`.
@@ -18,17 +19,30 @@ A conversion is named by the type it comes from or goes to:
   `to_bits`.
 
 ```ruby
-expect U8.of_nat(300) == 44
+expect U8.wrap(300) == 44
 expect U8.from_nat(300) == Err(TooBig)
 expect Nat.from_str("42") == Ok(42)
-expect U8.of_nat(300).to_nat() == 44
+expect U8.wrap(300).to_nat() == 44
 ```
 
-- `of_` never fails, and may lose what does not fit: `U8.of_nat` wraps and
-  `F64.of_nat` rounds. Where nothing is lost, as in `Int.of_nat`, the name
-  is the same.
-- `from_` is the checked twin: it answers `Err` with why, rather than
-  wrapping or rounding, and is what a value worked out at run time wants.
+- Use `wrap` for deliberate modular reduction, not for clamping, rounding
+  or arbitrary bit masks. Put it on the destination: `U8.wrap(word)`
+  retains the low eight bits, and changing the destination changes the
+  modulus, not the spelling. A library's cyclic type should document its
+  modulus and representative range.
+- Use `from_` when a value must fit: it answers `Err` with why, rather
+  than wrapping or rounding.
+- Use `of_` for exact value conversions such as `Int.of_nat`. Some
+  existing `of_` operations lose information: the word types' `of_nat`
+  wraps and is still their numeral constructor, and `F64.of_nat` rounds.
+  For new modular conversions prefer the explicit `wrap`.
+- The word types' `wrap` accepts a source with `to_nat : a -> Nat`.
+  Document `to_nat` as an exact natural value, never a clamp, a rounded
+  approximation or an absolute value. `Nat.to_nat` is the identity;
+  `Bool.to_nat` already gives 0 and 1 and therefore qualifies. For a domain
+  type with a numeric identifier but no natural value, name the projection
+  for what it returns and call it explicitly. `Int` does not qualify:
+  negative values have no exact natural projection.
 - `to_str` is also how a value prints itself: `"${value}"` calls it, and
   `Printable(a)` asks for it.
 
@@ -102,9 +116,7 @@ library's surface.
 
 ## Open questions
 
-- **Whether `of_` should be lossless only.** `Int.of_nat` and `U8.of_nat`
-  share a prefix, but only one can lose information, and the name does
-  not say which. Rust keeps them apart, `From` for lossless conversions
-  and `as` for lossy ones. Faun could keep `of_` for lossless conversions
-  and name the lossy ones for what they do, `U8.wrapping(n)` and
-  `F64.rounding(n)`.
+- **How to name existing rounded conversions.** The word types now have
+  `wrap` for modular conversions. Float rounding is a separate policy;
+  the names and migration for `F64.of_nat` and similar functions remain
+  open.

@@ -26,7 +26,7 @@ Random : U64.(
   next(Random(state)) -> (
     xorshifted = ((state >> 18) ^ state) >> 27
     rotation = (state >> 59).to_nat()
-    value = xorshifted.to_u32().rotate_right(rotation)
+    value = U32.wrap(xorshifted).rotate_right(rotation)
     (value, Random(state * 0x5851f42d4c957f2d + 0x14057b7ef767814f))
   )
 
