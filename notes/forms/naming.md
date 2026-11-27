@@ -89,6 +89,8 @@ A library's other functions are exported plainly, `export {encode,
 decode}`, and imported by name. Where two libraries export one name, the
 importer renames one, `import base64 {encode: base64_encode}`; a library
 does not prefix its names for it, nor declare a type only to hold them.
+Which file a type lives in is the modules note's to say: [a module for each type](modules.md#dividing-a-library), behind a root that exports the
+library's surface.
 
 ## Open questions
 
