@@ -1,7 +1,8 @@
 # Chess for Faun: squares, pieces and positions, positions read from and
 # written as FEN, every legal move of a position, castling, en passant and
-# promotion among them, moves read from and written as UCI, and perft, the
-# count of the move paths to a depth that checks a move generator.
+# promotion among them, moves read from and written as UCI, sets of
+# squares as bitboards, and perft, the count of the move paths to a depth
+# that checks a move generator.
 #
 # A `Position` is the whole state of a game at one moment. A `Move` is two
 # squares and what a pawn becomes, read from UCI or one of a position's
@@ -10,13 +11,14 @@
 # without asking again. A `Square` is always on the board, and a
 # `Position` always one a game can reach.
 #
-# Written in the most natural Faun spelling, a list of 64 squares and
+# Written in the most natural Faun spelling, a board of bitboards and
 # every candidate move played and tested: where that runs slowly, the
 # compiler has a bug to fix.
 
 package {}
 
 import square {Square}
+import bitboard {Bitboard}
 import color {Color.*}
 import role {Role.*}
 import piece {Piece.*}
@@ -25,6 +27,7 @@ import position {Position, FenError}
 
 export {
   Square,
+  Bitboard,
   Color.*,
   Role.*,
   Piece.*,

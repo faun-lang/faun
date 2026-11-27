@@ -49,7 +49,7 @@ APPROVED = "origin/main"
 TRUNK = os.environ.get("RATCHET_TRUNK", APPROVED)
 # The log's series: a protected change, once merged, starts the next one, and
 # bumps this with it.
-SERIES = 11
+SERIES = 12
 
 X86, WASM, MOS = "x86_64-linux", "wasm32-wasi", "mos6502-sim65"
 TARGETS = (X86, WASM, MOS)

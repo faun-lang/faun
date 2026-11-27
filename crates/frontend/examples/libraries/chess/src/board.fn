@@ -1,7 +1,8 @@
-# What stands where: a list of the 64 squares, `a1` first, each holding a
-# piece or nothing, the mailbox an engine is first written with. It says
-# which squares a side attacks, which is all the rules ask of it beyond
-# placing pieces; whose turn it is and what rights remain are the
+# What stands where: a bitboard for each side and one for each role, as
+# shakmaty's and cozy-chess's boards hold them, a piece standing where its
+# side's set and its role's meet. It says which squares a piece attacks
+# and which pieces attack a square, which is all the rules ask of it
+# beyond placing pieces; whose turn it is and what rights remain are the
 # position's.
 
 import square {Square.*}
@@ -9,35 +10,97 @@ import direction {Direction.*, step}
 import color {Color.*}
 import role {Role.*}
 import piece {Piece.*, piece_letter, piece_of_letter}
+import bitboard {Bitboard.*}
 
-export {Board, forward, pawn_captures, knight_jumps}
+export {Board, forward, pawn_captures}
 
-# Each square's piece, or `Empty`, `a1` first.
-Board : List(Result(Piece, [Empty])).(
+# The squares of each side's pieces, and of each role's, either side.
+Sets = {
+  white: Bitboard,
+  black: Bitboard,
+  pawns: Bitboard,
+  knights: Bitboard,
+  bishops: Bitboard,
+  rooks: Bitboard,
+  queens: Bitboard,
+  kings: Bitboard,
+}
+
+Board : Sets.(
   # A board with nothing on it.
   empty : Board
-  empty = Board(List.repeat(Err(Empty), 64))
-  expect Board.empty.pieces() == []
+  empty = Board({
+    white: Bitboard.empty,
+    black: Bitboard.empty,
+    pawns: Bitboard.empty,
+    knights: Bitboard.empty,
+    bishops: Bitboard.empty,
+    rooks: Bitboard.empty,
+    queens: Bitboard.empty,
+    kings: Bitboard.empty,
+  })
+  expect Board.empty.occupied().is_empty()
+
+  # The squares holding a piece.
+  occupied : Board -> Bitboard
+  occupied(Board(sets)) -> sets.white | sets.black
+  expect Board.start.occupied().count() == 32
+
+  # The squares holding a piece of `color`.
+  by_color : (Board, Color) -> Bitboard
+  by_color(Board(sets), White) -> sets.white
+  by_color(Board(sets), Black) -> sets.black
+  expect Board.start.by_color(Black).squares().first().map_ok(Square.to_str) == Ok("a7")
+
+  # The squares holding a piece of `role`, of either side.
+  by_role : (Board, Role) -> Bitboard
+  by_role(Board(sets), Pawn) -> sets.pawns
+  by_role(Board(sets), Knight) -> sets.knights
+  by_role(Board(sets), Bishop) -> sets.bishops
+  by_role(Board(sets), Rook) -> sets.rooks
+  by_role(Board(sets), Queen) -> sets.queens
+  by_role(Board(sets), King) -> sets.kings
+  expect Board.start.by_role(King).squares().map(Square.to_str) == ["e1", "e8"]
 
   # What stands on `square`.
   piece_at : (Board, Square) -> Result(Piece, [Empty])
-  piece_at(Board(cells), Square(n)) -> cells.get(n).ok_or(Err(Empty))
+  piece_at(board, square) -> (
+    if !board.occupied().contains(square) return Err(Empty)
+    color = if board.by_color(White).contains(square) then White else Black
+    role = [Pawn, Knight, Bishop, Rook, Queen, King].find(|role| board.by_role(role).contains(square)).err_as(Empty)?
+    Ok(Piece(color, role))
+  )
   expect Board.empty.put(Square(4), Piece(White, King)).piece_at(Square(4)) == Ok(Piece(White, King))
+  expect Board.start.piece_at(Square(59)) == Ok(Piece(Black, Queen))
+  expect Board.start.piece_at(Square(28)) == Err(Empty)
 
   # The board with `piece` on `square`, in place of whatever stood there.
   put : (Board, Square, Piece) -> Board
-  put(Board(cells), Square(n), piece) -> Board(cells.put(n, Ok(piece)))
+  put(board, square, Piece(color, role)) -> (
+    Board(sets) = board.remove(square)
+    sided = if color == White then {white: sets.white.with(square), *sets} else {black: sets.black.with(square), *sets}
+    Board(with_role(sided, role, square))
+  )
   expect Board.empty.put(Square(0), Piece(White, Rook)).pieces() == [(Square(0), Piece(White, Rook))]
 
   # The board with nothing on `square`.
   remove : (Board, Square) -> Board
-  remove(Board(cells), Square(n)) -> Board(cells.put(n, Err(Empty)))
+  remove(Board(sets), square) -> Board({
+    white: sets.white.without(square),
+    black: sets.black.without(square),
+    pawns: sets.pawns.without(square),
+    knights: sets.knights.without(square),
+    bishops: sets.bishops.without(square),
+    rooks: sets.rooks.without(square),
+    queens: sets.queens.without(square),
+    kings: sets.kings.without(square),
+  })
   expect Board.empty.put(Square(0), Piece(White, Rook)).remove(Square(0)) == Board.empty
 
   # Every piece on the board and its square, `a1` first.
   pieces : Board -> List((Square, Piece))
-  pieces(Board(cells)) -> cells.enumerate().flat_map(|(n, cell)| cell is (
-    Ok(piece) then [(Square(n), piece)]
+  pieces(board) -> board.occupied().squares().flat_map(|square| board.piece_at(square) is (
+    Ok(piece) then [(square, piece)]
     Err(Empty) then []
   ))
   expect Board.start.pieces().len() == 32
@@ -45,42 +108,51 @@ Board : List(Result(Piece, [Empty])).(
   # Where `color`'s king stands. A position always has one; a board
   # without one answers `a1`.
   king : (Board, Color) -> Square
-  king(Board(cells), color) -> Square(cells.find_index(|cell| cell == Ok(Piece(color, King))).ok_or(0))
+  king(board, color) -> (board.by_color(color) & board.by_role(King)).squares().first().ok_or(Square(0))
   expect Board.start.king(Black).to_str() == "e8"
 
-  # Whether a piece of `by` attacks `square`: could take a piece of the
-  # other side standing there.
+  # The squares the piece on `square` attacks: those it could take a piece
+  # of the other side on, each slider's up to the first piece in its way,
+  # whichever side's that is, and a pawn's the two ahead of it diagonally.
+  # An empty square attacks nothing.
+  attacks_from : (Board, Square) -> Bitboard
+  attacks_from(board, square) -> board.piece_at(square) is (
+    Ok(Piece(color, role)) then attacks(role, color, square, board.occupied())
+    Err(Empty) then Bitboard.empty
+  )
+  expect Board.start.attacks_from(Square(1)).squares().map(Square.to_str) == ["d2", "a3", "c3"]
+  expect Board.start.attacks_from(Square(3)).squares().map(Square.to_str) == ["c1", "e1", "c2", "d2", "e2"]
+  expect Board.start.attacks_from(Square(28)) == Bitboard.empty
+
+  # The pieces of `by` that attack `square`: each found by looking from
+  # `square` as that piece would, since a piece attacks a square just
+  # where one of its kind there would attack it, a pawn's ways turned
+  # round.
+  attackers : (Board, Square, Color) -> Bitboard
+  attackers(board, square, by) -> (
+    occupied = board.occupied()
+    board.by_color(by) & (
+      (knight_attacks(square) & board.by_role(Knight))
+        | (king_attacks(square) & board.by_role(King))
+        | (pawn_attacks(!by, square) & board.by_role(Pawn))
+        | (sliding(Direction.straight, square, occupied) & (board.by_role(Rook) | board.by_role(Queen)))
+        | (sliding(Direction.diagonal, square, occupied) & (board.by_role(Bishop) | board.by_role(Queen))))
+  )
+  expect Board.start.attackers(Square(21), White).squares().map(Square.to_str) == ["g1", "e2", "g2"]
+
+  # Whether a piece of `by` attacks `square`.
   is_attacked : (Board, Square, Color) -> Bool
-  is_attacked(board, square, by) ->
-    Direction.straight.any(|way| board.first_along(square, way) is Ok(Piece(==by, Rook | Queen)))
-      | Direction.diagonal.any(|way| board.first_along(square, way) is Ok(Piece(==by, Bishop | Queen)))
-      | knight_jumps(square).any(|from| board.piece_at(from) == Ok(Piece(by, Knight)))
-      | Direction.all.any(|way| step(square, way) is Ok(from) & board.piece_at(from) == Ok(Piece(by, King)))
-      | pawn_captures(by).any(|way| step(square, way.opposite()) is Ok(from) & board.piece_at(from) == Ok(Piece(by, Pawn)))
+  is_attacked(board, square, by) -> !board.attackers(square, by).is_empty()
   expect Board.start.is_attacked(Square(21), White)
   expect !Board.start.is_attacked(Square(28), White)
   expect Board.start.is_attacked(Square(45), Black)
-
-  # The first piece met going from `square` the way `direction` points,
-  # `square` itself left out.
-  first_along : (Board, Square, Direction) -> Result(Piece, [Empty])
-  first_along(board, square, direction) -> step(square, direction) is (
-    Ok(next) then board.piece_at(next) is (
-      Ok(piece) then Ok(piece)
-      Err(Empty) then board.first_along(next, direction)
-    )
-    Err(OffBoard) then Err(Empty)
-  )
-  expect Board.start.first_along(Square(4), North) == Ok(Piece(White, Pawn))
-  expect Board.start.first_along(Square(28), North) == Ok(Piece(Black, Pawn))
-  expect Board.start.first_along(Square(28), East) == Err(Empty)
 
   # The pieces at the start of a game.
   start : Board
   start = (
     back = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
     middle = List.repeat(Err(Empty), 32)
-    Board(back.map(|role| Ok(Piece(White, role)))
+    of_cells(back.map(|role| Ok(Piece(White, role)))
       .concat(List.repeat(Ok(Piece(White, Pawn)), 8))
       .concat(middle)
       .concat(List.repeat(Ok(Piece(Black, Pawn)), 8))
@@ -96,7 +168,7 @@ Board : List(Result(Piece, [Empty])).(
     rows = text.split("/")
     if rows.len() != 8 return Err(InvalidBoard)
     cells = rows.reverse().try_map(row)?
-    Ok(Board(cells.flatten()))
+    Ok(of_cells(cells.flatten()))
   )
   expect Board.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") == Ok(Board.start)
   expect Board.from_fen("8/8/8/8/8/8/8/9") == Err(InvalidBoard)
@@ -106,12 +178,94 @@ Board : List(Result(Piece, [Empty])).(
 
   # The board as FEN's first field writes it.
   to_fen : Board -> Str
-  to_fen(Board(cells)) -> List.range(8).reverse()
-    .map(|rank| written(cells.drop(rank * 8).take(8), 0, []))
-    .join("/")
+  to_fen(board) -> (
+    cells = List.range(64).map(|n| board.piece_at(Square(n)))
+    List.range(8).reverse()
+      .map(|rank| written(cells.drop(rank * 8).take(8), 0, []))
+      .join("/")
+  )
   expect Board.empty.put(Square(4), Piece(White, King)).put(Square(60), Piece(Black, King)).to_fen() == "4k3/8/8/8/8/8/8/4K3"
 
   equals : (Board, Board) -> Bool
+)
+
+# The board with each square's piece, `a1` first.
+of_cells : List(Result(Piece, [Empty])) -> Board
+of_cells(cells) -> cells.enumerate().fold(Board.empty, |board, (n, cell)| cell is (
+  Ok(piece) then board.put(Square(n), piece)
+  Err(Empty) then board
+))
+
+# The sets with `square` added to `role`'s.
+with_role : (Sets, Role, Square) -> Sets
+with_role(sets, Pawn, square) -> {pawns: sets.pawns.with(square), *sets}
+with_role(sets, Knight, square) -> {knights: sets.knights.with(square), *sets}
+with_role(sets, Bishop, square) -> {bishops: sets.bishops.with(square), *sets}
+with_role(sets, Rook, square) -> {rooks: sets.rooks.with(square), *sets}
+with_role(sets, Queen, square) -> {queens: sets.queens.with(square), *sets}
+with_role(sets, King, square) -> {kings: sets.kings.with(square), *sets}
+
+# The squares a piece of `role` and `color` on `square` attacks, the
+# pieces on `occupied` standing in a slider's way.
+attacks : (Role, Color, Square, Bitboard) -> Bitboard
+attacks(Pawn, color, square, _) -> pawn_attacks(color, square)
+attacks(Knight, _, square, _) -> knight_attacks(square)
+attacks(Bishop, _, square, occupied) -> sliding(Direction.diagonal, square, occupied)
+attacks(Rook, _, square, occupied) -> sliding(Direction.straight, square, occupied)
+attacks(Queen, _, square, occupied) -> sliding(Direction.all, square, occupied)
+attacks(King, _, square, _) -> king_attacks(square)
+
+# The squares a knight on `square` attacks, worked out once for every
+# square: one step along a file or a rank, then one along a diagonal
+# leading on from it.
+knight_attacks : Square -> Bitboard
+knight_attacks(Square(n)) -> knight_table.get(n).ok_or(Bitboard.empty)
+expect knight_attacks(Square(0)).squares().map(Square.to_str) == ["c2", "b3"]
+expect knight_attacks(Square(27)).count() == 8
+
+knight_table : List(Bitboard)
+knight_table = List.range(64).map(|n| [
+  (North, NorthWest), (North, NorthEast), (East, NorthEast), (East, SouthEast),
+  (South, SouthEast), (South, SouthWest), (West, SouthWest), (West, NorthWest),
+].fold(Bitboard.empty, |jumps, (first, second)| step(Square(n), first).and_then(|middle| step(middle, second)) is (
+  Ok(landing) then jumps.with(landing)
+  Err(OffBoard) then jumps
+)))
+
+# The squares a king on `square` attacks, worked out once for every
+# square: one step any way.
+king_attacks : Square -> Bitboard
+king_attacks(Square(n)) -> king_table.get(n).ok_or(Bitboard.empty)
+expect king_attacks(Square(0)).squares().map(Square.to_str) == ["b1", "a2", "b2"]
+
+king_table : List(Bitboard)
+king_table = List.range(64).map(|n| Direction.all.fold(Bitboard.empty, |near, way| step(Square(n), way) is (
+  Ok(next) then near.with(next)
+  Err(OffBoard) then near
+)))
+
+# The squares a pawn of `color` on `square` attacks: one step forward to
+# either side.
+pawn_attacks : (Color, Square) -> Bitboard
+pawn_attacks(color, square) -> pawn_captures(color).fold(Bitboard.empty, |taken, way| step(square, way) is (
+  Ok(next) then taken.with(next)
+  Err(OffBoard) then taken
+))
+expect pawn_attacks(Black, Square(36)).squares().map(Square.to_str) == ["d4", "f4"]
+
+# The squares a slider on `square` reaches along each of `ways`: every
+# square to the first piece of `occupied` in the way, and that piece's.
+sliding : (List(Direction), Square, Bitboard) -> Bitboard
+sliding(ways, square, occupied) -> ways.fold(Bitboard.empty, |reached, way| reached | ray(square, way, occupied))
+expect sliding(Direction.straight, Square(0), Board.start.occupied()).squares().map(Square.to_str) == ["b1", "a2"]
+
+# The squares from `square` the way `way` points, to the first piece of
+# `occupied` and that piece's square.
+ray : (Square, Direction, Bitboard) -> Bitboard
+ray(square, way, occupied) -> step(square, way) is (
+  Ok(next) if occupied.contains(next) then Bitboard.of_square(next)
+  Ok(next) then ray(next, way, occupied).with(next)
+  Err(OffBoard) then Bitboard.empty
 )
 
 # The way `color`'s pawns move.
@@ -123,19 +277,6 @@ forward(Black) -> South
 pawn_captures : Color -> List(Direction)
 pawn_captures(White) -> [NorthWest, NorthEast]
 pawn_captures(Black) -> [SouthWest, SouthEast]
-
-# The squares a knight on `square` jumps to: one step along a file or a
-# rank, then one along a diagonal leading on from it.
-knight_jumps : Square -> List(Square)
-knight_jumps(square) -> [
-  (North, NorthWest), (North, NorthEast), (East, NorthEast), (East, SouthEast),
-  (South, SouthEast), (South, SouthWest), (West, SouthWest), (West, NorthWest),
-].flat_map(|(first, second)| step(square, first).and_then(|middle| step(middle, second)) is (
-  Ok(landing) then [landing]
-  Err(OffBoard) then []
-))
-expect knight_jumps(Square(0)).map(Square.to_str) == ["b3", "c2"]
-expect knight_jumps(Square(27)).len() == 8
 
 # The eight squares of a rank FEN writes.
 row : Str -> Result(List(Result(Piece, [Empty])), [InvalidBoard])

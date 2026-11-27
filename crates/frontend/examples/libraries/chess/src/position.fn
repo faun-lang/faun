@@ -22,7 +22,8 @@ import piece {Piece.*}
 import castling_side {CastlingSide.*, castle_squares}
 import castling_rights {CastlingRights.*, untouched}
 import move {Move.*}
-import board {Board, forward, pawn_captures, knight_jumps}
+import board {Board, forward, pawn_captures}
+import bitboard {Bitboard}
 
 export {Position, FenError}
 
@@ -133,6 +134,32 @@ Position : {
   expect Square.from_str("e1").map_ok(|square| Position.start.piece_at(square)) == Ok(Ok(Piece(White, King)))
   expect Square.from_str("e4").map_ok(|square| Position.start.piece_at(square)) == Ok(Err(Empty))
 
+  # The squares holding a piece, either side's.
+  occupied : Position -> Bitboard
+  occupied(Position({board, *})) -> board.occupied()
+  expect Position.start.occupied().count() == 32
+
+  # The squares holding a piece of `color`.
+  by_color : (Position, Color) -> Bitboard
+  by_color(Position({board, *}), color) -> board.by_color(color)
+  expect (Position.start.by_color(White) | Position.start.by_color(Black)) == Position.start.occupied()
+
+  # The squares the piece on `square` attacks: those it could take an
+  # enemy piece on, whether or not one stands there and whether or not
+  # moving there is legal. A bishop's, rook's or queen's run to the first
+  # piece in the way, either side's, and take it in; a pawn's are the two
+  # squares diagonally ahead of it, not those it steps to. An empty square
+  # attacks nothing, the empty set.
+  attacks_from : (Position, Square) -> Bitboard
+  attacks_from(Position({board, *}), square) -> board.attacks_from(square)
+  expect Square.from_str("g1").map_ok(|g1| Position.start.attacks_from(g1).squares().map(Square.to_str)) == Ok(["e2", "f3", "h3"])
+  expect Square.from_str("e4").map_ok(|e4| Position.start.attacks_from(e4).is_empty()) == Ok(True)
+  expect (
+    knight = Position.from_fen("4k3/8/8/8/4N3/8/8/4K3 w - - 0 1")
+    (knight, Square.from_str("e4")) is (Ok(position), Ok(e4))
+      & "${position.attacks_from(e4)}" == "........\n........\n...x.x..\n..x...x.\n........\n..x...x.\n...x.x..\n........"
+  )
+
   # The side to move.
   turn : Position -> Color
   turn(Position({turn, *})) -> turn
@@ -242,50 +269,24 @@ passed_over(board, turn, square) -> (
 # Every move the side to move's pieces may make, before asking whether
 # each leaves its king attacked.
 candidates : Position -> List(Move)
-candidates(position is Position({board, turn, *})) -> board.pieces()
-  .filter(|(_, piece)| piece.color() == turn)
-  .flat_map(|(from, piece)| moves_of(position, from, piece.role()))
+candidates(position is Position({board, turn, *})) -> board.by_color(turn).squares()
+  .flat_map(|from| board.piece_at(from) is (
+    Ok(Piece(_, role)) then moves_of(position, from, role)
+    Err(Empty) then []
+  ))
   .concat(castles(position))
 
-# The moves of the piece of `role` on `from`, castles aside.
+# The moves of the piece of `role` on `from`, castles aside: a pawn's
+# its own, and any other piece's to each square it attacks that no piece
+# of its own stands on.
 moves_of : (Position, Square, Role) -> List(Move)
 moves_of(position, from, Pawn) -> pawn_moves(position, from)
-moves_of(position, from, Knight) -> knight_jumps(from).flat_map(|to| landing(position, from, Knight, to))
-moves_of(position, from, Bishop) -> Direction.diagonal.flat_map(|way| sliding(position, from, Bishop, way))
-moves_of(position, from, Rook) -> Direction.straight.flat_map(|way| sliding(position, from, Rook, way))
-moves_of(position, from, Queen) -> Direction.all.flat_map(|way| sliding(position, from, Queen, way))
-moves_of(position, from, King) -> Direction.all.flat_map(|way| step(from, way) is (
-  Ok(to) then landing(position, from, King, to)
-  Err(OffBoard) then []
-))
-
-# A move of the piece of `role` from `from` to `to`, unless a piece of its
-# own stands there: none, or one, taking what stands there.
-landing : (Position, Square, Role, Square) -> List(Move)
-landing(Position({board, turn, *}), from, role, to) -> board.piece_at(to) is (
-  Ok(Piece(==turn, _)) then []
-  _ then [plain(from, to)]
-)
+moves_of(Position({board, turn, *}), from, _) ->
+  (board.attacks_from(from) & !board.by_color(turn)).squares().map(|to| plain(from, to))
 
 # A move from `from` to `to`.
 plain : (Square, Square) -> Move
 plain(from, to) -> Move.of_squares(from, to)
-
-# The moves along `way` of the piece of `role` from `from`: each square to
-# the first piece in the way, and that piece's too where it is the other
-# side's.
-sliding : (Position, Square, Role, Direction) -> List(Move)
-sliding(position, from, role, way) -> sliding_from(position, from, from, role, way)
-
-# The same, going on from `at`.
-sliding_from : (Position, Square, Square, Role, Direction) -> List(Move)
-sliding_from(position is Position({board, *}), from, at, role, way) -> step(at, way) is (
-  Ok(to) then board.piece_at(to) is (
-    Err(Empty) then [plain(from, to), *sliding_from(position, from, to, role, way)]
-    Ok(_) then landing(position, from, role, to)
-  )
-  Err(OffBoard) then []
-)
 
 # A pawn's moves: a step forward onto an empty square, two from its start
 # where both are empty, a step forward to either side onto a piece of the
