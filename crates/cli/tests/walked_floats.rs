@@ -63,6 +63,7 @@ fn programs() -> Vec<(PathBuf, Input)> {
             ("checksum", Input::Bytes(1024)),
             ("collatz", Input::Argument("100")),
             ("crc32", Input::Bytes(16)),
+            ("gzip", Input::Bytes(256)),
             ("inflate", Input::Argument("200")),
             ("png", Input::Argument("8")),
             ("queens", Input::Argument("6")),

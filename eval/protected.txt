@@ -12,3 +12,4 @@ crates/frontend/examples/libraries/flate/
 crates/frontend/examples/libraries/md5/
 crates/frontend/examples/libraries/sha256/
 crates/frontend/examples/libraries/png/
+crates/frontend/examples/libraries/gzip/

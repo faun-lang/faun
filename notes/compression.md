@@ -1,10 +1,10 @@
 # Compression
 
-This note owns what writing checksums, DEFLATE and PNG in Faun taught: a
+This note owns what writing checksums, DEFLATE, gzip and PNG in Faun taught: a
 large, exactly specified workload of bit-level work on `U8` and `U32`, big
 byte buffers and random access into a window, with outside programs as
 oracles. The libraries are in-tree under
-`crates/frontend/examples/libraries/`: `crc`, `flate` and `png`. Each
+`crates/frontend/examples/libraries/`: `crc`, `flate`, `gzip` and `png`. Each
 finding is a workaround the code carries, an error that misled, or
 something the standard library lacked, with what it cost and where it
 stands.
@@ -537,6 +537,29 @@ value of the one is a value of the other. A closed row admits no other
 tags, so a function over a larger row cannot take a smaller one; the
 library writes its function over `Color`. Rust has the same rule for its
 enums, and would write a `From`.
+
+### A header reads as a type of its own with a method a field
+
+gzip's header is a declared type over a record, `Header : {name: …,
+mtime: U32, …}`, exported without its constructor, so a caller builds
+one only through `Header.empty` and its `with_` methods and cannot make
+a name holding a zero byte, which would end it early in the file. Each
+`with_` is one clause, `Header({name: Ok(up_to_zero(name)), *fields})`,
+and each reader one more, `name(Header({name, *})) -> name`: a method
+may share its field's name. An optional field is
+`Result(List(U8), [Missing])`, as the trie's value is, so no boolean
+says whether a field is there.
+
+### A program that deflates is a third of a megabyte
+
+The gzip suite workload, a round trip through deflate, inflate and
+CRC-32, builds to 519 KB on x86-64 and 413 KB `--small`, where the crc
+example is 16 KB; the flate library's own example is 542 KB. Most of it
+is inlined into a few definitions: `main!` is 63 KB, inflate's
+`dynamic_header` 33 KB and `codes` 18 KB. On the 6502 the image would
+end at $12E261, some 1.2 MB, against inflate's kernel at $1D2B7.
+Nothing in the source asks for it, so the inliner's budget is the place
+to look.
 
 ## Throughput
 

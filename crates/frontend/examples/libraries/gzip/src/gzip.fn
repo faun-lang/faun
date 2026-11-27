@@ -1,0 +1,417 @@
+# The gzip file format (RFC 1952): bytes compressed into a gzip member,
+# with the header fields a file carries, and a gzip file read back, every
+# member of it, as `gunzip` reads one.
+#
+# A member is a header, the data compressed by DEFLATE, and a trailer of
+# the data's CRC-32 and its length. The header names the file, when it
+# was last changed, a comment, an extra field and the system that wrote
+# it, each optional. Reading checks all of it: the magic bytes, the
+# method, the reserved flags, the header's own CRC-16 where it has one,
+# the compressed data, and the trailer. What is refused answers `Err`
+# naming why; nothing panics or reads past the end.
+#
+# The flate library compresses and inflates, and the crc library checks.
+# Written in the most natural Faun spelling: where that runs slowly, the
+# compiler has a bug to fix, and notes/compression.md lists them.
+
+package {
+  uses: {
+    crc: "../../crc/src/crc",
+    flate: "../../flate/src/flate"
+  }
+}
+
+import crc {crc32}
+import flate {deflate, inflate_from, InflateError, Level}
+
+export {compress, decompress, members, Header, Member, Os, Level, GzipError}
+
+# `data` as a gzip file of one member, its header empty: no name, no
+# time, the system unknown. `Header.compress` writes one with fields.
+compress : (List(U8), Level) -> List(U8)
+compress(data, level) -> Header.empty.compress(data, level)
+expect decompress(compress("hello".to_utf8(), Level.default)) == Ok("hello".to_utf8())
+expect compress([], Level.none) == [
+  0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255, 1, 0, 0, 0xff, 0xff,
+  0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+# The bytes a gzip file holds: every member's data, one after another, as
+# `gunzip` writes them, each checked by its CRC-32 and length. `members`
+# also answers each member's header.
+decompress : List(U8) -> Result(List(U8), GzipError)
+decompress(input) -> members(input).map_ok(|found| found.map(|member| member.data).flatten())
+# What `gzip -n` writes for "hello".
+expect decompress([
+  0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00,
+  0x86, 0xa6, 0x10, 0x36, 5, 0, 0, 0,
+]) == Ok("hello".to_utf8())
+expect decompress("hello".to_utf8()) == Err(NotGzip)
+expect decompress(compress("hello".to_utf8(), Level.default).take(20)) == Err(Truncated)
+# Two members read as one file, as `cat a.gz b.gz` makes.
+expect decompress(compress("ab".to_utf8(), Level.best).concat(compress("cd".to_utf8(), Level.none))) == Ok("abcd".to_utf8())
+
+# Each member of a gzip file, in order: its header and its data. A file
+# holds one or more. Zero bytes after the last are padding, which `gzip`
+# ignores and so does this; anything else there that is not a member is
+# refused, as `TrailingData`.
+members : List(U8) -> Result(List(Member), GzipError)
+members(input) -> members_from(input, 0, [])
+expect (
+  named = Header.empty.with_name("a.txt".to_utf8()).with_mtime(1700000000)
+  read = members(named.compress("one".to_utf8(), Level.best).concat(compress("two".to_utf8(), Level.fastest)))
+  read == Ok([{header: named, data: "one".to_utf8()}, {header: Header.empty, data: "two".to_utf8()}])
+)
+expect members(compress("x".to_utf8(), Level.default).concat([0, 0])) == Ok([{header: Header.empty, data: "x".to_utf8()}])
+expect members(compress("x".to_utf8(), Level.default).concat([0, 1])) == Err(TrailingData)
+
+# One member of a gzip file: the header it carried, and the bytes it held.
+Member = {header: Header, data: List(U8)}
+
+# A member's header: the file's name, when it was last changed, a
+# comment, an extra field and the system that wrote it. Each is optional,
+# and `Header.empty` has none of them. Build one with the `with_` methods,
+# read one with the methods named for its fields.
+#
+# A name and a comment are bytes ending at the first zero, which RFC 1952
+# says are ISO 8859-1; what a file system calls a file is written as it is,
+# as `gzip` writes it. Neither holds a zero byte, so `with_name` and
+# `with_comment` keep only what comes before one.
+Header : {
+  name: Result(List(U8), [Missing]),
+  comment: Result(List(U8), [Missing]),
+  extra: Result(List(U8), [Missing]),
+  mtime: U32,
+  os: Os,
+}.(
+  # No name, no comment, no extra field, no time and an unknown system,
+  # as `gzip -n` writes but for the system.
+  empty : Header
+  empty = Header({name: Err(Missing), comment: Err(Missing), extra: Err(Missing), mtime: 0, os: Unknown})
+  expect Header.empty.name() == Err(Missing) & Header.empty.os() == Unknown
+
+  # The original file's name.
+  name : Header -> Result(List(U8), [Missing])
+  name(Header({name, *})) -> name
+  expect Header.empty.with_name("notes.txt".to_utf8()).name() == Ok("notes.txt".to_utf8())
+
+  # A comment for people to read.
+  comment : Header -> Result(List(U8), [Missing])
+  comment(Header({comment, *})) -> comment
+  expect Header.empty.with_comment("draft".to_utf8()).comment() == Ok("draft".to_utf8())
+
+  # The extra field: subfields, each two bytes naming it, two giving its
+  # length, least significant first, and that many bytes, as RFC 1952 lays
+  # them out. They are answered as they were read.
+  extra : Header -> Result(List(U8), [Missing])
+  extra(Header({extra, *})) -> extra
+  expect Header.empty.with_extra(['A', 'B', 1, 0, 'x']).extra() == Ok(['A', 'B', 1, 0, 'x'])
+
+  # When the original file was last changed, in seconds since the start
+  # of 1970 UTC, or nought where the header gives no time.
+  mtime : Header -> U32
+  mtime(Header({mtime, *})) -> mtime
+  expect Header.empty.with_mtime(1700000000).mtime() == 1700000000
+
+  # The system the member was written on.
+  os : Header -> Os
+  os(Header({os, *})) -> os
+  expect Header.empty.with_os(Unix).os() == Unix
+
+  # `header` naming the original file `name`, up to any zero byte in it.
+  with_name : (Header, List(U8)) -> Header
+  with_name(Header(fields), name) -> Header({name: Ok(up_to_zero(name)), *fields})
+  expect Header.empty.with_name(['a', 0, 'b']).name() == Ok(['a'])
+
+  # `header` with `comment`, up to any zero byte in it.
+  with_comment : (Header, List(U8)) -> Header
+  with_comment(Header(fields), comment) -> Header({comment: Ok(up_to_zero(comment)), *fields})
+  expect Header.empty.with_comment([0]).comment() == Ok([])
+
+  # `header` with `extra` as its extra field, up to the 65535 bytes the
+  # field's length can say.
+  with_extra : (Header, List(U8)) -> Header
+  with_extra(Header(fields), extra) -> Header({extra: Ok(extra.take(65535)), *fields})
+  expect Header.empty.with_extra(List.repeat(0, 70000)).extra().map_ok(|field| field.len()) == Ok(65535)
+
+  # `header` saying the original file was last changed at `mtime`, in
+  # seconds since the start of 1970 UTC; nought gives no time.
+  with_mtime : (Header, U32) -> Header
+  with_mtime(Header(fields), mtime) -> Header({mtime, *fields})
+  expect Header.empty.with_mtime(86400).mtime() == 86400
+
+  # `header` saying it was written on `os`.
+  with_os : (Header, Os) -> Header
+  with_os(Header(fields), os) -> Header({os, *fields})
+  expect Header.empty.with_os(Ntfs).os() == Ntfs
+
+  # `data` as a gzip file of one member, behind `header`, compressed as
+  # hard as `level` says.
+  compress : (Header, List(U8), Level) -> List(U8)
+  compress(header, data, level) -> (
+    (a, b, c, d) = crc32(data).le_bytes()
+    (e, f, g, h) = U32.of_nat(data.len()).le_bytes()
+    header.to_bytes(level).concat(deflate(data, level)).concat([a, b, c, d, e, f, g, h])
+  )
+  expect (
+    header = Header.empty.with_name("a.txt".to_utf8()).with_comment("hi".to_utf8()).with_extra(['A', 'B', 0, 0]).with_mtime(7).with_os(Unix)
+    members(header.compress("abc".to_utf8(), Level.default)) == Ok([{header, data: "abc".to_utf8()}])
+  )
+
+  # The header's bytes, as a member compressed at `level` begins.
+  to_bytes : (Header, Level) -> List(U8)
+  to_bytes(Header({name, comment, extra, mtime, os}), level) -> (
+    flags = flag(extra, 4) + flag(name, 8) + flag(comment, 16)
+    (a, b, c, d) = mtime.le_bytes()
+    # The extra flags say the slowest or the fastest level, as zlib's do.
+    slowest = level.to_nat() is (
+      9 then 2
+      1 then 4
+      _ then 0
+    )
+    fixed = [0x1f, 0x8b, 8, U8.of_nat(flags), a, b, c, d, slowest, os_byte(os)]
+    extra_bytes = extra is (
+      Ok(field) then [U8.of_nat(field.len() % 256), U8.of_nat(field.len() / 256)].concat(field)
+      Err(_) then []
+    )
+    fixed.concat(extra_bytes).concat(zero_ended(name)).concat(zero_ended(comment))
+  )
+
+  equals : (Header, Header) -> Bool
+  to_str : Header -> Str
+)
+
+# The system a member was written on, as RFC 1952 numbers them. A number
+# it does not name reads as `Unknown`.
+Os = [
+  Fat,
+  Amiga,
+  Vms,
+  Unix,
+  VmCms,
+  AtariTos,
+  Hpfs,
+  Macintosh,
+  ZSystem,
+  CpM,
+  Tops20,
+  Ntfs,
+  Qdos,
+  AcornRiscos,
+  Unknown,
+]
+
+# Every way a gzip file can be refused.
+GzipError = [
+  # The input does not begin with gzip's magic bytes, 1f 8b.
+  NotGzip,
+  # The member is compressed by a method other than DEFLATE, 8, the only
+  # one RFC 1952 defines.
+  UnsupportedMethod(U8),
+  # A flag RFC 1952 reserves, one of the top three, is set.
+  ReservedFlags,
+  # The input ends before the member does.
+  Truncated,
+  # The header's own CRC-16 is not its bytes'.
+  HeaderChecksumMismatch,
+  # The compressed data is not DEFLATE, saying why.
+  BadDeflate(InflateError),
+  # The CRC-32 the trailer gives is not the data's.
+  ChecksumMismatch,
+  # The trailer gives another length for the data, modulo 2^32.
+  LengthMismatch,
+  # Bytes after the last member are not a member.
+  TrailingData,
+]
+
+members_from : (List(U8), Nat, List(Member)) -> Result(List(Member), GzipError)
+members_from(input, at, found) -> (
+  (member, next) = member_at(input, at)?
+  more = found.append(member)
+  if padding(input, next) return Ok(more)
+  if !begins_member(input, next) return Err(TrailingData)
+  members_from(input, next, more)
+)
+
+# Whether every byte from `at` on is zero.
+padding : (List(U8), Nat) -> Bool
+padding(input, at) -> input.get(at) is (
+  Ok(0) then padding(input, at + 1)
+  Ok(_) then False
+  Err(_) then True
+)
+
+# The member at `at`, and where what follows it starts.
+member_at : (List(U8), Nat) -> Result((Member, Nat), GzipError)
+member_at(input, at) -> (
+  (header, start) = header_at(input, at)?
+  (data, end) = inflate_from(input, start).map_err(refused)?
+  if end + 8 > input.len() return Err(Truncated)
+  if word(input, end) != crc32(data) return Err(ChecksumMismatch)
+  if word(input, end + 4) != U32.of_nat(data.len()) return Err(LengthMismatch)
+  Ok(({header, data}, end + 8))
+)
+
+# Inflate's refusal as gzip's: input that ends too soon is truncated
+# whichever reads it.
+refused : InflateError -> GzipError
+refused(Truncated) -> Truncated
+refused(why) -> BadDeflate(why)
+
+# Whether the bytes from `at` could begin a member: as much of the magic
+# as there is.
+begins_member : (List(U8), Nat) -> Bool
+begins_member(input, at) ->
+  input.get(at) == Ok(0x1f) & (at + 1 == input.len() | input.get(at + 1) == Ok(0x8b))
+
+# The header of the member at `at`, and where its compressed data starts.
+header_at : (List(U8), Nat) -> Result((Header, Nat), GzipError)
+header_at(input, at) -> (
+  if at < input.len() & !begins_member(input, at) return Err(NotGzip)
+  if at + 10 > input.len() return Err(Truncated)
+  method = byte(input, at + 2)
+  if method != 8 return Err(UnsupportedMethod(method))
+  flags = byte(input, at + 3)
+  if (flags & 0xe0) != 0 return Err(ReservedFlags)
+  mtime = word(input, at + 4)
+  os = os_of(byte(input, at + 9))
+  (extra, after_extra) = extra_at(input, flags, at + 10)?
+  (name, after_name) = text_at(input, flags & 8, after_extra)?
+  (comment, after_comment) = text_at(input, flags & 16, after_name)?
+  start = header_checked(input, flags, at, after_comment)?
+  Ok((Header({name, comment, extra, mtime, os}), start))
+)
+
+# The extra field at `at`, where the flags say there is one, and where
+# what follows it starts.
+extra_at : (List(U8), U8, Nat) -> Result((Result(List(U8), [Missing]), Nat), GzipError)
+extra_at(_, flags, at) if (flags & 4) == 0 -> Ok((Err(Missing), at))
+extra_at(input, _, at) -> (
+  if at + 2 > input.len() return Err(Truncated)
+  length = byte(input, at).to_nat() + byte(input, at + 1).to_nat() * 256
+  end = at + 2 + length
+  if end > input.len() return Err(Truncated)
+  Ok((Ok(input.drop(at + 2).take(length)), end))
+)
+
+# The zero-ended text at `at`, where its flag, the bit of the flags given,
+# is set, and where what follows it starts.
+text_at : (List(U8), U8, Nat) -> Result((Result(List(U8), [Missing]), Nat), GzipError)
+text_at(_, 0, at) -> Ok((Err(Missing), at))
+text_at(input, _, at) -> (
+  end = zero_at(input, at)?
+  Ok((Ok(input.drop(at).take(end - at)), end + 1))
+)
+
+# Where the first zero from `at` on is.
+zero_at : (List(U8), Nat) -> Result(Nat, GzipError)
+zero_at(input, at) -> input.get(at) is (
+  Ok(0) then Ok(at)
+  Ok(_) then zero_at(input, at + 1)
+  Err(_) then Err(Truncated)
+)
+
+# Where the compressed data starts, `end` or past the header's CRC-16
+# where the flags say it has one: the low half of the CRC-32 of the
+# header's bytes from `at` before it.
+header_checked : (List(U8), U8, Nat, Nat) -> Result(Nat, GzipError)
+header_checked(_, flags, _, end) if (flags & 2) == 0 -> Ok(end)
+header_checked(input, _, at, end) -> (
+  if end + 2 > input.len() return Err(Truncated)
+  (a, b, _, _) = crc32(input.drop(at).take(end - at)).le_bytes()
+  if byte(input, end) != a | byte(input, end + 1) != b return Err(HeaderChecksumMismatch)
+  Ok(end + 2)
+)
+
+byte : (List(U8), Nat) -> U8
+byte(input, at) -> input.get(at).ok_or(0)
+
+# The four bytes at `at`, least significant first.
+word : (List(U8), Nat) -> U32
+word(input, at) -> U32.of_le_bytes(byte(input, at), byte(input, at + 1), byte(input, at + 2), byte(input, at + 3))
+
+# A header flag's bit, where its field is there.
+flag : (Result(List(U8), [Missing]), Nat) -> Nat
+flag(Ok(_), bit) -> bit
+flag(Err(_), _) -> 0
+
+# A text field as the header holds it, its zero after it, or nothing
+# where there is none.
+zero_ended : Result(List(U8), [Missing]) -> List(U8)
+zero_ended(Ok(text)) -> text.append(0)
+zero_ended(Err(_)) -> []
+
+up_to_zero : List(U8) -> List(U8)
+up_to_zero(text) -> text.take_while(|byte| byte != 0)
+
+os_byte : Os -> U8
+os_byte(os) -> os is (
+  Fat then 0
+  Amiga then 1
+  Vms then 2
+  Unix then 3
+  VmCms then 4
+  AtariTos then 5
+  Hpfs then 6
+  Macintosh then 7
+  ZSystem then 8
+  CpM then 9
+  Tops20 then 10
+  Ntfs then 11
+  Qdos then 12
+  AcornRiscos then 13
+  Unknown then 255
+)
+
+os_of : U8 -> Os
+os_of(number) -> number is (
+  0 then Fat
+  1 then Amiga
+  2 then Vms
+  3 then Unix
+  4 then VmCms
+  5 then AtariTos
+  6 then Hpfs
+  7 then Macintosh
+  8 then ZSystem
+  9 then CpM
+  10 then Tops20
+  11 then Ntfs
+  12 then Qdos
+  13 then AcornRiscos
+  _ then Unknown
+)
+
+expect List.range(14).all(|n| os_byte(os_of(U8.of_nat(n))) == U8.of_nat(n))
+expect os_of(200) == Unknown
+
+# Every way a member is refused, each from a good one changed.
+expect (
+  good = compress("hello, hello".to_utf8(), Level.default)
+  [
+    (good.put(0, 0x1e), NotGzip),
+    (good.put(2, 7), UnsupportedMethod(7)),
+    (good.put(3, 0x20), ReservedFlags),
+    (good.take(good.len() - 1), Truncated),
+    (good.update(good.len() - 8, |b| b ^ 1), ChecksumMismatch),
+    (good.update(good.len() - 4, |b| b ^ 1), LengthMismatch),
+    (good.put(10, 0xff), BadDeflate(BadBlockType)),
+  ].all(|(bad, why)| decompress(bad) == Err(why))
+)
+
+# A header's CRC-16, where the flags say it has one, is checked.
+expect (
+  header = [0x1f, 0x8b, 8, 2, 0, 0, 0, 0, 0, 3]
+  (a, b, _, _) = crc32(header).le_bytes()
+  rest = [3, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  decompress(header.concat([a, b]).concat(rest)) == Ok([])
+    & decompress(header.concat([a ^ 1, b]).concat(rest)) == Err(HeaderChecksumMismatch)
+)
+
+# Every input at every level reads back, and as one file when joined.
+expect (
+  inputs = [[], "a".to_utf8(), List.range(1000).map(|i| U8.of_nat(i * i % 251)), List.repeat(U8.of_nat(7), 600)]
+  file = [0, 1, 6, 9].flat_map(|n| inputs.map(|input| compress(input, Level.of_nat(n)))).flatten()
+  [0, 1, 6, 9].all(|n| inputs.all(|input| decompress(compress(input, Level.of_nat(n))) == Ok(input)))
+    & decompress(file) == Ok(inputs.flatten().concat(inputs.flatten()).concat(inputs.flatten()).concat(inputs.flatten()))
+)

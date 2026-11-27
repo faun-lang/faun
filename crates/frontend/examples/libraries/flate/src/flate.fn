@@ -22,7 +22,7 @@ import symbols {length_table, distance_table, fixed_literal_lengths, first_codes
 import deflate {deflate, Level}
 
 export {
-  inflate, zlib_decompress, gzip_decompress, InflateError,
+  inflate, inflate_from, zlib_decompress, gzip_decompress, InflateError,
   deflate, zlib_compress, gzip_compress, Level
 }
 
@@ -54,6 +54,16 @@ inflate(input) -> (
   (out, _) = inflate_at(input, 0)?
   Ok(out)
 )
+
+# The bytes of the raw DEFLATE stream that starts at byte `at` of
+# `input`, and the byte just past its final block, where a container's
+# trailer or the next stream begins.
+inflate_from : (List(U8), Nat) -> Result((List(U8), Nat), InflateError)
+inflate_from(input, at) -> (
+  (out, end) = inflate_at(input, at * 8)?
+  Ok((out, (end + 7) / 8))
+)
+expect inflate_from([9, 1, 2, 0, 0xfd, 0xff, 'h', 'i', 7], 1) == Ok(("hi".to_utf8(), 8))
 
 # The bytes a zlib stream holds, its Adler-32 checked.
 zlib_decompress : List(U8) -> Result(List(U8), InflateError)
