@@ -72,9 +72,9 @@ what exists only to serve it, such as its error type or a private record
 its methods pass between them. A chess library has a `square` module for
 `Square`, a `file` for `File`, a `rank` for `Rank` and a `position` for
 `Position`, with the position's `FenError` beside it, rather than one
-module of squares, files, ranks and directions. Functions that belong to no
-one type go in the module of the operation they serve, as `perft` does
-beside `Position`.
+module of squares, files, ranks and directions. A function that belongs to
+no one type goes where it is used, or in the root, as the chess library's
+`perft` does.
 
 The library's root module imports its siblings and exports the public
 surface, as the standard library's root does, so a user imports from one
