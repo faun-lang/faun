@@ -1,0 +1,29 @@
+# The same with the count written by hand, as the chess library first
+# wrote it: Hacker's Delight's count, a pair, a nibble, then a byte at a
+# time, and the lowest set bit's index the count of the clear bits below
+# it, those taking one sets.
+package {}
+
+import std.host {Host}
+
+ones : U64 -> Nat
+ones(bits) -> (
+  pairs = bits - (bits.shift_right(1) & 0x5555555555555555)
+  nibbles = (pairs & 0x3333333333333333) + (pairs.shift_right(2) & 0x3333333333333333)
+  bytes = (nibbles + nibbles.shift_right(4)) & 0x0f0f0f0f0f0f0f0f
+  (bytes * 0x0101010101010101).shift_right(56).to_nat()
+)
+
+walk : (Nat, U64, Nat) -> Nat
+walk(0, _, sum) -> sum
+walk(Succ(left), word, sum) -> (
+  next = word * 6364136223846793005 + 1442695040888963407
+  walk(left, next, sum + ones(word) + ones(!word & (word - 1)))
+)
+
+main! : Host -> []
+main!(host) -> (
+  n = Nat.from_str(host.args.get(1).ok_or("1000")).ok_or(1000)
+  printed = host.println!("${walk(n, U64.of_nat(n), 0)}")
+  host.exit!(0)
+)

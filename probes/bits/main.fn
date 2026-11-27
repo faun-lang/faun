@@ -1,0 +1,20 @@
+# The set bits of `n` 64-bit words and the index of each one's lowest set
+# bit, added up, as a chess library counts a bitboard's squares and walks
+# them lowest first: `count_ones` and `trailing_zeros`.
+package {}
+
+import std.host {Host}
+
+walk : (Nat, U64, Nat) -> Nat
+walk(0, _, sum) -> sum
+walk(Succ(left), word, sum) -> (
+  next = word * 6364136223846793005 + 1442695040888963407
+  walk(left, next, sum + word.count_ones() + word.trailing_zeros())
+)
+
+main! : Host -> []
+main!(host) -> (
+  n = Nat.from_str(host.args.get(1).ok_or("1000")).ok_or(1000)
+  printed = host.println!("${walk(n, U64.of_nat(n), 0)}")
+  host.exit!(0)
+)

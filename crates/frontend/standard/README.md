@@ -325,7 +325,10 @@ bitwise on `Nat` and the words, and looser than a comparison, so
 `b & c | !b & d` reads as it would in C. The words also have `zero`, and
 `shift_left`, `shift_right`, `rotate_left` and
 `rotate_right`, each by a `Nat` count of bits; a shift by the width or more
-is nought. `Nat` has `shift_left` and `shift_right` too, which lose no bits
+is nought. They count their bits with `count_ones`, `trailing_zeros` and
+`leading_zeros`, each a `Nat`; nought has the width of trailing and of
+leading zeros, so `word.trailing_zeros()` is the index of the lowest set
+bit wherever there is one. `Nat` has `shift_left` and `shift_right` too, which lose no bits
 going up, so `inst.shift_right(10) & 7` takes a field out of an encoded
 instruction. Where the number fits a machine word, a shift by a known count
 is one shift instruction, and a mask of low bits, `& 7`, is read as the
