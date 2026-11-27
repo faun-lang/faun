@@ -93,7 +93,7 @@ mod word_comparisons;
 
 pub use bounds::conversions_taking_nothing;
 pub use builder::Builder;
-pub use claims::place as place_claims;
+pub use claims::{elide as elide_claims, place as place_claims};
 pub use fit::{Budget, fit};
 pub use layout::Layout;
 pub use legalize::legalize;

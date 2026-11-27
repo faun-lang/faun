@@ -365,7 +365,11 @@ fn emit(stage: Stage, source: &Path, target: &dyn Target) -> Result<(), Diagnost
     let text = match stage {
         Stage::Barb => barb.render_analyzed(&barb.analyze()),
         Stage::Machine => machine()?.render(),
-        Stage::Claims => faun_core::ir::place_claims(&machine()?, target.word(), true).render(),
+        Stage::Claims => faun_core::ir::elide_claims(
+            &faun_core::ir::place_claims(&machine()?, target.word(), true),
+            target.word(),
+        )
+        .render(),
         Stage::Target => target.render(&target.prepare(&machine()?).map_err(Diagnostic::new)?),
     };
     print!("{text}");
