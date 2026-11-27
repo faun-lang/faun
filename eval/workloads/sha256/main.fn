@@ -1,0 +1,21 @@
+# The SHA-256 of standard input, through the library, printed as 64
+# lowercase hex digits as `sha256sum` prints it.
+
+package {
+  uses: {
+    sha256: "../../../crates/frontend/examples/libraries/sha256/src/sha256"
+  }
+}
+
+import std.host {Host}
+import sha256 {sha256}
+
+expect sha256("abc".to_utf8()).to_hex() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+main! : Host -> []
+main!(host) -> (
+  input = host.stdin.read_to_end!()
+  input is Ok(bytes) else return host.exit!(1)
+  printed = host.println!(sha256(bytes).to_hex())
+  host.exit!(0)
+)

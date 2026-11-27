@@ -1,0 +1,219 @@
+# SHA-256 (FIPS 180-4): the 32-byte digest of a message, taken whole or
+# fed in pieces.
+#
+# SHA-256 is a cryptographic hash: no one knows how to find two messages
+# with one digest, nor a message with a digest given. So a digest names
+# its message, and stands in for it where the message is too large to
+# keep or compare: a download checked against the digest its site
+# publishes, a file stored under its digest, a cache keyed by what it
+# holds. It is not a password hash, which must be slow, nor a message
+# authentication code: a digest proves a message unchanged only where
+# the digest itself comes from someone trusted.
+#
+# Written as FIPS 180-4 teaches it, a block of 64 bytes at a time, each
+# made into 64 words that 64 rounds mix into eight words of state. Where
+# this spelling runs slowly, the compiler has a bug to fix.
+
+package {}
+
+export {Sha256, Digest, sha256}
+
+# The SHA-256 digest of `message`. `Sha256` takes one in pieces.
+sha256 : List(U8) -> Digest
+sha256(message) -> Sha256.empty.update(message).digest()
+expect sha256("abc".to_utf8()).to_hex() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+expect sha256([]).to_hex() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+# A SHA-256 digest: 32 bytes. Only hashing makes one, so a `Digest` is
+# never the wrong length, nor mistaken for other bytes. Two digests are
+# equal where their bytes are, and a digest prints as its hex.
+Digest : List(U8).(
+  # The digest's 32 bytes, in the order FIPS 180-4 writes them: each word
+  # of the state most significant byte first.
+  to_bytes : Digest -> List(U8)
+  to_bytes(Digest(bytes)) -> bytes
+  expect sha256("abc".to_utf8()).to_bytes().take(4) == [0xba, 0x78, 0x16, 0xbf]
+  expect sha256("abc".to_utf8()).to_bytes().len() == 32
+
+  # The digest as 64 lowercase hex digits, as `sha256sum` prints it.
+  to_hex : Digest -> Str
+  to_hex(Digest(bytes)) -> Str.hex(bytes)
+  expect sha256([]).to_hex() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+  # The digest as `"${digest}"` writes it: its hex.
+  to_str : Digest -> Str
+  to_str(digest) -> digest.to_hex()
+  expect "${sha256("abc".to_utf8())}" == sha256("abc".to_utf8()).to_hex()
+
+  equals : (Digest, Digest) -> Bool
+
+  hash_into : (Digest, h) -> h where Hasher(h)
+)
+
+expect sha256("abc".to_utf8()) == Sha256.empty.update("ab".to_utf8()).update("c".to_utf8()).digest()
+expect sha256("abc".to_utf8()) != sha256("abd".to_utf8())
+expect Set.of_list([sha256("abc".to_utf8()), sha256([]), sha256("abc".to_utf8())]).len() == 2
+
+# A SHA-256 part way through a message: the state after its whole blocks,
+# the bytes since the last whole block, fewer than 64, and how many bytes
+# it has been given in all.
+Sha256 : {state: State, pending: List(U8), length: Nat}.(
+  # The SHA-256 of no bytes yet: FIPS 180-4's initial state, the first
+  # 32 bits of the fractional parts of the square roots of the first eight
+  # primes.
+  empty : Sha256
+  empty = Sha256({
+    state: (0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19),
+    pending: [],
+    length: 0
+  })
+  expect Sha256.empty.digest() == sha256([])
+
+  # `hasher` with `bytes` taken in after what it has been given. It is a
+  # value like any other, so the one it was made from is unchanged.
+  update : (Sha256, List(U8)) -> Sha256
+  update(Sha256({state, pending, length}), bytes) -> (
+    (next, rest) = blocks(state, pending.concat(bytes))
+    Sha256({state: next, pending: rest, length: length + bytes.len()})
+  )
+  expect Sha256.empty.update("a".to_utf8()).update("bc".to_utf8()).digest() == sha256("abc".to_utf8())
+
+  # The digest of every byte given. `hasher` is left as it was, so more
+  # may be given after, and a digest taken again.
+  digest : Sha256 -> Digest
+  digest(Sha256({state, pending, length})) -> (
+    (done, _) = blocks(state, padded(pending, length))
+    (a, b, c, d, e, f, g, h) = done
+    Digest([a, b, c, d, e, f, g, h].flat_map(word_bytes))
+  )
+  expect (
+    prefix = Sha256.empty.update("ab".to_utf8())
+    prefix.digest() == sha256("ab".to_utf8()) & prefix.update("c".to_utf8()).digest() == sha256("abc".to_utf8())
+  )
+)
+
+# The eight working words, a to h.
+State = (U32, U32, U32, U32, U32, U32, U32, U32)
+
+# Every whole block of `bytes` mixed into `state`, and the bytes left
+# over, fewer than a block. Each block is a view of `bytes`, not a copy.
+blocks : (State, List(U8)) -> (State, List(U8))
+blocks(state, bytes) if bytes.len() >= 64 -> blocks(compress(state, bytes.take(64)), bytes.drop(64))
+blocks(state, rest) -> (state, rest)
+
+# The message's last bytes padded to whole blocks: a one bit, as few
+# nought bits as leave room for the length, and the message's length in
+# bits, as a 64-bit word most significant byte first.
+padded : (List(U8), Nat) -> List(U8)
+padded(rest, length) -> (
+  noughts = (119 - length % 64) % 64
+  rest.append(0x80).concat(List.repeat(0, noughts)).concat(length_bytes(U64.of_nat(length * 8)))
+)
+expect padded([], 0).len() == 64
+expect padded(List.repeat(0x61, 55), 55).len() == 64
+expect padded(List.repeat(0x61, 56), 56).len() == 128
+expect padded("abc".to_utf8(), 3).drop(60) == [0, 0, 0, 24]
+
+length_bytes : U64 -> List(U8)
+length_bytes(bits) -> (
+  (a, b, c, d, e, f, g, h) = bits.le_bytes()
+  [h, g, f, e, d, c, b, a]
+)
+
+# One block mixed into the state: its 64 words, each with its round's
+# constant, through a round each, and the result added to where it began.
+compress : (State, List(U8)) -> State
+compress(start is (a, b, c, d, e, f, g, h), block) -> (
+  (a2, b2, c2, d2, e2, f2, g2, h2) = constants.zip(schedule(block_words(block))).fold(start, round)
+  (a + a2, b + b2, c + c2, d + d2, e + e2, f + f2, g + g2, h + h2)
+)
+
+# One round: two sums of the working words, the round's constant `k` and
+# its word `w`, taken in at a and e as the words move down one.
+round : (State, (U32, U32)) -> State
+round((a, b, c, d, e, f, g, h), (k, w)) -> (
+  t1 = h + big_sigma1(e) + choose(e, f, g) + k + w
+  t2 = big_sigma0(a) + majority(a, b, c)
+  (t1 + t2, a, b, c, d + t1, e, f, g)
+)
+
+# The block's 16 words, each four bytes most significant first, grown to
+# 64, each word after the 16th mixed from four before it.
+schedule : List(U32) -> List(U32)
+schedule(words) if words.len() >= 64 -> words
+schedule(words) ->
+  schedule(words.append(
+    small_sigma1(back(words, 2)) + back(words, 7) + small_sigma0(back(words, 15)) + back(words, 16)))
+
+# The word `n` from the end of `words`.
+back : (List(U32), Nat) -> U32
+back(words, n) -> words.get(words.len() - n).ok_or(0)
+expect schedule(List.repeat(0, 16)) == List.repeat(0, 64)
+
+block_words : List(U8) -> List(U32)
+block_words([a, b, c, d, *rest]) -> [U32.of_le_bytes(d, c, b, a), *block_words(rest)]
+block_words(_) -> []
+expect block_words([1, 2, 3, 4, 0x80, 0, 0, 0]) == [0x01020304, 0x80000000]
+
+word_bytes : U32 -> List(U8)
+word_bytes(word) -> (
+  (a, b, c, d) = word.le_bytes()
+  [d, c, b, a]
+)
+expect word_bytes(0x01020304) == [1, 2, 3, 4]
+
+# Each bit from `f` where `e`'s is set, and from `g` where it is not.
+choose : (U32, U32, U32) -> U32
+choose(e, f, g) -> (e & f) ^ (!e & g)
+
+# Each bit as most of `a`, `b` and `c` have it.
+majority : (U32, U32, U32) -> U32
+majority(a, b, c) -> (a & b) ^ (a & c) ^ (b & c)
+expect majority(0b1100, 0b1010, 0b1001) == 0b1000
+
+big_sigma0 : U32 -> U32
+big_sigma0(x) -> x.rotate_right(2) ^ x.rotate_right(13) ^ x.rotate_right(22)
+
+big_sigma1 : U32 -> U32
+big_sigma1(x) -> x.rotate_right(6) ^ x.rotate_right(11) ^ x.rotate_right(25)
+
+small_sigma0 : U32 -> U32
+small_sigma0(x) -> x.rotate_right(7) ^ x.rotate_right(18) ^ (x >> 3)
+
+small_sigma1 : U32 -> U32
+small_sigma1(x) -> x.rotate_right(17) ^ x.rotate_right(19) ^ (x >> 10)
+
+# Each round's constant: the first 32 bits of the fractional parts of the
+# cube roots of the first 64 primes.
+constants : List(U32)
+constants = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+]
+
+# FIPS 180-4's examples: one block, and a message of 448 bits, which
+# leaves no room for its length and so takes two.
+expect sha256("abc".to_utf8()).to_hex() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+expect sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".to_utf8()).to_hex()
+  == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+
+# A message of 896 bits. FIPS 180-4's last example, a million a's, is
+# too long for the interpreter the test suite asks expectations with:
+# crates/cli/tests/sha256.rs feeds it to `examples/stream.fn`, built.
+expect sha256(
+  "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"
+    .to_utf8()).to_hex()
+  == "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1"
+
+# Pieces may end anywhere in a block, and give the whole message's digest.
+expect (
+  message = List.range(300).map(U8.of_nat)
+  [0, 1, 55, 56, 63, 64, 65, 127, 128, 129, 299, 300].all(|n|
+    Sha256.empty.update(message.take(n)).update(message.drop(n)).digest() == sha256(message))
+)

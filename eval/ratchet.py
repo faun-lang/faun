@@ -49,7 +49,7 @@ APPROVED = "origin/main"
 TRUNK = os.environ.get("RATCHET_TRUNK", APPROVED)
 # The log's series: a protected change, once merged, starts the next one, and
 # bumps this with it.
-SERIES = 9
+SERIES = 10
 
 X86, WASM, MOS = "x86_64-linux", "wasm32-wasi", "mos6502-sim65"
 TARGETS = (X86, WASM, MOS)
@@ -171,6 +171,9 @@ WORKLOADS = [
     # sizes keep that to a fraction of a second, and a fix shows as a gain.
     Workload("crc32", KERNELS, "bytes", sizes(1 << 13, 1 << 11, 16)),
     Workload("collatz", KERNELS, "argument", sizes(20_000, 10_000, 100)),
+    # The sha256 library's one-shot digest, read whole: hashing in pieces as
+    # it is read, md5's way, makes an image too large for the 6502.
+    Workload("sha256", KERNELS, "bytes", sizes(1 << 20, 1 << 18, 256)),
     Workload("inflate", KERNELS, "argument", sizes(100_000, 30_000, 200)),
     Workload("queens", KERNELS, "argument", sizes(9, 8, 6)),
     Workload("sieve", KERNELS, "argument", sizes(1_000_000, 500_000, 1000)),

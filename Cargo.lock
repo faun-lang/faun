@@ -256,6 +256,7 @@ dependencies = [
  "libtest-mimic",
  "mimalloc",
  "num-bigint",
+ "sha2",
  "tar",
  "ureq",
  "zstd",
