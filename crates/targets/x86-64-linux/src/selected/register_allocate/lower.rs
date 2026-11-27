@@ -1389,6 +1389,8 @@ impl<'a> Lowering<'a> {
                     };
                     if let Some(set) = self.asm.just_set(condition) {
                         (set, set.inverse())
+                    } else if self.asm.just_masked(condition) {
+                        (Condition::NotEqual, Condition::Equal)
                     } else {
                         self.asm.alu(Alu::Test, condition, condition, 64);
                         (Condition::NotEqual, Condition::Equal)

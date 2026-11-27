@@ -1008,6 +1008,17 @@ impl AllocatedBuilder {
         }
     }
 
+    /// Whether `reg` was just narrowed by an `and`, where nothing jumps in
+    /// after it: the flags it set say whether what it left is nought, so a
+    /// branch on `reg` reads them rather than testing it again.
+    pub(crate) fn just_masked(&self, reg: Reg) -> bool {
+        let len = self.code.insts().len();
+        matches!(
+            self.code.insts().last(),
+            Some(&Inst::Narrow { dst, bits: 1..=7 | 9..=31 }) if dst == reg
+        ) && !self.code.labelled_from(len)
+    }
+
     pub(crate) fn jump_if(&mut self, condition: Condition, target: Label) {
         self.push(Inst::Jump {
             condition: Some(condition),
