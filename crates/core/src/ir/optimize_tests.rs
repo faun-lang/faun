@@ -1110,3 +1110,44 @@ fn a_number_moved_up_has_its_low_bits_clear_and_comes_back_down() {
         assert_eq!(count(&held, down), usize::from(class == Class::Word));
     }
 }
+
+/// A byte read a known number past a sum is read from the sum at that
+/// number: the header added to an index and a buffer's start is the load's
+/// offset, so the address is one sum and the number no instruction.
+#[test]
+fn a_known_number_added_to_an_address_is_the_offset_it_is_read_at() {
+    let (mut p, main) =
+        Program::new_with_params("main", &[("start", Class::Word), ("index", Class::Word)]);
+    p.bind_layout(super::Layout { word_bits: 64 })
+        .expect("a layout the program allows");
+    p.define(main, |b, args| {
+        let header = b.constant(Class::Word, 56);
+        let past = b.binary(Binary::Add, header, args[1]);
+        let sum = b.binary(Binary::Add, args[0], past);
+        let address = b.convert(Class::Address, sum);
+        let byte = b.load(super::Width::Byte, address, super::Offset::Bytes(0));
+        b.ret(&[byte]);
+    });
+    validate(&p).unwrap();
+    let held = optimize(&p);
+    validate(&held).unwrap();
+    let body = held.function(held.entry()).body().unwrap();
+    let offsets: Vec<_> = held
+        .every(body)
+        .filter_map(|op| match *op {
+            Op::Load { offset, .. } => Some(offset),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(offsets, [super::Offset::Bytes(56)]);
+    assert_eq!(
+        count(&held, |op| matches!(
+            op,
+            Op::Binary {
+                op: Binary::Add,
+                ..
+            }
+        )),
+        1
+    );
+}

@@ -58,8 +58,8 @@ use barb::Bounds;
 use barb::float::{Float, Format, Operation};
 
 use super::{
-    Binary, Builder, Class, Direction, Exit, Op, Program, Range, RegionId, Relation, ShapeId,
-    ValueId, model::wrap, rewrite,
+    Binary, Builder, Class, Direction, Exit, Offset, Op, Program, Range, RegionId, Relation,
+    ShapeId, ValueId, model::wrap, rewrite,
 };
 
 /// The fewest bits a machine word has on any target this compiles for.
@@ -203,6 +203,27 @@ impl rewrite::Pass for Simplify {
                 rebuild.stands_for(results[0], held);
                 true
             }
+            Op::Load {
+                width,
+                address,
+                offset,
+            } => self
+                .displaced(rebuild, b, address, offset)
+                .is_some_and(|(address, offset)| {
+                    rebuild.stands_for(results[0], b.load(width, address, offset));
+                    true
+                }),
+            Op::Store {
+                width,
+                address,
+                offset,
+                value,
+            } => self
+                .displaced(rebuild, b, address, offset)
+                .is_some_and(|(address, offset)| {
+                    b.store(width, address, offset, rebuild.value(value));
+                    true
+                }),
             Op::Convert { value } => {
                 let class = rebuild.source().class(results[0]);
                 self.converted(rebuild, b, class, value, results[0])
@@ -682,6 +703,88 @@ impl Simplify {
         self.wrote
             .number(value)
             .or_else(|| self.folded[value.index()])
+    }
+
+    /// An address a known number past another, as that other and an offset
+    /// the number further on: `x + (c + y)` read at `k` is `x + y` read at
+    /// `k + c`, and `c + y` is `y` read there. A machine reads the number
+    /// as part of the address rather than adding it first. Only a sum
+    /// nothing else reads is taken apart, so nothing is worked out twice,
+    /// only once the word's width is known, since an address wraps at it,
+    /// and only for a small number forward.
+    fn displaced(
+        &self,
+        rebuild: &rewrite::Rebuild<'_>,
+        b: &mut Builder,
+        address: ValueId,
+        offset: Offset,
+    ) -> Option<(ValueId, Offset)> {
+        let Offset::Bytes(at) = offset else {
+            return None;
+        };
+        self.word_bits?;
+        let (Op::Convert { value: sum }, Class::Address, _) = self.wrote.0[address.index()]? else {
+            return None;
+        };
+        if self.uses[address.index()] != 1 || self.uses[sum.index()] != 1 {
+            return None;
+        }
+        let (rest, index, by) = self.known_term(sum)?;
+        // A small number forward, so it is the same number on every word
+        // and no target reads an offset back from where it starts.
+        if at < 0 || by >= 1 << 14 {
+            return None;
+        }
+        let at = at.checked_add(i32::try_from(by).ok()?)?;
+        let index = rebuild.value(index);
+        let base = rest.map_or(index, |rest| {
+            b.binary(Binary::Add, rebuild.value(rest), index)
+        });
+        let base = if b.class(base) == Class::Address {
+            base
+        } else {
+            b.convert(Class::Address, base)
+        };
+        Some((base, Offset::Bytes(at)))
+    }
+
+    /// A word sum as what else it adds, the rest of an inner sum, and the
+    /// known number in that: `c + y` is nothing else, `y` and `c`, and
+    /// `x + (c + y)`, with an inner sum nothing else reads, is `x`, `y`
+    /// and `c`.
+    fn known_term(&self, sum: ValueId) -> Option<(Option<ValueId>, ValueId, u64)> {
+        let (left, right) = self.word_sum(sum)?;
+        if let Some(by) = self.number(left) {
+            return Some((None, right, by));
+        }
+        if let Some(by) = self.number(right) {
+            return Some((None, left, by));
+        }
+        let (rest, inner) = [(left, right), (right, left)]
+            .into_iter()
+            .find(|&(_, inner)| self.word_sum(inner).is_some() && self.uses[inner.index()] == 1)?;
+        let (first, second) = self.word_sum(inner)?;
+        match (self.number(first), self.number(second)) {
+            (Some(by), _) => Some((Some(rest), second, by)),
+            (_, Some(by)) => Some((Some(rest), first, by)),
+            _ => None,
+        }
+    }
+
+    /// The operands of a word sum, which wraps at the word.
+    fn word_sum(&self, value: ValueId) -> Option<(ValueId, ValueId)> {
+        match self.wrote.0[value.index()]? {
+            (
+                Op::Binary {
+                    op: Binary::Add,
+                    left,
+                    right,
+                },
+                Class::Word,
+                _,
+            ) => Some((left, right)),
+            _ => None,
+        }
     }
 
     /// Arithmetic whose answer is known, or is one of its operands.
