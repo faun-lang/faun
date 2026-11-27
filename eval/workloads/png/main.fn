@@ -1,0 +1,76 @@
+# Encode two images as PNG files and read them back: a square of `size`
+# pixels a side in red, green, blue and alpha, gradients with a little
+# noise, and one in grey. Each is encoded through the png library at
+# zlib's default level, its rows filtered adaptively, then decoded, and
+# printed with its size, the CRC-32 of the pixels read back and whether
+# they are the pixels written. What is printed is fixed by the images, not
+# by how they were compressed.
+
+package {
+  uses: {
+    crc: "../../../crates/frontend/examples/libraries/crc/src/crc",
+    png: "../../../crates/frontend/examples/libraries/png/src/png"
+  }
+}
+
+import std.host {Host}
+import crc {crc32}
+import png {Image, Color, encode, decode}
+
+# A little noise for the pixel in column `x` of row `y`, below 17.
+noise : (Nat, Nat) -> Nat
+noise(x, y) -> (x * 7 + y * 13) * (x + 3 * y + 1) % 17
+
+# A pixel of red, green, blue and alpha: red and green rising across and
+# down, blue along the diagonal, and alpha in tiles.
+rgba : (Nat, Nat) -> List(U8)
+rgba(x, y) -> [
+  U8.of_nat(x * 4 + noise(x, y)),
+  U8.of_nat(y * 4),
+  U8.of_nat(x + y + noise(x, y)),
+  U8.of_nat(255 - (x ^ y) % 64),
+]
+
+# A grey pixel: the product of its column and row, a quarter of it.
+grey : (Nat, Nat) -> List(U8)
+grey(x, y) -> [U8.of_nat(x * y / 4 + noise(x, y))]
+
+# The image `size` pixels square of `color`, each pixel as `pixel` makes it.
+square : (Nat, Color, (Nat, Nat) -> List(U8)) -> Str
+square(size, color, pixel) -> (
+  pixels = List.range(size).flat_map(|y| List.range(size).flat_map(|x| pixel(x, y)))
+  Image.from_pixels(size, size, color, pixels) is (
+    Ok(image) then report(image)
+    Err(error) then "${error}"
+  )
+)
+
+# The image encoded and decoded: its size, the CRC-32 of what came back,
+# and whether it is the image.
+report : Image -> Str
+report(image) -> decode(encode(image)) is (
+  Ok(back) then (
+    matched = if back == image then "matches" else "differs"
+    "${back.width()}x${back.height()} crc32 ${hex(crc32(back.pixels()))} ${matched}"
+  )
+  Err(error) then "${error}"
+)
+
+# The word's 8 hex digits, most significant first.
+hex : U32 -> Str
+hex(word) -> (
+  (a, b, c, d) = word.le_bytes()
+  Str.hex([d, c, b, a])
+)
+
+expect noise(1, 2) == 9 & noise(5, 1) == 7
+expect hex(0xcbf43926) == "cbf43926"
+expect square(3, Rgba, rgba) == "3x3 crc32 4b02b604 matches"
+expect square(3, Grey, grey) == "3x3 crc32 2bddc531 matches"
+
+main! : Host -> []
+main!(host) -> (
+  size = Nat.from_str(host.args.get(1).ok_or("64")).ok_or(64)
+  wrote = host.println!("rgba ${square(size, Rgba, rgba)}\ngrey ${square(size, Grey, grey)}")
+  host.exit!(if wrote.is_ok() then 0 else 1)
+)

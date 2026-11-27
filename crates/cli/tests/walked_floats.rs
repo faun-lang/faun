@@ -64,6 +64,7 @@ fn programs() -> Vec<(PathBuf, Input)> {
             ("collatz", Input::Argument("100")),
             ("crc32", Input::Bytes(16)),
             ("inflate", Input::Argument("200")),
+            ("png", Input::Argument("8")),
             ("queens", Input::Argument("6")),
             ("sha256", Input::Bytes(1000)),
             ("sieve", Input::Argument("1000")),

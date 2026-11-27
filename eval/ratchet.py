@@ -175,6 +175,10 @@ WORKLOADS = [
     # it is read, md5's way, makes an image too large for the 6502.
     Workload("sha256", KERNELS, "bytes", sizes(1 << 20, 1 << 18, 256)),
     Workload("inflate", KERNELS, "argument", sizes(100_000, 30_000, 200)),
+    # The png library through a round trip; its twin compresses with zlib,
+    # which only the x86-64 twin links, and its image is far past the 6502's
+    # 64 KiB, so there it counts by where its image would end.
+    Workload("png", KERNELS, "argument", sizes(256, 128, 8), 1, ("-lz",)),
     Workload("queens", KERNELS, "argument", sizes(9, 8, 6)),
     Workload("sieve", KERNELS, "argument", sizes(1_000_000, 500_000, 1000)),
     Workload("sort", KERNELS, "argument", sizes(100_000, 30_000, 24)),
@@ -464,8 +468,8 @@ def c_command(target, workload, source, out):
 
 def c_build(target, workload, directory, reference):
     """The twin's image for a target, or why there is none: cc65 has no
-    floats, and there is no GMP for wasm32 or the 6502. A probe's twin is
-    Faun, built by the reference side's compiler."""
+    floats, and there is no GMP or zlib for wasm32 or the 6502. A probe's
+    twin is Faun, built by the reference side's compiler."""
     if workload.probe:
         image, status, _, _ = faun_build(
             reference, target, False, workload, directory, "twin.fn"
