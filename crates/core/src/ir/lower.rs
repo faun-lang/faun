@@ -2847,8 +2847,9 @@ impl Lowering<'_> {
             None => None,
         };
         // Laid out before the program runs, however long: nothing is built,
-        // and its size is its bytes.
-        if let Some(class @ Class::Held(_)) = element {
+        // and its size is its bytes. A byte read as a natural is one held in
+        // place on every target, as `laid_out` allows, so it holds no claim.
+        if let Some(class @ (Class::Held(_) | Class::Natural | Class::Word)) = element {
             let shape = b.shape(&[class]);
             let data = b.data(&bytes);
             let start = b.constant(Class::Word, 0);

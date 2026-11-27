@@ -52,3 +52,38 @@ fn a_list_of_strings_read_every_round_is_the_same_every_round() {
     let expected = format!("{} {} {}", out.len(), 10 * 5, &out[..24]);
     prints_everywhere(&package, &expected);
 }
+
+#[test]
+fn a_constant_list_of_small_naturals_is_laid_out_in_the_image() {
+    // Three hundred noughts and a table of digits are known before the
+    // program runs, each element a natural held in place: they are data
+    // in the image, read where they are, not built a push at a time.
+    let package = Package::new(
+        "laid-out-naturals",
+        r#"
+        counts : List(Nat)
+        counts = List.repeat(0, 300)
+
+        digits : List(Nat)
+        digits = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3]
+
+        main!(host) -> (
+          n = Nat.from_str(host.args.get(1).ok_or("7")).ok_or(7)
+          bumped = counts.update(n, |count| count + 1)
+          printed = host.println!("${bumped.fold(0, |sum, count| sum + count)} ${digits.get(n % 16).ok_or(0)} ${digits.fold(0, |sum, d| sum + d)}")
+          host.exit!(0)
+        )
+        "#,
+    );
+    prints_everywhere(&package, "1 6 80");
+    for target in MACHINES {
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_faun"))
+            .args(["emit", "--target", target, "machine"])
+            .arg(package.entry())
+            .output()
+            .unwrap();
+        let machine = String::from_utf8_lossy(&result.stdout);
+        let pushes = machine.matches("buffer_push").count();
+        assert!(pushes < 16, "{target}: {pushes} pushes\n{machine}");
+    }
+}
