@@ -349,3 +349,56 @@ fn chaining_frames_changes_no_answer() {
         assert_eq!(run(SymbolTable::Omitted), run(SymbolTable::Written));
     }
 }
+
+/// A full-width sum whose first operand is read again after is worked out
+/// as an address into a register of its own, `lea d, [a + b]`, rather than
+/// the operand copied and the sum written over the copy.
+#[test]
+fn a_sum_beside_what_it_was_worked_out_from_is_one_instruction() {
+    use crate::machine::{Alu, Inst};
+    use faun_core::targets::Favour;
+    let program = TARGET.prepare(&sum_then_its_operand()).unwrap();
+    let allocated =
+        crate::selected::select_and_allocate_favouring(&program, Favour::Speed, false).unwrap();
+    let code = allocated.instructions();
+    let (_, start) = allocated
+        .functions()
+        .find(|&(function, _)| function != program.entry())
+        .unwrap();
+    let body = &code[start..];
+    let end = body
+        .iter()
+        .position(|inst| matches!(inst, Inst::Return))
+        .unwrap();
+    let body = &body[..=end];
+    assert!(
+        body.iter()
+            .any(|inst| matches!(inst, Inst::Add3 { index: Some(_), .. })),
+        "{body:?}"
+    );
+    assert!(
+        !body
+            .windows(2)
+            .any(|pair| matches!(pair, [Inst::Move { .. }, Inst::Alu { op: Alu::Add, .. }])),
+        "{body:?}"
+    );
+}
+
+/// `(a + b) ^ a`, worked out by a function of its own from three and four.
+fn sum_then_its_operand() -> faun_core::ir::Program {
+    use faun_core::ir::{Binary, Class, Program};
+    let (mut program, main) = Program::new("main");
+    let mixed = program.declare("mixed", &[Class::Word, Class::Word], &[Class::Word]);
+    program.define(mixed, |b, params| {
+        let sum = b.binary(Binary::Add, params[0], params[1]);
+        let answer = b.binary(Binary::Xor, sum, params[0]);
+        b.ret(&[answer]);
+    });
+    program.define(main, |b, _| {
+        let three = b.constant(Class::Word, 3);
+        let four = b.constant(Class::Word, 4);
+        let answer = b.call(mixed, &[three, four]);
+        b.ret(&answer);
+    });
+    program
+}

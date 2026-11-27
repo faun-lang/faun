@@ -283,6 +283,16 @@ pub(crate) enum Inst {
         plus: i32,
         bits: u16,
     },
+    /// `base` plus `index` where there is one, plus a number known before
+    /// the program runs, in `dst`, at a word's width: an address worked out
+    /// and never read, so the flags are left as they were and neither
+    /// operand need be `dst`.
+    Add3 {
+        dst: Reg,
+        base: Reg,
+        index: Option<Reg>,
+        plus: i32,
+    },
     Divide(RegisterWidth),
     /// Scalar SSE2 over allocated XMM registers. Binary operations tie
     /// their result to the left input; sqrt has independent operands.
@@ -409,6 +419,13 @@ impl Inst {
             | Self::Alu { dst, src, .. } => !dst.is_xmm() && !src.is_xmm(),
             // `rsp` names no scaled index.
             Self::Scale { dst, src, .. } => !dst.is_xmm() && !src.is_xmm() && src != Reg::Rsp,
+            Self::Add3 {
+                dst, base, index, ..
+            } => {
+                !dst.is_xmm()
+                    && !base.is_xmm()
+                    && index.is_none_or(|index| !index.is_xmm() && index != Reg::Rsp)
+            }
             Self::Move { .. }
             | Self::LoadStack { .. }
             | Self::LoadFrame { .. }
@@ -797,6 +814,75 @@ impl AllocatedBuilder {
         }
         self.code.remove(len - 1);
         self.alu(Alu::Test, dst, dst, bits);
+        true
+    }
+
+    /// `base` plus `index`, and a number known before the program runs, in
+    /// `dst`, the flags left as they were.
+    pub(crate) fn add3(&mut self, dst: Reg, base: Reg, index: Option<Reg>, plus: i32) {
+        if base == Reg::Rsp && index.is_some_and(|index| index != Reg::Rsp) {
+            // `rsp` names no index, so it stands as the base.
+            self.push(Inst::Add3 {
+                dst,
+                base,
+                index,
+                plus,
+            });
+        } else if index == Some(Reg::Rsp) {
+            self.push(Inst::Add3 {
+                dst,
+                base: Reg::Rsp,
+                index: Some(base),
+                plus,
+            });
+        } else {
+            self.push(Inst::Add3 {
+                dst,
+                base,
+                index,
+                plus,
+            });
+        }
+    }
+
+    /// `base` plus the number just written into `constant`, in `dst`, where
+    /// that number fits a displacement and nothing jumps in between: the
+    /// number's own instruction goes. Answers whether it did.
+    pub(crate) fn fold_add3(&mut self, dst: Reg, base: Reg, constant: Reg) -> bool {
+        let len = self.code.insts().len();
+        if len == 0 || self.code.labelled_from(len) || base == constant {
+            return false;
+        }
+        let insts = self.code.insts();
+        let (value, written) = match insts[len - 1] {
+            Inst::MoveImmediate32 { dst, value } if dst == constant => (i64::from(value), 1),
+            Inst::MoveSignExtendedImmediate32 { dst, value } if dst == constant => {
+                (i64::from(value), 1)
+            }
+            Inst::XorSelf { dst } if dst == constant => (0, 1),
+            // A small number written by pushing it and popping it back.
+            Inst::Pop { dst }
+                if dst == constant && len >= 2 && !self.code.labelled_from(len - 1) =>
+            {
+                match insts[len - 2] {
+                    Inst::PushImmediate(value) => (i64::from(value), 2),
+                    _ => return false,
+                }
+            }
+            _ => return false,
+        };
+        let Ok(plus) = i32::try_from(value) else {
+            return false;
+        };
+        for _ in 0..written {
+            self.code.remove(self.code.insts().len() - 1);
+        }
+        self.push(Inst::Add3 {
+            dst,
+            base,
+            index: None,
+            plus,
+        });
         true
     }
 

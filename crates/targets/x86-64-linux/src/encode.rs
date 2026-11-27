@@ -79,6 +79,12 @@ pub(crate) fn encode(program: &Allocated) -> Code {
                 plus,
                 bits,
             } => asm.scale(dst, src, times, plus, bits),
+            Inst::Add3 {
+                dst,
+                base,
+                index,
+                plus,
+            } => asm.add3(dst, base, index, plus),
             Inst::FloatCompare { left, right, bits } => {
                 asm.step();
                 if bits == 64 {
@@ -627,6 +633,29 @@ impl RawEncoder {
             self.emit(&[0x69, modrm(dst, src)]);
             self.emit(&immediate.to_le_bytes());
         }
+    }
+
+    /// `lea dst, [base + index + plus]`, through a scaled-index byte so that
+    /// any base, `rsp` and `r12` among them, takes the same form; an index of
+    /// `rsp`'s number there means none.
+    fn add3(&mut self, dst: Reg, base: Reg, index: Option<Reg>, plus: i32) {
+        self.step();
+        let index_extended = index.is_some_and(Reg::extended);
+        let rex = 0b1000
+            | (u8::from(dst.extended()) << 2)
+            | (u8::from(index_extended) << 1)
+            | u8::from(base.extended());
+        self.emit(&[0x40 | rex]);
+        // A base of `rbp` or `r13` has no form without a displacement.
+        let (mode, displacement) = match i8::try_from(plus) {
+            Ok(0) if base.low() != 5 => (0b00, Vec::new()),
+            Ok(small) => (0b01, vec![small.cast_unsigned()]),
+            Err(_) => (0b10, plus.to_le_bytes().to_vec()),
+        };
+        let index_low = index.map_or(0b100, Reg::low);
+        let sib = (index_low << 3) | base.low();
+        self.emit(&[0x8D, (mode << 6) | (dst.low() << 3) | 0b100, sib]);
+        self.emit(&displacement);
     }
 
     /// `lea dst, [src + src * (times - 1) + plus]`.

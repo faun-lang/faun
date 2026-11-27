@@ -155,18 +155,18 @@ const SIZES: &[(&str, [usize; 3])] = &[
     ("a greeting", [178, 51, 140]),
     // Built at the tier a target reads, and written favouring size, as
     // the rest are.
-    ("two and two", [131, 40, 99]),
+    ("two and two", [132, 40, 99]),
     ("hello world", [179, 61, 141]),
-    ("a call", [143, 78, 113]),
-    ("recursion", [308, 263, 141]),
-    ("values across a call", [252, 390, 168]),
+    ("a call", [141, 78, 113]),
+    ("recursion", [305, 263, 141]),
+    ("values across a call", [245, 390, 168]),
     ("a global", [224, 142, 148]),
-    ("a computed length", [211, 226, 168]),
+    ("a computed length", [212, 226, 168]),
     ("eight bits", [133, 49, 104]),
     ("a flag", [205, 98, 131]),
     ("a carried total", [156, 82, 152]),
     ("a step first", [205, 86, 168]),
-    ("a long arm", [260, 559, 237]),
+    ("a long arm", [265, 559, 237]),
     // The examples.
     ("exit", [128, 17, 96]),
     ("two-and-two", [128, 17, 96]),
@@ -177,7 +177,7 @@ const SIZES: &[(&str, [usize; 3])] = &[
     ("width", [152, 52, 182]),
     ("argc", [166, 60, 195]),
     ("expressions", [161, 56, 189]),
-    ("hello", [226, 204, 254]),
+    ("hello", [227, 204, 254]),
     // One runtime call, full-result comparison, startup and image headers:
     // these detect reintroduced value-counting regions above the targets.
     ("runtime Mul", [165, 209, 142]),
