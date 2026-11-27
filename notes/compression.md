@@ -802,10 +802,10 @@ keeps slicing-by-8: its eight tables are another algorithm, which no
 compiler derives from the byte-at-a-time one, as zlib and crc32fast chose
 it.
 
-## Three ratchet workloads
+## Ratchet workloads
 
 The [ratchet](../RATCHET.md) improves the compiler against a suite of
-programs, each with a C twin. Compression is three of them: loops of words
+programs, each with a C twin. Several are compression's: loops of words
 and table lookups with no allocation but a growing output, where this
 note's findings, a constant worked out at every use, a word's arithmetic
 left as calls and the search's spills, are each what a compiler change
