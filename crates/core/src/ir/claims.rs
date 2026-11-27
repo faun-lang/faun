@@ -77,6 +77,9 @@ enum ScopeKind {
 struct Scope {
     held: Vec<ValueId>,
     kind: ScopeKind,
+    /// A loop's parameters it borrows, by place, which go round holding no
+    /// claim.
+    borrowed: Vec<(usize, ValueId)>,
 }
 
 const fn top(scopes: &mut [Scope]) -> &mut Scope {
@@ -152,7 +155,22 @@ impl Placing<'_> {
             self.rebuild.stands_for(was, now);
         }
         let live = Liveness::of(source, region);
-        scopes.push(Scope { held, kind });
+        let borrowed = match kind {
+            ScopeKind::Loop => source
+                .values(old.params)
+                .iter()
+                .zip(ownership::borrowed_loop(source, region, &self.owned))
+                .enumerate()
+                .filter(|&(_, (_, borrowed))| borrowed)
+                .map(|(at, (&param, _))| (at, param))
+                .collect(),
+            ScopeKind::Ordinary => Vec::new(),
+        };
+        scopes.push(Scope {
+            held,
+            kind,
+            borrowed,
+        });
         self.release_dead(b, scopes, &live, None);
         let len = source.ops(region).len();
         for (at, (op, results)) in source.walk(region).enumerate() {
@@ -256,7 +274,12 @@ impl Placing<'_> {
                 .expect("validated loop exit"),
         };
         let leaving = self.source().values(terminator.values);
-        for &old in leaving {
+        let looped = scopes[start].borrowed.clone();
+        for (at, &old) in leaving.iter().enumerate() {
+            // A borrowed parameter handed on in its own place holds no claim.
+            if terminator.exit == Exit::Continue && looped.contains(&(at, old)) {
+                continue;
+            }
             // Everything the exited scopes hold dies here, so a claim one
             // of them holds moves out, unless it leaves twice.
             let once = leaving.iter().filter(|&&value| value == old).count() == 1;
@@ -425,14 +448,19 @@ impl Placing<'_> {
     ) -> Vec<ValueId> {
         let source = self.source();
         let params = source.values(source.region(body).params);
+        let borrowed = ownership::borrowed_loop(source, body, &self.owned);
         let carried: Vec<_> = params
             .iter()
-            .copied()
-            .filter(|&param| managed(source.class(param)))
+            .zip(&borrowed)
+            .filter(|&(&param, &borrowed)| managed(source.class(param)) && !borrowed)
+            .map(|(&param, _)| param)
             .collect();
         let mut start = Vec::new();
-        for (&old, &param) in source.values(initial).iter().zip(params) {
-            self.take(b, scopes, live, at, old);
+        for ((&old, &param), &borrowed) in source.values(initial).iter().zip(params).zip(&borrowed)
+        {
+            if !borrowed {
+                self.take(b, scopes, live, at, old);
+            }
             let value = self.rebuild.value(old);
             let class = source.class(param);
             start.push(if b.class(value) == class {
@@ -451,6 +479,138 @@ impl Placing<'_> {
     fn stand(&self, results: &[ValueId], fresh: &[ValueId]) {
         for (&was, &now) in results.iter().zip(fresh) {
             self.rebuild.stands_for(was, now);
+        }
+    }
+}
+
+/// `source` without the claims that count nothing.
+///
+/// Those are claims to a natural held in its word, which no count is kept
+/// for, and to a natural laid out before the program runs, whose count
+/// never changes. Every claim to such a value goes, taken and given up
+/// alike, so what is left balances as what was there did.
+#[must_use]
+pub fn elide(source: &Program, word_bits: u16) -> Program {
+    let bits = natural_bits(source);
+    let inert = |value: ValueId| {
+        bits[value.index()].is_some_and(|bits| bits < u32::from(word_bits))
+            || matches!(writer(source, value), Some(Op::NaturalConstant(_)))
+    };
+    let mut pass = Elide {
+        drop: (0..source.values_count())
+            .map(|at| source.class(ValueId::at(at)) == Class::Natural && inert(ValueId::at(at)))
+            .collect(),
+    };
+    super::rewrite::rebuild(source, &mut pass)
+}
+
+struct Elide {
+    drop: Vec<bool>,
+}
+
+impl super::rewrite::Pass for Elide {
+    fn op(&mut self, _: &Rebuild<'_>, _: &mut Builder, op: Op, _: &[ValueId]) -> bool {
+        match op {
+            Op::Claim { value } | Op::Release { value } => self.drop[value.index()],
+            _ => false,
+        }
+    }
+}
+
+/// The most bits an operation's answer can have, from its operands'.
+fn binary_bits(op: super::Binary, l: Option<u32>, r: Option<u32>) -> Option<u32> {
+    use super::Binary;
+    match op {
+        Binary::Add => l.zip(r).map(|(l, r)| l.max(r) + 1),
+        Binary::Mul => l.zip(r).map(|(l, r)| l + r),
+        Binary::Sub | Binary::Monus | Binary::Div | Binary::ShiftDown => l,
+        Binary::Mod => l.zip(r).map(|(l, r)| l.min(r)).or(l),
+        Binary::And => match (l, r) {
+            (Some(l), Some(r)) => Some(l.min(r)),
+            (l, r) => l.or(r),
+        },
+        Binary::Or | Binary::Xor => l.zip(r).map(|(l, r)| l.max(r)),
+        Binary::ShiftUp => None,
+    }
+}
+
+/// The most bits what an arm answers in place `at` can have, or nought
+/// where it leaves some other way and answers nothing.
+fn yielded_bits(
+    source: &Program,
+    region: RegionId,
+    bits: &[Option<u32>],
+    at: usize,
+) -> Option<u32> {
+    let terminator = source.region(region).terminator?;
+    if terminator.exit != Exit::Yield {
+        return Some(0);
+    }
+    let value = source.values(terminator.values)[at];
+    match source.class(value) {
+        Class::Natural => bits[value.index()],
+        class => class.width().map(u32::from),
+    }
+}
+
+/// What wrote `value`, where an instruction did.
+fn writer(source: &Program, value: ValueId) -> Option<Op> {
+    source.regions.iter_enumerated().find_map(|(id, _)| {
+        source
+            .walk(id)
+            .find(|(_, results)| results.contains(&value))
+            .map(|(op, _)| *op)
+    })
+}
+
+/// The most bits each natural can have, where its instructions say: what
+/// a narrower number converted holds, a constant's own, and what sums,
+/// products, differences, quotients, remainders, bitwise ands and shifts
+/// down of such numbers can come to; a branch answers the more of its arms'.
+fn natural_bits(source: &Program) -> Vec<Option<u32>> {
+    let mut bits: Vec<Option<u32>> = vec![None; source.values_count()];
+    for function in source.functions() {
+        if let Some(body) = function.body() {
+            region_bits(source, body, &mut bits);
+        }
+    }
+    bits
+}
+
+fn region_bits(source: &Program, region: RegionId, bits: &mut Vec<Option<u32>>) {
+    for (op, results) in source.walk(region) {
+        let of = |bits: &Vec<Option<u32>>, value: ValueId| -> Option<u32> {
+            match source.class(value) {
+                Class::Natural => bits[value.index()],
+                class => class.width().map(u32::from),
+            }
+        };
+        let answer = match *op {
+            Op::Constant { value } => Some(u64::BITS - value.leading_zeros()),
+            Op::Convert { value } => of(bits, value),
+            Op::Binary { op, left, right } => binary_bits(op, of(bits, left), of(bits, right)),
+            Op::If {
+                then_region,
+                else_region,
+                ..
+            } => {
+                region_bits(source, then_region, bits);
+                region_bits(source, else_region, bits);
+                for (at, &result) in results.iter().enumerate() {
+                    bits[result.index()] = yielded_bits(source, then_region, bits, at)
+                        .zip(yielded_bits(source, else_region, bits, at))
+                        .map(|(a, b)| a.max(b));
+                }
+                continue;
+            }
+            Op::Loop { body, .. } => {
+                region_bits(source, body, bits);
+                None
+            }
+            _ => None,
+        };
+        if let [result] = results {
+            bits[result.index()] = answer;
         }
     }
 }

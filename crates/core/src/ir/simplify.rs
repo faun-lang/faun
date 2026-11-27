@@ -88,6 +88,7 @@ pub(super) fn simplify(source: &Program) -> Program {
         steps: vec![None; source.values_count()],
         folded: vec![None; source.values_count()],
         word_bits: source.layout.map(|layout| layout.word_bits),
+        uses: source.use_counts(),
     };
     rewrite::rebuild(source, &mut pass)
 }
@@ -104,6 +105,8 @@ struct Simplify {
     folded: Vec<Option<u64>>,
     /// How wide a machine word is, where the program says.
     word_bits: Option<u16>,
+    /// How many instructions and exits read each old value.
+    uses: Vec<usize>,
 }
 
 /// A value reached by adding a known number to another value, all at one
@@ -226,6 +229,8 @@ impl rewrite::Pass for Simplify {
                 // steps folds into one where a shift would end it.
                 (left == right && shifting(rebuild, b, Direction::Up, left, 1, results[0]))
                     || self.stepping(rebuild, b, left, right, results[0])
+                    || self.regrouped(rebuild, b, (left, right), results[0])
+                    || self.regrouped(rebuild, b, (right, left), results[0])
             }
             Op::Binary {
                 op: Binary::Mul,
@@ -814,6 +819,97 @@ impl Simplify {
         };
         rebuild.stands_for(result, moved);
         true
+    }
+
+    /// A natural sum `(x + p) + q` where `p` and `q` are numbers a word
+    /// holds, widened, and nothing else reads `x + p`: `x + (p + q)`, the two
+    /// small ones added in the word and widened once, so one natural sum is
+    /// worked out rather than two, and what is added in is held in its word.
+    fn regrouped(
+        &self,
+        rebuild: &rewrite::Rebuild<'_>,
+        b: &mut Builder,
+        (sum, q): (ValueId, ValueId),
+        result: ValueId,
+    ) -> bool {
+        let source = rebuild.source();
+        if source.class(result) != Class::Natural || self.uses[sum.index()] != 1 {
+            return false;
+        }
+        let Some(((x, p), q)) = self
+            .natural_and_small(source, sum)
+            .zip(self.widened_word(source, q))
+        else {
+            return false;
+        };
+        let high = |value: ValueId| source.class(value).facts().and_then(|facts| facts.high);
+        let Some(most) = high(p).zip(high(q)).and_then(|(p, q)| p.checked_add(q)) else {
+            return false;
+        };
+        if most >= 1 << 62 {
+            return false;
+        }
+        let held = Class::Held(Bounds {
+            low: 0,
+            high: Some(most),
+        });
+        let (p, q) = (rebuild.value(p), rebuild.value(q));
+        let p = if b.class(p) == held {
+            p
+        } else {
+            b.convert(held, p)
+        };
+        let q = if b.class(q) == held {
+            q
+        } else {
+            b.convert(held, q)
+        };
+        let small = b.binary_at(held, Binary::Add, p, q);
+        let small = b.convert(Class::Natural, small);
+        let total = b.binary_at(Class::Natural, Binary::Add, rebuild.value(x), small);
+        rebuild.stands_for(result, total);
+        true
+    }
+
+    /// Of a natural sum, the natural added and the number a word holds
+    /// that was widened to add to it, where it is one such.
+    fn natural_and_small(&self, source: &Program, sum: ValueId) -> Option<(ValueId, ValueId)> {
+        let (
+            Op::Binary {
+                op: Binary::Add,
+                left,
+                right,
+            },
+            Class::Natural,
+            _,
+        ) = self.wrote.0[sum.index()]?
+        else {
+            return None;
+        };
+        match (
+            self.widened_word(source, left),
+            self.widened_word(source, right),
+        ) {
+            (Some(p), None) => Some((right, p)),
+            (None, Some(p)) => Some((left, p)),
+            _ => None,
+        }
+    }
+
+    /// The number a natural was widened from, where it is one a word holds.
+    fn widened_word(&self, source: &Program, value: ValueId) -> Option<ValueId> {
+        let (Op::Convert { value: from }, Class::Natural, _) = self.wrote.0[value.index()]? else {
+            return None;
+        };
+        matches!(source.class(from), Class::Held(_))
+            .then_some(from)
+            .filter(|&from| {
+                source
+                    .class(from)
+                    .facts()
+                    .and_then(|facts| facts.high)
+                    .is_some()
+            })
     }
 
     /// Whether an old value is one, written as a constant or widened from

@@ -49,7 +49,10 @@ use super::{
 /// which [`crate::ir::split`] makes it before this runs.
 pub fn legalize(source: &Program, config: Config) -> Result<Program, String> {
     validate(source)?;
-    let placed = super::claims::place(source, config.word_bits, config.grows);
+    let placed = super::claims::elide(
+        &super::claims::place(source, config.word_bits, config.grows),
+        config.word_bits,
+    );
     validate(&placed).map_err(|error| format!("after placing claims: {error}"))?;
     let source = &placed;
     if !matches!(config.word_bits, 16 | 32 | 64) {

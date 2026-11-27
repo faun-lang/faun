@@ -227,8 +227,110 @@ pub(super) fn taken_by(
                 .filter(|&(_, &owned)| owned)
                 .map(|(&arg, _)| arg),
         ),
-        Op::Loop { initial, .. } => out.extend_from_slice(source.values(initial)),
+        Op::Loop { initial, body } => out.extend(
+            source
+                .values(initial)
+                .iter()
+                .zip(borrowed_loop(source, body, owned))
+                .filter(|&(_, borrowed)| !borrowed)
+                .map(|(&value, _)| value),
+        ),
         _ => {}
+    }
+}
+
+/// Which parameters of a loop of body `body` it borrows rather than owns:
+/// each a managed value every way round hands on as it came, in its own
+/// place, and nothing in the loop takes, hands elsewhere or leaves with.
+/// The value it started from lives past the loop, so no claim of the
+/// loop's own is needed to keep it: none is taken on the way in, none
+/// carried round, and none given up on the way out.
+pub(super) fn borrowed_loop(source: &Program, body: RegionId, owned: &[Vec<bool>]) -> Vec<bool> {
+    let params = source.values(source.region(body).params);
+    let mut passed = vec![true; params.len()];
+    let mut consumed = Vec::new();
+    loop_reads(
+        source,
+        body,
+        (params, true),
+        owned,
+        (&mut passed, &mut consumed),
+    );
+    params
+        .iter()
+        .zip(passed)
+        .map(|(&param, passed)| {
+            passed && managed(source.class(param)) && !consumed.contains(&param)
+        })
+        .collect()
+}
+
+/// What `region` takes or leaves with, but for the loop's own parameters
+/// handed on in their own places, which `passed` records; `own` says
+/// whether a `continue` here is the loop's, rather than one within it's.
+fn loop_reads(
+    source: &Program,
+    region: RegionId,
+    (params, own): (&[ValueId], bool),
+    owned: &[Vec<bool>],
+    (passed, consumed): (&mut Vec<bool>, &mut Vec<ValueId>),
+) {
+    for (op, results) in source.walk(region) {
+        taken_by(source, op, results, owned, consumed);
+        match *op {
+            Op::If {
+                then_region,
+                else_region,
+                ..
+            } => {
+                loop_reads(
+                    source,
+                    then_region,
+                    (params, own),
+                    owned,
+                    (passed, consumed),
+                );
+                loop_reads(
+                    source,
+                    else_region,
+                    (params, own),
+                    owned,
+                    (passed, consumed),
+                );
+            }
+            Op::Loop { body, .. } => {
+                loop_reads(source, body, (params, false), owned, (passed, consumed));
+            }
+            _ => {}
+        }
+    }
+    if let Some(terminator) = source.region(region).terminator {
+        leaving_reads(source, terminator, (params, own), (passed, consumed));
+    }
+}
+
+/// What a region's exit leaves with: a parameter of the loop handed on in
+/// its own place by the loop's `continue`, which `passed` keeps, or else
+/// something the loop gives away.
+fn leaving_reads(
+    source: &Program,
+    terminator: super::Terminator,
+    (params, own): (&[ValueId], bool),
+    (passed, consumed): (&mut [bool], &mut Vec<ValueId>),
+) {
+    let leaving = source.values(terminator.values);
+    if !own || terminator.exit != super::Exit::Continue {
+        consumed.extend_from_slice(leaving);
+        return;
+    }
+    for (at, &value) in leaving.iter().enumerate() {
+        if params.get(at) == Some(&value) {
+            continue;
+        }
+        if let Some(passed) = passed.get_mut(at) {
+            *passed = false;
+        }
+        consumed.push(value);
     }
 }
 
