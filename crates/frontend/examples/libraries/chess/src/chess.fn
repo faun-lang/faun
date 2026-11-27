@@ -16,10 +16,17 @@
 
 package {}
 
-import square {File, Rank, Square, Direction.*}
-import piece {Color.*, Role.*, Piece.*}
-import castling {CastlingSide.*, CastlingRights}
-import position {Position, Move, MoveKind.*, FenError}
+import file {File}
+import rank {Rank}
+import square {Square}
+import direction {Direction.*}
+import color {Color.*}
+import role {Role.*}
+import piece {Piece.*}
+import castling_side {CastlingSide.*}
+import castling_rights {CastlingRights}
+import move_kind {MoveKind.*}
+import position {Position, Move, FenError}
 
 export {
   File,

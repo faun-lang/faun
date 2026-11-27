@@ -1,0 +1,44 @@
+# The six kinds of piece, whichever side they are.
+
+export {Role.*}
+
+# A kind of piece, as shakmaty calls it, whichever side it is.
+Role : [Pawn, Knight, Bishop, Rook, Queen, King].(
+  # Every role, pawn to king.
+  all : List(Role)
+  all = [Pawn, Knight, Bishop, Rook, Queen, King]
+  expect Role.all.map(Role.to_char) == ['p', 'n', 'b', 'r', 'q', 'k']
+
+  # What a pawn may become on the last rank, the strongest first.
+  promotions : List(Role)
+  promotions = [Queen, Rook, Bishop, Knight]
+  expect Role.promotions.len() == 4
+
+  # The role's small letter, as UCI writes a promotion: `p`, `n`, `b`,
+  # `r`, `q` or `k`.
+  to_char : Role -> U8
+  to_char(Pawn) -> 'p'
+  to_char(Knight) -> 'n'
+  to_char(Bishop) -> 'b'
+  to_char(Rook) -> 'r'
+  to_char(Queen) -> 'q'
+  to_char(King) -> 'k'
+  expect Knight.to_char() == 'n'
+
+  # The role a letter names, in either case.
+  from_char : U8 -> Result(Role, [Malformed])
+  from_char(letter) -> letter.to_ascii_lower() is (
+    'p' then Ok(Pawn)
+    'n' then Ok(Knight)
+    'b' then Ok(Bishop)
+    'r' then Ok(Rook)
+    'q' then Ok(Queen)
+    'k' then Ok(King)
+    _ then Err(Malformed)
+  )
+  expect Role.from_char('Q') == Ok(Queen)
+  expect Role.from_char('x') == Err(Malformed)
+
+  cmp : (Role, Role) -> Order
+  to_str : Role -> Str
+)

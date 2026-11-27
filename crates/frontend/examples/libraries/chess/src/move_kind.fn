@@ -1,0 +1,14 @@
+# The kinds of move past which piece goes where.
+
+import castling_side {CastlingSide.*}
+
+export {MoveKind.*}
+
+# What kind of move a move is, past which piece goes where: a pawn's
+# first step of two squares, which leaves the en passant square behind it;
+# a pawn taking in passing, the pawn taken not on the square landed on; a
+# castle, the rook moving with the king; or none of these.
+MoveKind : [Normal, DoublePush, EnPassant, Castle(CastlingSide)].(
+  equals : (MoveKind, MoveKind) -> Bool
+  to_str : MoveKind -> Str
+)

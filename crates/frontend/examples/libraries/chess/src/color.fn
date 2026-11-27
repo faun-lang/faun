@@ -1,0 +1,30 @@
+# The two sides.
+
+export {Color.*}
+
+# A side: White, who moves first, or Black.
+Color : [White, Black].(
+  # The other side.
+  other : Color -> Color
+  other(White) -> Black
+  other(Black) -> White
+  expect White.other() == Black
+  expect Black.other() == White
+
+  # The side's letter in FEN, `w` or `b`.
+  to_char : Color -> U8
+  to_char(White) -> 'w'
+  to_char(Black) -> 'b'
+  expect Black.to_char() == 'b'
+
+  # The side a FEN letter names, `w` or `b`.
+  from_char : U8 -> Result(Color, [Malformed])
+  from_char('w') -> Ok(White)
+  from_char('b') -> Ok(Black)
+  from_char(_) -> Err(Malformed)
+  expect Color.from_char('w') == Ok(White)
+  expect Color.from_char('x') == Err(Malformed)
+
+  cmp : (Color, Color) -> Order
+  to_str : Color -> Str
+)

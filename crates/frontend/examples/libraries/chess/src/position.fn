@@ -11,13 +11,24 @@
 # dropped. Pins, checks, discovered checks and the en passant capture
 # that uncovers a king along its rank all fall out of that one test,
 # with none of them a case of its own.
+#
+# `Move` lives here beside `Position`, rather than in a module of its own,
+# because each names the other: a position's legal moves are moves, and a
+# move holds the position it leads to, and modules form no cycle.
 
-import square {File.*, Rank.*, Square.*, Direction.*}
-import piece {Color.*, Role.*, Piece.*}
-import castling {CastlingSide.*, CastlingRights.*}
+import file {File.*}
+import rank {Rank.*}
+import square {Square.*}
+import direction {Direction.*}
+import color {Color.*}
+import role {Role.*}
+import piece {Piece.*}
+import castling_side {CastlingSide.*, castle_squares}
+import castling_rights {CastlingRights.*, untouched}
+import move_kind {MoveKind.*}
 import board {Board, forward, pawn_captures, knight_jumps}
 
-export {Position, Move, MoveKind.*, FenError}
+export {Position, Move, FenError}
 
 # Why a FEN was refused: the field that is wrong, or what makes the
 # position it writes one no game can reach.
@@ -198,14 +209,6 @@ Position : {
   equals : (Position, Position) -> Bool
 )
 
-# What kind of move a move is, past which piece goes where: a pawn's
-# first step of two squares, which leaves the en passant square behind it;
-# a pawn taking in passing, the pawn taken not on the square landed on; a
-# castle, the rook moving with the king; or none of these.
-MoveKind : [Normal, DoublePush, EnPassant, Castle(CastlingSide)].(
-  equals : (MoveKind, MoveKind) -> Bool
-  to_str : MoveKind -> Str
-)
 
 # A move a piece may make, before it is known to leave its king safe: the
 # piece's square and where it lands, its role, the role it takes and the
@@ -347,32 +350,6 @@ passed_over(board, turn, square) -> (
     & board.piece_at(start) == Err(Empty)
 )
 
-# The rank a color's pieces start on.
-back_rank : Color -> Nat
-back_rank(White) -> 0
-back_rank(Black) -> 7
-
-# The squares a castle moves its king and rook from and to, those between
-# king and rook that must be empty, and those the king stands on or
-# crosses, which must not be attacked.
-Castle = {king_from: Square, king_to: Square, rook_from: Square, rook_to: Square, empty: List(Square), safe: List(Square)}
-
-castle_squares : (Color, CastlingSide) -> Castle
-castle_squares(color, KingSide) -> castle(back_rank(color), 6, 7, 5, [5, 6], [4, 5, 6])
-castle_squares(color, QueenSide) -> castle(back_rank(color), 2, 0, 3, [1, 2, 3], [4, 3, 2])
-expect castle_squares(Black, QueenSide).safe.map(Square.to_str) == ["e8", "d8", "c8"]
-
-# A castle on `rank`, the king going from the `e` file to `king_to`, the
-# rook from `rook_from` to `rook_to`, each a file's number.
-castle : (Nat, Nat, Nat, Nat, List(Nat), List(Nat)) -> Castle
-castle(rank, king_to, rook_from, rook_to, empty, safe) -> {
-  king_from: Square(rank * 8 + 4),
-  king_to: Square(rank * 8 + king_to),
-  rook_from: Square(rank * 8 + rook_from),
-  rook_to: Square(rank * 8 + rook_to),
-  empty: empty.map(|file| Square(rank * 8 + file)),
-  safe: safe.map(|file| Square(rank * 8 + file)),
-}
 
 # Every move the side to move's pieces may make, before asking whether
 # each leaves its king attacked.
@@ -506,11 +483,3 @@ played(Position(position), candidate is {from, to, role, captured, promotion, ki
   Position({board, turn: turn.other(), castling, en_passant, halfmoves, fullmoves})
 )
 
-# `rights` without the right whose rook starts on `square`: one moved from
-# there or taken there loses it.
-untouched : (CastlingRights, Square) -> CastlingRights
-untouched(rights, Square(0)) -> rights.without(White, QueenSide)
-untouched(rights, Square(7)) -> rights.without(White, KingSide)
-untouched(rights, Square(56)) -> rights.without(Black, QueenSide)
-untouched(rights, Square(63)) -> rights.without(Black, KingSide)
-untouched(rights, _) -> rights
