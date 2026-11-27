@@ -1,0 +1,44 @@
+# The board's eight files. The library's root exports `File` sealed, so
+# outside it a file is always on the board: one made from a number or a
+# letter is checked once, where it is made.
+
+export {File.*}
+
+# A column of the board, `a` to `h`, from White's left.
+File : Nat.(
+  # Every file, `a` to `h`.
+  all : List(File)
+  all = List.range(8).map(File)
+  expect File.all.map(File.to_char) == ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+
+  # The file `n` places from the `a` file, where there is one.
+  from_nat : Nat -> Result(File, [OutOfRange])
+  from_nat(n) if n < 8 -> Ok(File(n))
+  from_nat(_) -> Err(OutOfRange)
+  expect File.from_nat(4).map_ok(File.to_char) == Ok('e')
+  expect File.from_nat(8) == Err(OutOfRange)
+
+  # How many places the file is from the `a` file: 0 to 7.
+  to_nat : File -> Nat
+  to_nat(File(n)) -> n
+  expect File.from_char('c').map_ok(File.to_nat) == Ok(2)
+
+  # The file a letter names, `a` to `h`.
+  from_char : U8 -> Result(File, [Malformed])
+  from_char(letter) if letter >= 'a' & letter <= 'h' -> Ok(File((letter - 'a').to_nat()))
+  from_char(_) -> Err(Malformed)
+  expect File.from_char('h').map_ok(File.to_nat) == Ok(7)
+  expect File.from_char('i') == Err(Malformed)
+
+  # The file's letter, `a` to `h`.
+  to_char : File -> U8
+  to_char(File(n)) -> 'a' + U8.of_nat(n)
+  expect File.all.map(File.to_char).last() == Ok('h')
+
+  cmp : (File, File) -> Order
+
+  # The file's letter, as `e`.
+  to_str : File -> Str
+  to_str(file) -> Str.from_ascii([file.to_char()]).ok_or("")
+  expect File.all.map(File.to_str).join("") == "abcdefgh"
+)

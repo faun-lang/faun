@@ -1,123 +1,13 @@
-# The board's coordinates: its eight files, `a` to `h`, its eight ranks,
-# `1` to `8`, and its 64 squares, each a file and a rank. The library's
-# root exports each sealed, so outside it a file, a rank or a square is
-# always on the board: one made from a number or from text is checked
-# once, where it is made, and never again.
+# The board's 64 squares, each a file and a rank. The library's root
+# exports `Square` sealed, so outside it a square is always on the board:
+# one made from a number or from text is checked once, where it is made,
+# and never again.
 
-export {File.*, Rank.*, Square.*, Direction.*}
+import file {File.*}
+import rank {Rank.*}
+import direction {Direction.*}
 
-# A column of the board, `a` to `h`, from White's left.
-File : Nat.(
-  # Every file, `a` to `h`.
-  all : List(File)
-  all = List.range(8).map(File)
-  expect File.all.map(File.to_char) == ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-
-  # The file `n` places from the `a` file, where there is one.
-  from_nat : Nat -> Result(File, [OutOfRange])
-  from_nat(n) if n < 8 -> Ok(File(n))
-  from_nat(_) -> Err(OutOfRange)
-  expect File.from_nat(4).map_ok(File.to_char) == Ok('e')
-  expect File.from_nat(8) == Err(OutOfRange)
-
-  # How many places the file is from the `a` file: 0 to 7.
-  to_nat : File -> Nat
-  to_nat(File(n)) -> n
-  expect File.from_char('c').map_ok(File.to_nat) == Ok(2)
-
-  # The file a letter names, `a` to `h`.
-  from_char : U8 -> Result(File, [Malformed])
-  from_char(letter) if letter >= 'a' & letter <= 'h' -> Ok(File((letter - 'a').to_nat()))
-  from_char(_) -> Err(Malformed)
-  expect File.from_char('h').map_ok(File.to_nat) == Ok(7)
-  expect File.from_char('i') == Err(Malformed)
-
-  # The file's letter, `a` to `h`.
-  to_char : File -> U8
-  to_char(File(n)) -> 'a' + U8.of_nat(n)
-  expect File.all.map(File.to_char).last() == Ok('h')
-
-  cmp : (File, File) -> Order
-
-  # The file's letter, as `e`.
-  to_str : File -> Str
-  to_str(file) -> Str.from_ascii([file.to_char()]).ok_or("")
-  expect File.all.map(File.to_str).join("") == "abcdefgh"
-)
-
-# A row of the board, `1` to `8`, from White's side.
-Rank : Nat.(
-  # Every rank, `1` to `8`.
-  all : List(Rank)
-  all = List.range(8).map(Rank)
-  expect Rank.all.map(Rank.to_char) == ['1', '2', '3', '4', '5', '6', '7', '8']
-
-  # The rank `n` places from the first, where there is one.
-  from_nat : Nat -> Result(Rank, [OutOfRange])
-  from_nat(n) if n < 8 -> Ok(Rank(n))
-  from_nat(_) -> Err(OutOfRange)
-  expect Rank.from_nat(3).map_ok(Rank.to_char) == Ok('4')
-  expect Rank.from_nat(8) == Err(OutOfRange)
-
-  # How many places the rank is from the first: 0 to 7, one less than the
-  # number it is written with.
-  to_nat : Rank -> Nat
-  to_nat(Rank(n)) -> n
-  expect Rank.from_char('1').map_ok(Rank.to_nat) == Ok(0)
-
-  # The rank a digit names, `1` to `8`.
-  from_char : U8 -> Result(Rank, [Malformed])
-  from_char(digit) if digit >= '1' & digit <= '8' -> Ok(Rank((digit - '1').to_nat()))
-  from_char(_) -> Err(Malformed)
-  expect Rank.from_char('8').map_ok(Rank.to_nat) == Ok(7)
-  expect Rank.from_char('0') == Err(Malformed)
-
-  # The rank's digit, `1` to `8`.
-  to_char : Rank -> U8
-  to_char(Rank(n)) -> '1' + U8.of_nat(n)
-  expect Rank.all.map(Rank.to_char).first() == Ok('1')
-
-  cmp : (Rank, Rank) -> Order
-
-  # The rank's digit, as `4`.
-  to_str : Rank -> Str
-  to_str(rank) -> Str.from_ascii([rank.to_char()]).ok_or("")
-  expect Rank.all.map(Rank.to_str).join("") == "12345678"
-)
-
-# One of the eight ways a king steps, as White sees the board: `North`
-# toward the eighth rank, `East` toward the `h` file.
-Direction : [North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWest].(
-  # The four along a file or a rank, the ways a rook moves.
-  straight : List(Direction)
-  straight = [North, East, South, West]
-  expect Direction.straight.len() == 4
-
-  # The four along a diagonal, the ways a bishop moves.
-  diagonal : List(Direction)
-  diagonal = [NorthEast, SouthEast, SouthWest, NorthWest]
-  expect Direction.diagonal.len() == 4
-
-  # All eight, the ways a king and a queen move.
-  all : List(Direction)
-  all = straight.concat(diagonal)
-  expect Direction.all.len() == 8
-
-  # The way pointing back.
-  opposite : Direction -> Direction
-  opposite(North) -> South
-  opposite(NorthEast) -> SouthWest
-  opposite(East) -> West
-  opposite(SouthEast) -> NorthWest
-  opposite(South) -> North
-  opposite(SouthWest) -> NorthEast
-  opposite(West) -> East
-  opposite(NorthWest) -> SouthEast
-  expect Direction.all.all(|way| way.opposite().opposite() == way)
-
-  equals : (Direction, Direction) -> Bool
-  to_str : Direction -> Str
-)
+export {Square.*}
 
 # A square of the board: `a1` is 0, `b1` 1, and so on along each rank up
 # to `h8`, 63, as shakmaty and cozy-chess number them.

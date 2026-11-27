@@ -1,0 +1,46 @@
+# The two sides of the board a king castles toward, and the squares each
+# castle moves its king and rook between.
+
+import color {Color.*}
+import square {Square.*}
+
+export {CastlingSide.*, castle_squares}
+
+# The side of the board a king castles toward: the king's side, toward
+# the `h` file, or the queen's, toward the `a` file.
+CastlingSide : [KingSide, QueenSide].(
+  # Both sides, the king's first.
+  all : List(CastlingSide)
+  all = [KingSide, QueenSide]
+  expect CastlingSide.all.len() == 2
+
+  cmp : (CastlingSide, CastlingSide) -> Order
+  to_str : CastlingSide -> Str
+)
+
+# The rank a color's pieces start on.
+back_rank : Color -> Nat
+back_rank(White) -> 0
+back_rank(Black) -> 7
+
+# The squares a castle moves its king and rook from and to, those between
+# king and rook that must be empty, and those the king stands on or
+# crosses, which must not be attacked.
+Castle = {king_from: Square, king_to: Square, rook_from: Square, rook_to: Square, empty: List(Square), safe: List(Square)}
+
+castle_squares : (Color, CastlingSide) -> Castle
+castle_squares(color, KingSide) -> castle(back_rank(color), 6, 7, 5, [5, 6], [4, 5, 6])
+castle_squares(color, QueenSide) -> castle(back_rank(color), 2, 0, 3, [1, 2, 3], [4, 3, 2])
+expect castle_squares(Black, QueenSide).safe.map(Square.to_str) == ["e8", "d8", "c8"]
+
+# A castle on `rank`, the king going from the `e` file to `king_to`, the
+# rook from `rook_from` to `rook_to`, each a file's number.
+castle : (Nat, Nat, Nat, Nat, List(Nat), List(Nat)) -> Castle
+castle(rank, king_to, rook_from, rook_to, empty, safe) -> {
+  king_from: Square(rank * 8 + 4),
+  king_to: Square(rank * 8 + king_to),
+  rook_from: Square(rank * 8 + rook_from),
+  rook_to: Square(rank * 8 + rook_to),
+  empty: empty.map(|file| Square(rank * 8 + file)),
+  safe: safe.map(|file| Square(rank * 8 + file)),
+}

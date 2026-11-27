@@ -4,8 +4,11 @@
 # placing pieces; whose turn it is and what rights remain are the
 # position's.
 
-import square {File.*, Rank.*, Square.*, Direction.*}
-import piece {Color.*, Role.*, Piece.*}
+import square {Square.*}
+import direction {Direction.*}
+import color {Color.*}
+import role {Role.*}
+import piece {Piece.*}
 
 export {Board, forward, pawn_captures, knight_jumps}
 

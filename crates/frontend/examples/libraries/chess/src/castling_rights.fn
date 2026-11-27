@@ -1,21 +1,11 @@
 # Which castles each side may still make: a right is lost for good once
 # its king or its rook moves, or its rook is taken.
 
-import piece {Color.*}
+import color {Color.*}
+import castling_side {CastlingSide.*}
+import square {Square.*}
 
-export {CastlingSide.*, CastlingRights.*}
-
-# The side of the board a king castles toward: the king's side, toward
-# the `h` file, or the queen's, toward the `a` file.
-CastlingSide : [KingSide, QueenSide].(
-  # Both sides, the king's first.
-  all : List(CastlingSide)
-  all = [KingSide, QueenSide]
-  expect CastlingSide.all.len() == 2
-
-  cmp : (CastlingSide, CastlingSide) -> Order
-  to_str : CastlingSide -> Str
-)
+export {CastlingRights.*, untouched}
 
 # The four rights, one for each side of each color.
 CastlingRights : {white_king: Bool, white_queen: Bool, black_king: Bool, black_queen: Bool}.(
@@ -92,3 +82,12 @@ granted('Q') -> Ok((White, QueenSide))
 granted('k') -> Ok((Black, KingSide))
 granted('q') -> Ok((Black, QueenSide))
 granted(_) -> Err(Malformed)
+
+# `rights` without the right whose rook starts on `square`: one moved from
+# there or taken there loses it.
+untouched : (CastlingRights, Square) -> CastlingRights
+untouched(rights, Square(0)) -> rights.without(White, QueenSide)
+untouched(rights, Square(7)) -> rights.without(White, KingSide)
+untouched(rights, Square(56)) -> rights.without(Black, QueenSide)
+untouched(rights, Square(63)) -> rights.without(Black, KingSide)
+untouched(rights, _) -> rights

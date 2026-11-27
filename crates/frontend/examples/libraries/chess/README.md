@@ -132,6 +132,17 @@ departs where Faun makes something simpler.
   there; shakmaty writes it only where a capture is legal. Moves are the
   same either way, and a FEN read is written back as it was.
 
+## Layout
+
+Each type has a module of its own in [`src/`](src), named for it, as
+`square.fn` holds `Square` and `castling_rights.fn` holds
+`CastlingRights`, with the helpers that serve it beside it.
+[`src/chess.fn`](src/chess.fn) is the root, and the one entry point: it
+exports the whole public API, and `perft` and `divide` with it. `Move`
+lives in `position.fn`, beside `Position`, since each names the other: a
+position's legal moves are moves, and a move holds the position it leads
+to, and Faun's modules form no cycle.
+
 Not here yet: SAN, Chess960, the draw rules (repetition, fifty moves,
 insufficient material) and Zobrist hashing.
 

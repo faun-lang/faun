@@ -1,0 +1,45 @@
+# The board's eight ranks. The library's root exports `Rank` sealed, so
+# outside it a rank is always on the board: one made from a number or a
+# digit is checked once, where it is made.
+
+export {Rank.*}
+
+# A row of the board, `1` to `8`, from White's side.
+Rank : Nat.(
+  # Every rank, `1` to `8`.
+  all : List(Rank)
+  all = List.range(8).map(Rank)
+  expect Rank.all.map(Rank.to_char) == ['1', '2', '3', '4', '5', '6', '7', '8']
+
+  # The rank `n` places from the first, where there is one.
+  from_nat : Nat -> Result(Rank, [OutOfRange])
+  from_nat(n) if n < 8 -> Ok(Rank(n))
+  from_nat(_) -> Err(OutOfRange)
+  expect Rank.from_nat(3).map_ok(Rank.to_char) == Ok('4')
+  expect Rank.from_nat(8) == Err(OutOfRange)
+
+  # How many places the rank is from the first: 0 to 7, one less than the
+  # number it is written with.
+  to_nat : Rank -> Nat
+  to_nat(Rank(n)) -> n
+  expect Rank.from_char('1').map_ok(Rank.to_nat) == Ok(0)
+
+  # The rank a digit names, `1` to `8`.
+  from_char : U8 -> Result(Rank, [Malformed])
+  from_char(digit) if digit >= '1' & digit <= '8' -> Ok(Rank((digit - '1').to_nat()))
+  from_char(_) -> Err(Malformed)
+  expect Rank.from_char('8').map_ok(Rank.to_nat) == Ok(7)
+  expect Rank.from_char('0') == Err(Malformed)
+
+  # The rank's digit, `1` to `8`.
+  to_char : Rank -> U8
+  to_char(Rank(n)) -> '1' + U8.of_nat(n)
+  expect Rank.all.map(Rank.to_char).first() == Ok('1')
+
+  cmp : (Rank, Rank) -> Order
+
+  # The rank's digit, as `4`.
+  to_str : Rank -> Str
+  to_str(rank) -> Str.from_ascii([rank.to_char()]).ok_or("")
+  expect Rank.all.map(Rank.to_str).join("") == "12345678"
+)
