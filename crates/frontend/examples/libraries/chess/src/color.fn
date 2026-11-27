@@ -11,6 +11,14 @@ Color : [White, Black].(
   expect White.other() == Black
   expect Black.other() == White
 
+  # The other side, as `!` writes it: a side has two values, as a `Bool`
+  # does, and `!` flips between them.
+  not : Color -> Color
+  not(color) -> color.other()
+  expect !White == Black
+  expect !Black == White
+  expect !!White == White
+
   equals : (Color, Color) -> Bool
   to_str : Color -> Str
 )
