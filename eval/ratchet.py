@@ -182,6 +182,9 @@ WORKLOADS = [
     # The gzip library's round trip; the C twin is zlib's, which there is
     # none of beyond x86-64.
     Workload("gzip", KERNELS, "bytes", sizes(1 << 19, 1 << 17, 256), 1, ("-lz",)),
+    # Through the chess library; its image is too large for the 6502 today,
+    # so there it counts by where its image would end.
+    Workload("perft", KERNELS, "argument", sizes(3, 3, 1)),
     Workload("queens", KERNELS, "argument", sizes(9, 8, 6)),
     Workload("sieve", KERNELS, "argument", sizes(1_000_000, 500_000, 1000)),
     Workload("sort", KERNELS, "argument", sizes(100_000, 30_000, 24)),
