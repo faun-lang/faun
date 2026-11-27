@@ -1,0 +1,128 @@
+# Chess for Faun: squares, pieces and positions, positions read from and
+# written as FEN, every legal move of a position, castling, en passant and
+# promotion among them, moves read from and written as UCI, and perft, the
+# count of the move paths to a depth that checks a move generator.
+#
+# A `Position` is the whole state of a game at one moment, and its
+# `legal_moves` are `Move`s, each holding the position it leads to: a move
+# is played by asking for `move.after()`, so no move is ever played on a
+# position it did not come from. Every type is sealed where a value could
+# be wrong: a `Square` is always on the board, a `Position` always one a
+# game can reach, and a `Move` always legal where it is played.
+#
+# Written in the most natural Faun spelling, a list of 64 squares and
+# every candidate move played and tested: where that runs slowly, the
+# compiler has a bug to fix.
+
+package {}
+
+import square {File, Rank, Square, Direction.*}
+import piece {Color.*, Role.*, Piece.*}
+import castling {CastlingSide.*, CastlingRights}
+import position {Position, Move, MoveKind.*, FenError}
+
+export {
+  File,
+  Rank,
+  Square,
+  Direction.*,
+  Color.*,
+  Role.*,
+  Piece.*,
+  CastlingSide.*,
+  CastlingRights,
+  Position,
+  Move,
+  MoveKind.*,
+  FenError,
+  perft,
+  divide,
+}
+
+# How many paths of `depth` legal moves lead on from `position`: the
+# number perft tables give, which checks a move generator, since every
+# legal move must be found once and no other.
+perft : (Position, Nat) -> Nat
+perft(_, 0) -> 1
+perft(position, 1) -> position.legal_moves().len()
+perft(position, Succ(depth)) -> position.legal_moves().map(|move| perft(move.after(), depth)).sum()
+expect perft(Position.start, 1) == 20
+expect perft(Position.start, 2) == 400
+expect perft(Position.start, 0) == 1
+
+# Each legal move from `position`, by its UCI, and the perft of `depth`
+# less one from where it leads: what a perft to `depth` sums, so two move
+# generators that disagree can be followed to the move they first differ
+# on. `depth` 0 is taken as 1.
+divide : (Position, Nat) -> List((Move, Nat))
+divide(position, depth) -> position.legal_moves().map(|move| (move, perft(move.after(), depth - 1)))
+expect divide(Position.start, 2).map(|(_, count)| count).sum() == 400
+expect divide(Position.start, 1).all(|(_, count)| count == 1)
+
+# The positions of the Chess Programming Wiki's perft results, and their
+# counts at depths small enough to ask here on the reference interpreter;
+# the tests in crates/cli/tests/chess.rs ask the deeper ones of the
+# example built for the machine.
+kiwipete : Str
+kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
+
+positions : List((Str, List(Nat)))
+positions = [
+  (kiwipete, [48]),
+  ("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", [14, 191]),
+  ("r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", [6, 264]),
+  ("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", [44]),
+  ("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10", [46]),
+]
+
+expect positions.all(|(fen, counts)| Position.from_fen(fen) is Ok(position)
+  & counts.enumerate().all(|(n, count)| perft(position, n + 1) == count))
+
+# Every FEN read back is written as it was read.
+expect positions.all(|(fen, _)| Position.from_fen(fen).map_ok(Position.to_fen) == Ok(fen))
+
+# Castling: both sides at once, the rook going with the king, and the
+# rights of a king that has moved gone.
+expect (
+  played = Position.from_fen(kiwipete).and_then(|position| Move.from_uci(position, "e1c1").err_as(InvalidBoard))
+  played is Ok(move)
+    & move.kind() == Castle(QueenSide)
+    & move.after().to_fen() == "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/2KR3R b kq - 1 1"
+)
+
+# A castle through an attacked square is not legal, though the squares
+# between are empty: the bishop on f1 is gone and a rook covers it.
+expect (
+  open = Position.from_fen("4kr2/8/8/8/8/8/8/4K2R w K - 0 1")
+  open is Ok(position) & Move.from_uci(position, "e1g1") == Err(IllegalMove)
+)
+
+# En passant, and the en passant capture that would leave the king
+# attacked along its rank, which is not legal.
+expect (
+  passing = Position.from_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2")
+  passing is Ok(position)
+    & Move.from_uci(position, "e5d6").map_ok(|move| (move.kind(), move.after().to_fen()))
+      == Ok((EnPassant, "4k3/8/3P4/8/8/8/8/4K3 b - - 0 2"))
+)
+expect (
+  pinned = Position.from_fen("8/8/8/K2pP2r/8/8/8/7k w - d6 0 2")
+  pinned is Ok(position) & Move.from_uci(position, "e5d6") == Err(IllegalMove)
+)
+
+# Promotion, to each role, taking or not.
+expect (
+  promoting = Position.from_fen("3r3k/4P3/8/8/8/8/8/K7 w - - 0 1")
+  promoting is Ok(position)
+    & position.legal_moves().filter(|move| move.promotion().is_ok()).map(Move.to_uci)
+      == ["e7e8q", "e7e8r", "e7e8b", "e7e8n", "e7d8q", "e7d8r", "e7d8b", "e7d8n"]
+    & Move.from_uci(position, "e7d8n").map_ok(|move| move.after().piece_at(move.to())) == Ok(Ok(Piece(White, Knight)))
+)
+
+# A pinned piece may move only along its pin.
+expect (
+  pinned = Position.from_fen("4k3/4r3/8/8/8/8/4R3/4K3 w - - 0 1")
+  pinned is Ok(position)
+    & position.legal_moves().filter(|move| move.role() == Rook).map(Move.to_uci)
+      == ["e2e3", "e2e4", "e2e5", "e2e6", "e2e7"]
+)

@@ -1,0 +1,42 @@
+# Prints the perft of a position divided by its first move, as engines'
+# `go perft` does: each legal move in UCI and the paths of the depth left
+# after it, then their total. Its arguments are the depth, 1 if left out,
+# and a FEN, the start position if left out:
+#
+#     faun run examples/perft.fn 3 "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1"
+
+package {
+  uses: {
+    chess: "../src/chess"
+  }
+}
+
+import chess {Position, Move, divide}
+
+# The lines to print for the program's arguments, its own name first.
+report : List(Str) -> Result(Str, _)
+report(args) -> (
+  depth = Nat.from_str(args.get(1).ok_or("1"))?
+  fen = args.drop(2).join(" ")
+  position = if fen.is_empty() then Position.start else Position.from_fen(fen)?
+  counts = divide(position, depth)
+  lines = counts.map(|(move, count)| "${move}: ${count}")
+  total = counts.map(|(_, count)| count).sum()
+  Ok(lines.append("").append("Nodes searched: ${total}").join("\n"))
+)
+
+expect report(["perft", "1"]) is Ok(text) & text.ends_with("Nodes searched: 20")
+expect report(["perft", "2", "4k3/8/8/8/8/8/8/4K2R w K - 0 1"]) is Ok(text) & text.ends_with("Nodes searched: 66")
+expect report(["perft", "x"]) == Err(Malformed)
+expect report(["perft", "1", "8/8/8/8/8/8/8/8 w - - 0 1"]) == Err(InvalidKings)
+
+main!(host) -> report(host.args) is (
+  Ok(text) then (
+    printed = host.println!(text)
+    host.exit!(if printed.is_ok() then 0 else 1)
+  )
+  Err(error) then (
+    _ = host.println!("perft: ${error}")
+    host.exit!(2)
+  )
+)

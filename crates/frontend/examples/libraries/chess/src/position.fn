@@ -1,0 +1,516 @@
+# A position of a game and the moves from it. A `Position` is the board,
+# whose turn it is, the castling rights left, the square a pawn may be
+# taken on in passing, and the two clocks: everything FEN writes, and
+# everything the rules ask. A `Move` is made only by the position it is
+# played from, and holds the position it leads to, so no move can be
+# played anywhere else.
+#
+# A move is legal where it is one the piece may make and leaves its own
+# king unattacked. The library finds each the plain way: every move the
+# pieces could make, each played, and those that leave the king attacked
+# dropped. Pins, checks, discovered checks and the en passant capture
+# that uncovers a king along its rank all fall out of that one test,
+# with none of them a case of its own.
+
+import square {File.*, Rank.*, Square.*, Direction.*}
+import piece {Color.*, Role.*, Piece.*}
+import castling {CastlingSide.*, CastlingRights.*}
+import board {Board, forward, pawn_captures, knight_jumps}
+
+export {Position, Move, MoveKind.*, FenError}
+
+# Why a FEN was refused: the field that is wrong, or what makes the
+# position it writes one no game can reach.
+FenError = [
+  WrongFieldCount,
+  InvalidBoard,
+  InvalidTurn,
+  InvalidCastling,
+  InvalidEnPassant,
+  InvalidClock,
+  InvalidKings,
+  PawnOnBackRank,
+  OpponentInCheck,
+]
+
+# A game at one moment, as one of a game's positions: it can only be made
+# by `start`, `from_fen` and moves, so it always has a king on each side,
+# and the side not to move is never in check.
+Position : {
+  board: Board,
+  turn: Color,
+  castling: CastlingRights,
+  en_passant: Result(Square, [NoEnPassant]),
+  halfmoves: Nat,
+  fullmoves: Nat,
+}.(
+  # The position a game starts from.
+  start : Position
+  start = Position({
+    board: Board.start,
+    turn: White,
+    castling: CastlingRights.all,
+    en_passant: Err(NoEnPassant),
+    halfmoves: 0,
+    fullmoves: 1,
+  })
+  expect Position.start.to_fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  expect Position.start.legal_moves().len() == 20
+
+  # The position a FEN writes: the board, the side to move, the castling
+  # rights, the en passant square, and the two clocks, parted by spaces.
+  # The clocks may be left out, as EPD leaves them, and are then 0 and 1.
+  # A FEN is refused where a field is malformed, and where the position it
+  # writes is not one a game can reach: a side without exactly one king, a
+  # pawn on the first or last rank, a castling right whose king or rook has
+  # left its square, an en passant square no pawn just passed, or the side
+  # not to move in check.
+  from_fen : Str -> Result(Position, FenError)
+  from_fen(text) -> (
+    fields = text.trim().split(" ").filter(|field| !field.is_empty())
+    (placement, side, rights, passing, clocks) = fields is (
+      [a, b, c, d] then (a, b, c, d, ["0", "1"])
+      [a, b, c, d, e, f] then (a, b, c, d, [e, f])
+      _ return Err(WrongFieldCount)
+    )
+    board = Board.from_fen(placement)?
+    turn = side.to_utf8() is (
+      [letter] then Color.from_char(letter).err_as(InvalidTurn)?
+      _ return Err(InvalidTurn)
+    )
+    castling = CastlingRights.from_str(rights).err_as(InvalidCastling)?
+    en_passant = if passing == "-" then Err(NoEnPassant) else Ok(Square.from_str(passing).err_as(InvalidEnPassant)?)
+    numbers = clocks.try_map(Nat.from_str).err_as(InvalidClock)?
+    (halfmoves, fullmoves) = numbers is (
+      [h, f] then (h, f)
+      _ return Err(InvalidClock)
+    )
+    if fullmoves == 0 return Err(InvalidClock)
+    checked(Position({board, turn, castling, en_passant, halfmoves, fullmoves}))
+  )
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") == Ok(Position.start)
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -") == Ok(Position.start)
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq") == Err(WrongFieldCount)
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBN w KQkq - 0 1") == Err(InvalidBoard)
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR x KQkq - 0 1") == Err(InvalidTurn)
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkx - 0 1") == Err(InvalidCastling)
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq e9 0 1") == Err(InvalidEnPassant)
+  expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0") == Err(InvalidClock)
+  expect Position.from_fen("rnbqqbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1") == Err(InvalidKings)
+  expect Position.from_fen("4k3/8/8/8/8/8/8/P3K3 w - - 0 1") == Err(PawnOnBackRank)
+  expect Position.from_fen("4k3/8/8/8/8/8/8/4K3 w K - 0 1") == Err(InvalidCastling)
+  expect Position.from_fen("4k3/8/8/8/8/8/8/4K3 w - e6 0 1") == Err(InvalidEnPassant)
+  expect Position.from_fen("4k3/8/8/8/8/8/8/4R1K1 w - - 0 1") == Err(OpponentInCheck)
+
+  # The position as FEN writes it, all six fields.
+  to_fen : Position -> Str
+  to_fen(Position(position)) -> (
+    passing = position.en_passant is (
+      Ok(square) then square.to_str()
+      Err(NoEnPassant) then "-"
+    )
+    turn = Str.from_ascii([position.turn.to_char()]).ok_or("w")
+    "${position.board.to_fen()} ${turn} ${position.castling} ${passing} ${position.halfmoves} ${position.fullmoves}"
+  )
+  expect Position.start.to_fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+  # The position's FEN, as `to_fen` writes it, so `"${position}"` writes
+  # it too.
+  to_str : Position -> Str
+  to_str(position) -> position.to_fen()
+  expect "${Position.start}" == Position.start.to_fen()
+
+  # What stands on `square`.
+  piece_at : (Position, Square) -> Result(Piece, [Empty])
+  piece_at(Position({board, *}), square) -> board.piece_at(square)
+  expect Position.start.piece_at(Square(4)) == Ok(Piece(White, King))
+  expect Position.start.piece_at(Square(28)) == Err(Empty)
+
+  # Every piece and its square, `a1` first.
+  pieces : Position -> List((Square, Piece))
+  pieces(Position({board, *})) -> board.pieces()
+  expect Position.start.pieces().len() == 32
+
+  # The side to move.
+  turn : Position -> Color
+  turn(Position({turn, *})) -> turn
+  expect Position.start.turn() == White
+
+  # The castling rights left to each side.
+  castling : Position -> CastlingRights
+  castling(Position({castling, *})) -> castling
+  expect Position.start.castling() == CastlingRights.all
+
+  # The square a pawn may be taken on in passing: the one a pawn of the
+  # other side passed over the move before, two squares from its start.
+  # Which pawn could take it there is left to `legal_moves`.
+  en_passant : Position -> Result(Square, [NoEnPassant])
+  en_passant(Position({en_passant, *})) -> en_passant
+  expect Position.start.en_passant() == Err(NoEnPassant)
+
+  # How many moves have been made, by either side, since a pawn last
+  # moved or a piece was last taken: the clock of the fifty-move rule.
+  halfmove_clock : Position -> Nat
+  halfmove_clock(Position({halfmoves, *})) -> halfmoves
+  expect Position.start.halfmove_clock() == 0
+
+  # The number of the move being made: 1 at the start, and one more after
+  # each of Black's moves.
+  fullmove_number : Position -> Nat
+  fullmove_number(Position({fullmoves, *})) -> fullmoves
+  expect Position.start.fullmove_number() == 1
+
+  # Where `color`'s king stands.
+  king : (Position, Color) -> Square
+  king(Position({board, *}), color) -> board.king(color)
+  expect Position.start.king(White).to_str() == "e1"
+
+  # Whether the side to move is in check.
+  is_check : Position -> Bool
+  is_check(Position({board, turn, *})) -> board.is_attacked(board.king(turn), turn.other())
+  expect !Position.start.is_check()
+
+  # Whether the side to move is in check and has no move: the game is
+  # lost.
+  is_checkmate : Position -> Bool
+  is_checkmate(position) -> position.is_check() & position.legal_moves().is_empty()
+  expect (
+    mated = Position.from_fen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
+    mated is Ok(position) & position.is_checkmate()
+  )
+
+  # Whether the side to move is not in check and has no move: the game is
+  # drawn.
+  is_stalemate : Position -> Bool
+  is_stalemate(position) -> !position.is_check() & position.legal_moves().is_empty()
+  expect (
+    stuck = Position.from_fen("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
+    stuck is Ok(position) & position.is_stalemate()
+  )
+
+  # Every legal move of the side to move: those its pieces may make that
+  # leave its own king unattacked. Each holds the position it leads to.
+  legal_moves : Position -> List(Move)
+  legal_moves(position) -> candidates(position).flat_map(|candidate| legal(position, candidate))
+  expect Position.start.legal_moves().len() == 20
+  expect Position.start.legal_moves().map(Move.to_uci).take(3) == ["b1a3", "b1c3", "g1f3"]
+
+  equals : (Position, Position) -> Bool
+)
+
+# What kind of move a move is, past which piece goes where: a pawn's
+# first step of two squares, which leaves the en passant square behind it;
+# a pawn taking in passing, the pawn taken not on the square landed on; a
+# castle, the rook moving with the king; or none of these.
+MoveKind : [Normal, DoublePush, EnPassant, Castle(CastlingSide)].(
+  equals : (MoveKind, MoveKind) -> Bool
+  to_str : MoveKind -> Str
+)
+
+# A move a piece may make, before it is known to leave its king safe: the
+# piece's square and where it lands, its role, the role it takes and the
+# role it becomes, if any, and the kind of move.
+Candidate = {
+  from: Square,
+  to: Square,
+  role: Role,
+  captured: Result(Role, [NoCapture]),
+  promotion: Result(Role, [NoPromotion]),
+  kind: MoveKind,
+}
+
+# A legal move, as one of a position's `legal_moves` or read from UCI by
+# `Move.from_uci`. It holds the position it leads to, `after`, so it is
+# played by asking for that, and cannot be played on another position.
+Move : {candidate: Candidate, after: Position}.(
+  # The square the piece moves from: for a castle, the king's.
+  from : Move -> Square
+  from(Move({candidate, *})) -> candidate.from
+  expect Move.from_uci(Position.start, "g1f3").map_ok(|move| move.from().to_str()) == Ok("g1")
+
+  # The square the piece lands on: for a castle, the king's.
+  to : Move -> Square
+  to(Move({candidate, *})) -> candidate.to
+  expect Move.from_uci(Position.start, "g1f3").map_ok(|move| move.to().to_str()) == Ok("f3")
+
+  # The role of the piece that moves: for a castle, the king.
+  role : Move -> Role
+  role(Move({candidate, *})) -> candidate.role
+  expect Move.from_uci(Position.start, "g1f3").map_ok(Move.role) == Ok(Knight)
+
+  # The role of the piece taken, if one is.
+  captured : Move -> Result(Role, [NoCapture])
+  captured(Move({candidate, *})) -> candidate.captured
+  expect Move.from_uci(Position.start, "e2e4").map_ok(Move.captured) == Ok(Err(NoCapture))
+
+  # The role a pawn becomes on the last rank, if it does.
+  promotion : Move -> Result(Role, [NoPromotion])
+  promotion(Move({candidate, *})) -> candidate.promotion
+  expect Move.from_uci(Position.start, "e2e4").map_ok(Move.promotion) == Ok(Err(NoPromotion))
+
+  # What kind of move it is.
+  kind : Move -> MoveKind
+  kind(Move({candidate, *})) -> candidate.kind
+  expect Move.from_uci(Position.start, "e2e4").map_ok(Move.kind) == Ok(DoublePush)
+
+  # The position the move leads to: the move played.
+  after : Move -> Position
+  after(Move({after, *})) -> after
+  expect Move.from_uci(Position.start, "e2e4").map_ok(|move| move.after().to_fen())
+    == Ok("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
+
+  # The move as UCI writes it: the squares it goes from and to, and the
+  # small letter of the role a pawn becomes. A castle is the king's move
+  # of two squares, `e1g1`.
+  to_uci : Move -> Str
+  to_uci(Move({candidate, *})) -> (
+    promoted = candidate.promotion is (
+      Ok(role) then Str.from_ascii([role.to_char()]).ok_or("")
+      Err(NoPromotion) then ""
+    )
+    "${candidate.from}${candidate.to}${promoted}"
+  )
+  expect Move.from_uci(Position.start, "b1c3").map_ok(Move.to_uci) == Ok("b1c3")
+
+  # The legal move from `position` that UCI's `text` writes: `Malformed`
+  # where `text` is not UCI, and `IllegalMove` where it is, but no legal
+  # move of the position.
+  from_uci : (Position, Str) -> Result(Move, [Malformed, IllegalMove])
+  from_uci(position, text) -> (
+    (from, to, promotion) = uci_parts(text.to_utf8())?
+    matching = position.legal_moves().find(|move|
+      move.from() == from & move.to() == to & move.promotion() == promotion)
+    matching.err_as(IllegalMove)
+  )
+  expect Move.from_uci(Position.start, "e2e4").is_ok()
+  expect Move.from_uci(Position.start, "e2e5") == Err(IllegalMove)
+  expect Move.from_uci(Position.start, "e2") == Err(Malformed)
+  expect Move.from_uci(Position.start, "e2e4x") == Err(Malformed)
+
+  # The move as UCI writes it, as `to_uci` does.
+  to_str : Move -> Str
+  to_str(move) -> move.to_uci()
+  expect Move.from_uci(Position.start, "e2e4").map_ok(|move| "${move}") == Ok("e2e4")
+
+  equals : (Move, Move) -> Bool
+)
+
+# The squares, and the role a pawn becomes, UCI's text writes.
+uci_parts : List(U8) -> Result((Square, Square, Result(Role, [NoPromotion])), [Malformed])
+uci_parts([a, b, c, d]) -> Ok((square(a, b)?, square(c, d)?, Err(NoPromotion)))
+uci_parts([a, b, c, d, letter]) -> (
+  role = Role.from_char(letter)?
+  if !Role.promotions.contains(role) | letter.is_ascii_upper() return Err(Malformed)
+  Ok((square(a, b)?, square(c, d)?, Ok(role)))
+)
+uci_parts(_) -> Err(Malformed)
+
+# The square a file's letter and a rank's digit name.
+square : (U8, U8) -> Result(Square, [Malformed])
+square(letter, digit) -> Ok(Square.of_coords(File.from_char(letter)?, Rank.from_char(digit)?))
+
+# `position`, where a game could reach it: the checks `from_fen` makes
+# past each field's own.
+checked : Position -> Result(Position, FenError)
+checked(position is Position({board, turn, castling, en_passant, *})) -> (
+  pieces = board.pieces()
+  kings = [White, Black].map(|color| pieces.count(|(_, piece)| piece == Piece(color, King)))
+  if kings != [1, 1] return Err(InvalidKings)
+  if pieces.any(|(square, piece)| piece.role() == Pawn & (square.rank() == Rank(0) | square.rank() == Rank(7))) return Err(PawnOnBackRank)
+  homes = [White, Black].cross(CastlingSide.all)
+  if !homes.all(|(color, side)| !castling.has(color, side) | castle_ready(board, color, side)) return Err(InvalidCastling)
+  if en_passant is Ok(passed) & !passed_over(board, turn, passed) return Err(InvalidEnPassant)
+  if board.is_attacked(board.king(turn.other()), turn) return Err(OpponentInCheck)
+  Ok(position)
+)
+
+# Whether `color`'s king and its rook on `side` stand where they start, as
+# a right to castle there needs.
+castle_ready : (Board, Color, CastlingSide) -> Bool
+castle_ready(board, color, side) -> (
+  castle = castle_squares(color, side)
+  board.piece_at(castle.king_from) == Ok(Piece(color, King)) & board.piece_at(castle.rook_from) == Ok(Piece(color, Rook))
+)
+
+# Whether a pawn of the side not to move, `turn`'s other, has just passed
+# over `square`: it stands beyond it, and the square and the one it came
+# from are empty.
+passed_over : (Board, Color, Square) -> Bool
+passed_over(board, turn, square) -> (
+  mover = turn.other()
+  third = if mover == White then Rank(2) else Rank(5)
+  if square.rank() != third return False
+  square.step(forward(mover)) is Ok(landed)
+    & square.step(forward(turn)) is Ok(start)
+    & board.piece_at(landed) == Ok(Piece(mover, Pawn))
+    & board.piece_at(square) == Err(Empty)
+    & board.piece_at(start) == Err(Empty)
+)
+
+# The rank a color's pieces start on.
+back_rank : Color -> Nat
+back_rank(White) -> 0
+back_rank(Black) -> 7
+
+# The squares a castle moves its king and rook from and to, those between
+# king and rook that must be empty, and those the king stands on or
+# crosses, which must not be attacked.
+Castle = {king_from: Square, king_to: Square, rook_from: Square, rook_to: Square, empty: List(Square), safe: List(Square)}
+
+castle_squares : (Color, CastlingSide) -> Castle
+castle_squares(color, KingSide) -> castle(back_rank(color), 6, 7, 5, [5, 6], [4, 5, 6])
+castle_squares(color, QueenSide) -> castle(back_rank(color), 2, 0, 3, [1, 2, 3], [4, 3, 2])
+expect castle_squares(Black, QueenSide).safe.map(Square.to_str) == ["e8", "d8", "c8"]
+
+# A castle on `rank`, the king going from the `e` file to `king_to`, the
+# rook from `rook_from` to `rook_to`, each a file's number.
+castle : (Nat, Nat, Nat, Nat, List(Nat), List(Nat)) -> Castle
+castle(rank, king_to, rook_from, rook_to, empty, safe) -> {
+  king_from: Square(rank * 8 + 4),
+  king_to: Square(rank * 8 + king_to),
+  rook_from: Square(rank * 8 + rook_from),
+  rook_to: Square(rank * 8 + rook_to),
+  empty: empty.map(|file| Square(rank * 8 + file)),
+  safe: safe.map(|file| Square(rank * 8 + file)),
+}
+
+# Every move the side to move's pieces may make, before asking whether
+# each leaves its king attacked.
+candidates : Position -> List(Candidate)
+candidates(position is Position({board, turn, *})) -> board.pieces()
+  .filter(|(_, piece)| piece.color() == turn)
+  .flat_map(|(from, piece)| moves_of(position, from, piece.role()))
+  .concat(castles(position))
+
+# The moves of the piece of `role` on `from`, castles aside.
+moves_of : (Position, Square, Role) -> List(Candidate)
+moves_of(position, from, Pawn) -> pawn_moves(position, from)
+moves_of(position, from, Knight) -> knight_jumps(from).flat_map(|to| landing(position, from, Knight, to))
+moves_of(position, from, Bishop) -> Direction.diagonal.flat_map(|way| sliding(position, from, Bishop, way))
+moves_of(position, from, Rook) -> Direction.straight.flat_map(|way| sliding(position, from, Rook, way))
+moves_of(position, from, Queen) -> Direction.all.flat_map(|way| sliding(position, from, Queen, way))
+moves_of(position, from, King) -> Direction.all.flat_map(|way| from.step(way) is (
+  Ok(to) then landing(position, from, King, to)
+  Err(OffBoard) then []
+))
+
+# A move of the piece of `role` from `from` to `to`, unless a piece of its
+# own stands there: none, or one, taking what stands there.
+landing : (Position, Square, Role, Square) -> List(Candidate)
+landing(Position({board, turn, *}), from, role, to) -> board.piece_at(to) is (
+  Ok(Piece(==turn, _)) then []
+  Ok(Piece(_, taken)) then [plain(from, to, role, Ok(taken))]
+  Err(Empty) then [plain(from, to, role, Err(NoCapture))]
+)
+
+# A move with nothing special about it.
+plain : (Square, Square, Role, Result(Role, [NoCapture])) -> Candidate
+plain(from, to, role, captured) -> {from, to, role, captured, promotion: Err(NoPromotion), kind: Normal}
+
+# The moves along `way` of the piece of `role` from `from`: each square to
+# the first piece in the way, and that piece's too where it is the other
+# side's.
+sliding : (Position, Square, Role, Direction) -> List(Candidate)
+sliding(position, from, role, way) -> sliding_from(position, from, from, role, way)
+
+# The same, going on from `at`.
+sliding_from : (Position, Square, Square, Role, Direction) -> List(Candidate)
+sliding_from(position is Position({board, *}), from, at, role, way) -> at.step(way) is (
+  Ok(to) then board.piece_at(to) is (
+    Err(Empty) then [plain(from, to, role, Err(NoCapture)), *sliding_from(position, from, to, role, way)]
+    Ok(_) then landing(position, from, role, to)
+  )
+  Err(OffBoard) then []
+)
+
+# A pawn's moves: a step forward onto an empty square, two from its start
+# where both are empty, a step forward to either side onto a piece of the
+# other side or onto the en passant square, and on the last rank, each as
+# every role it may become.
+pawn_moves : (Position, Square) -> List(Candidate)
+pawn_moves(Position({board, turn, en_passant, *}), from) -> (
+  ahead = forward(turn)
+  start = if turn == White then Rank(1) else Rank(6)
+  pushes = from.step(ahead) is (
+    Ok(one) if board.piece_at(one) == Err(Empty) then (
+      double = one.step(ahead) is (
+        Ok(two) if from.rank() == start & board.piece_at(two) == Err(Empty) then
+          [{from, to: two, role: Pawn, captured: Err(NoCapture), promotion: Err(NoPromotion), kind: DoublePush}]
+        _ then []
+      )
+      promoting(from, one, Err(NoCapture)).concat(double)
+    )
+    _ then []
+  )
+  takes = pawn_captures(turn).flat_map(|way| from.step(way) is (
+    Ok(to) then board.piece_at(to) is (
+      Ok(Piece(color, taken)) if color != turn then promoting(from, to, Ok(taken))
+      Err(Empty) if en_passant == Ok(to) then
+        [{from, to, role: Pawn, captured: Ok(Pawn), promotion: Err(NoPromotion), kind: EnPassant}]
+      _ then []
+    )
+    Err(OffBoard) then []
+  ))
+  pushes.concat(takes)
+)
+
+# A pawn's move from `from` to `to`, as each role it may become where `to`
+# is on the last rank.
+promoting : (Square, Square, Result(Role, [NoCapture])) -> List(Candidate)
+promoting(from, to, captured) if to.rank() == Rank(0) | to.rank() == Rank(7) ->
+  Role.promotions.map(|role| {from, to, role: Pawn, captured, promotion: Ok(role), kind: Normal})
+promoting(from, to, captured) -> [plain(from, to, Pawn, captured)]
+
+# The castles the side to move may make: where it has the right, the
+# squares between king and rook are empty, and the king is not in check
+# and crosses no attacked square. Whether it lands in check is asked of
+# every move alike.
+castles : Position -> List(Candidate)
+castles(Position({board, turn, castling, *})) -> CastlingSide.all
+  .filter(|side| castling.has(turn, side))
+  .map(|side| (side, castle_squares(turn, side)))
+  .filter(|(_, castle)| castle.empty.all(|square| board.piece_at(square) == Err(Empty))
+    & castle.safe.all(|square| !board.is_attacked(square, turn.other())))
+  .map(|(side, castle)| {from: castle.king_from, to: castle.king_to, role: King, captured: Err(NoCapture), promotion: Err(NoPromotion), kind: Castle(side)})
+
+# The move, where it leaves the mover's king unattacked.
+legal : (Position, Candidate) -> List(Move)
+legal(position is Position({turn, *}), candidate) -> (
+  after = played(position, candidate)
+  Position({board, *}) = after
+  if board.is_attacked(board.king(turn), turn.other()) then [] else [Move({candidate, after})]
+)
+
+# The position `candidate` leads to: its piece moved, and what it takes
+# removed; a castle's rook moved too; the rights its king or rooks lose
+# gone; the en passant square of a pawn's double step; the clocks moved
+# on; and the other side to move.
+played : (Position, Candidate) -> Position
+played(Position(position), candidate is {from, to, role, captured, promotion, kind}) -> (
+  turn = position.turn
+  becomes = promotion.ok_or(role)
+  moved = position.board.remove(from).put(to, Piece(turn, becomes))
+  board = kind is (
+    EnPassant then moved.remove(Square.of_coords(to.file(), from.rank()))
+    Castle(side) then (
+      castle = castle_squares(turn, side)
+      moved.remove(castle.rook_from).put(castle.rook_to, Piece(turn, Rook))
+    )
+    _ then moved
+  )
+  kept = if role == King then position.castling.without(turn, KingSide).without(turn, QueenSide) else position.castling
+  castling = untouched(untouched(kept, from), to)
+  en_passant = if kind == DoublePush then from.step(forward(turn)).err_as(NoEnPassant) else Err(NoEnPassant)
+  halfmoves = if role == Pawn | captured.is_ok() then 0 else position.halfmoves + 1
+  fullmoves = if turn == Black then position.fullmoves + 1 else position.fullmoves
+  Position({board, turn: turn.other(), castling, en_passant, halfmoves, fullmoves})
+)
+
+# `rights` without the right whose rook starts on `square`: one moved from
+# there or taken there loses it.
+untouched : (CastlingRights, Square) -> CastlingRights
+untouched(rights, Square(0)) -> rights.without(White, QueenSide)
+untouched(rights, Square(7)) -> rights.without(White, KingSide)
+untouched(rights, Square(56)) -> rights.without(Black, QueenSide)
+untouched(rights, Square(63)) -> rights.without(Black, KingSide)
+untouched(rights, _) -> rights

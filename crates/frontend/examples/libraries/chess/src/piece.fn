@@ -1,0 +1,108 @@
+# The two sides, the six kinds of piece, and a piece: a side's piece of a
+# kind. Every one of each is a legal value, so their constructors are
+# public: `Piece(White, Knight)` is a white knight.
+
+export {Color.*, Role.*, Piece.*}
+
+# A side: White, who moves first, or Black.
+Color : [White, Black].(
+  # The other side.
+  other : Color -> Color
+  other(White) -> Black
+  other(Black) -> White
+  expect White.other() == Black
+  expect Black.other() == White
+
+  # The side's letter in FEN, `w` or `b`.
+  to_char : Color -> U8
+  to_char(White) -> 'w'
+  to_char(Black) -> 'b'
+  expect Black.to_char() == 'b'
+
+  # The side a FEN letter names, `w` or `b`.
+  from_char : U8 -> Result(Color, [Malformed])
+  from_char('w') -> Ok(White)
+  from_char('b') -> Ok(Black)
+  from_char(_) -> Err(Malformed)
+  expect Color.from_char('w') == Ok(White)
+  expect Color.from_char('x') == Err(Malformed)
+
+  cmp : (Color, Color) -> Order
+  to_str : Color -> Str
+)
+
+# A kind of piece, as shakmaty calls it, whichever side it is.
+Role : [Pawn, Knight, Bishop, Rook, Queen, King].(
+  # Every role, pawn to king.
+  all : List(Role)
+  all = [Pawn, Knight, Bishop, Rook, Queen, King]
+  expect Role.all.map(Role.to_char) == ['p', 'n', 'b', 'r', 'q', 'k']
+
+  # What a pawn may become on the last rank, the strongest first.
+  promotions : List(Role)
+  promotions = [Queen, Rook, Bishop, Knight]
+  expect Role.promotions.len() == 4
+
+  # The role's small letter, as UCI writes a promotion: `p`, `n`, `b`,
+  # `r`, `q` or `k`.
+  to_char : Role -> U8
+  to_char(Pawn) -> 'p'
+  to_char(Knight) -> 'n'
+  to_char(Bishop) -> 'b'
+  to_char(Rook) -> 'r'
+  to_char(Queen) -> 'q'
+  to_char(King) -> 'k'
+  expect Knight.to_char() == 'n'
+
+  # The role a letter names, in either case.
+  from_char : U8 -> Result(Role, [Malformed])
+  from_char(letter) -> letter.to_ascii_lower() is (
+    'p' then Ok(Pawn)
+    'n' then Ok(Knight)
+    'b' then Ok(Bishop)
+    'r' then Ok(Rook)
+    'q' then Ok(Queen)
+    'k' then Ok(King)
+    _ then Err(Malformed)
+  )
+  expect Role.from_char('Q') == Ok(Queen)
+  expect Role.from_char('x') == Err(Malformed)
+
+  cmp : (Role, Role) -> Order
+  to_str : Role -> Str
+)
+
+# A piece: its side and its role.
+Piece : [Piece(Color, Role)].(
+  # The piece's side.
+  color : Piece -> Color
+  color(Piece(color, _)) -> color
+  expect Piece(Black, Rook).color() == Black
+
+  # The piece's role.
+  role : Piece -> Role
+  role(Piece(_, role)) -> role
+  expect Piece(Black, Rook).role() == Rook
+
+  # The piece's letter in FEN: a capital for White, a small letter for
+  # Black.
+  to_char : Piece -> U8
+  to_char(Piece(White, role)) -> role.to_char().to_ascii_upper()
+  to_char(Piece(Black, role)) -> role.to_char()
+  expect Piece(White, Knight).to_char() == 'N'
+  expect Piece(Black, Knight).to_char() == 'n'
+
+  # The piece a FEN letter names: a capital for White, a small letter for
+  # Black.
+  from_char : U8 -> Result(Piece, [Malformed])
+  from_char(letter) -> (
+    role = Role.from_char(letter)?
+    Ok(Piece(if letter.is_ascii_upper() then White else Black, role))
+  )
+  expect Piece.from_char('k') == Ok(Piece(Black, King))
+  expect Piece.from_char('P') == Ok(Piece(White, Pawn))
+  expect Piece.from_char('1') == Err(Malformed)
+
+  cmp : (Piece, Piece) -> Order
+  to_str : Piece -> Str
+)
