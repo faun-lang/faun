@@ -1,6 +1,6 @@
 # The benchmarks game in Faun
 
-Eight programs from the
+Programs from the
 [benchmarks game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/),
 written as idiomatic Faun, each beside one of the game's own C programs:
 an idiomatic one, single-threaded and plain, rather than the fastest. Each
@@ -77,7 +77,7 @@ $ target/md5-c < input.dat
 $ target/md5-profile < input.dat
 ```
 
-The eight game programs supply the promotion scores.
+The game's programs supply the promotion scores.
 
 ## Scoring
 
