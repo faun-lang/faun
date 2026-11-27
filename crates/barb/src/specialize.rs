@@ -61,7 +61,7 @@ const COPIES: usize = 4;
 const LARGEST: usize = 4096;
 /// A copy small enough to keep whatever it decided, in what copying it
 /// allocates.
-const SMALL: usize = 64;
+const SMALL: usize = 256;
 
 /// Copy each such definition for the values its callers hand it, then bind
 /// the values every caller hands alike, and simplify again what was given one.
