@@ -40,7 +40,7 @@ Bitboard : U64.(
 
   # How many squares the set holds.
   count : Bitboard -> Nat
-  count(Bitboard(bits)) -> ones(bits)
+  count(Bitboard(bits)) -> bits.count_ones()
   expect corners.count() == 4
 
   # Whether the set holds no square.
@@ -100,24 +100,9 @@ corners = Bitboard(U64.of_nat(0x8100000000000081))
 first_rank : Bitboard
 first_rank = Bitboard(U64.of_nat(0xff))
 
-# How many bits of `bits` are set, counted in place a pair, then a nibble,
-# then a byte at a time, and the bytes summed by one multiplication: the
-# count Hacker's Delight gives, with no loop.
-ones : U64 -> Nat
-ones(bits) -> (
-  pairs = bits - (bits.shift_right(1) & 0x5555555555555555)
-  nibbles = (pairs & 0x3333333333333333) + (pairs.shift_right(2) & 0x3333333333333333)
-  bytes = (nibbles + nibbles.shift_right(4)) & 0x0f0f0f0f0f0f0f0f
-  (bytes * 0x0101010101010101).shift_right(56).to_nat()
-)
-expect ones(0) == 0 & ones(0xff) == 8 & ones(0xffffffffffffffff) == 64
-
 # The squares of `bits`, lowest first, after those `found` holds: the
-# lowest set bit, `bits & (0 - bits)`, is the square as many places up as
-# there are bits below it.
+# lowest set bit is the square as many places up as there are zeros below
+# it, and `bits & (bits - 1)` is `bits` without it.
 lowest_first : (U64, List(Square)) -> List(Square)
 lowest_first(0, found) -> found
-lowest_first(bits, found) -> (
-  lowest = bits & (0 - bits)
-  lowest_first(bits ^ lowest, found.append(Square(ones(lowest - 1))))
-)
+lowest_first(bits, found) -> lowest_first(bits & (bits - 1), found.append(Square(bits.trailing_zeros())))
