@@ -1,111 +1,81 @@
-# A move, as data: which piece goes from where to where, what it takes,
-# what a pawn becomes, and what kind of move it is. A move says nothing of
-# the position it is played on; `Position.play` checks it is legal there.
+# A move, as cozy-chess has it: the square a piece leaves, the square it
+# lands on, and what a pawn becomes, if it does. Which piece moves, what
+# it takes, and whether the move castles or takes in passing are the
+# position's to say, so a move cannot disagree with itself, and
+# `Position.play` checks it is legal where it is played.
 
 import square {Square.*}
-import role {Role.*}
-import castling_side {CastlingSide.*}
-import file {File.*}
-import rank {Rank.*}
+import role {Role.*, promotions, role_letter, role_of_letter}
 
-export {Move.*, MoveKind.*, uci_parts}
+export {Move.*}
 
-# What kind of move a move is, past which piece goes where: a pawn's
-# first step of two squares, which leaves the en passant square behind it;
-# a pawn taking in passing, the pawn taken not on the square landed on; a
-# castle, the rook moving with the king; or none of these.
-MoveKind : [Normal, DoublePush, EnPassant, Castle(CastlingSide)].(
-  equals : (MoveKind, MoveKind) -> Bool
-  to_str : MoveKind -> Str
-)
+Move : {from: Square, to: Square, promotion: Result(Role, [NoPromotion])}.(
+  # The move from `from` to `to`, nothing promoted. A castle is the king's
+  # move of two squares, `e1` to `g1`.
+  of_squares : (Square, Square) -> Move
+  of_squares(from, to) -> Move({from, to, promotion: Err(NoPromotion)})
+  expect Move.from_uci("g1f3") == Square.from_str("g1").and_then(|from| Square.from_str("f3").map_ok(|to| Move.of_squares(from, to)))
 
-# A move: the square its piece leaves and the one it lands on, the role
-# that moves, the role it takes and the role a pawn becomes, if any, and
-# its kind. For a castle, the squares and the role are the king's. A move
-# is made by a position, as one of its `legal_moves` or read by
-# `move_from_uci`, which know what each square holds.
-Move : {
-  from: Square,
-  to: Square,
-  role: Role,
-  captured: Result(Role, [NoCapture]),
-  promotion: Result(Role, [NoPromotion]),
-  kind: MoveKind,
-}.(
+  # A pawn's move from `from` to `to`, on the last rank, becoming `role`.
+  of_promotion : (Square, Square, Role) -> Move
+  of_promotion(from, to, role) -> Move({from, to, promotion: Ok(role)})
+  expect Move.from_uci("e7e8q") == Square.from_str("e7").and_then(|from| Square.from_str("e8").map_ok(|to| Move.of_promotion(from, to, Queen)))
+
   # The square the piece moves from: for a castle, the king's.
   from : Move -> Square
   from(Move({from, *})) -> from
-  expect knight_out.from().to_str() == "g1"
+  expect Move.from_uci("g1f3").map_ok(|move| move.from().to_str()) == Ok("g1")
 
   # The square the piece lands on: for a castle, the king's.
   to : Move -> Square
   to(Move({to, *})) -> to
-  expect knight_out.to().to_str() == "f3"
-
-  # The role of the piece that moves: for a castle, the king.
-  role : Move -> Role
-  role(Move({role, *})) -> role
-  expect knight_out.role() == Knight
-
-  # The role of the piece taken, if one is.
-  captured : Move -> Result(Role, [NoCapture])
-  captured(Move({captured, *})) -> captured
-  expect knight_out.captured() == Err(NoCapture)
+  expect Move.from_uci("g1f3").map_ok(|move| move.to().to_str()) == Ok("f3")
 
   # The role a pawn becomes on the last rank, if it does.
   promotion : Move -> Result(Role, [NoPromotion])
   promotion(Move({promotion, *})) -> promotion
-  expect knight_out.promotion() == Err(NoPromotion)
+  expect Move.from_uci("e7e8n").map_ok(Move.promotion) == Ok(Ok(Knight))
+  expect Move.from_uci("e2e4").map_ok(Move.promotion) == Ok(Err(NoPromotion))
 
-  # What kind of move it is.
-  kind : Move -> MoveKind
-  kind(Move({kind, *})) -> kind
-  expect knight_out.kind() == Normal
+  # The move UCI's `text` writes: the squares it goes from and to, and the
+  # small letter of a role a pawn may become, as `e2e4` or `e7e8q`.
+  # Whether it is legal is asked where it is played.
+  from_uci : Str -> Result(Move, [Malformed])
+  from_uci(text) -> text.to_utf8() is (
+    [a, b, c, d] then Ok(of_squares(square(a, b)?, square(c, d)?))
+    [a, b, c, d, letter] then (
+      role = role_of_letter(letter)?
+      if !promotions.contains(role) | letter.is_ascii_upper() return Err(Malformed)
+      Ok(of_promotion(square(a, b)?, square(c, d)?, role))
+    )
+    _ then Err(Malformed)
+  )
+  expect Move.from_uci("e2e4").map_ok(Move.to_uci) == Ok("e2e4")
+  expect Move.from_uci("e7e8k") == Err(Malformed)
+  expect Move.from_uci("e7e8Q") == Err(Malformed)
+  expect Move.from_uci("e2") == Err(Malformed)
+  expect Move.from_uci("e2e9") == Err(Malformed)
 
   # The move as UCI writes it: the squares it goes from and to, and the
-  # small letter of the role a pawn becomes. A castle is the king's move
-  # of two squares, `e1g1`.
+  # small letter of the role a pawn becomes.
   to_uci : Move -> Str
   to_uci(Move(move)) -> (
     promoted = move.promotion is (
-      Ok(role) then Str.from_ascii([role.to_char()]).ok_or("")
+      Ok(role) then Str.from_ascii([role_letter(role)]).ok_or("")
       Err(NoPromotion) then ""
     )
     "${move.from}${move.to}${promoted}"
   )
-  expect knight_out.to_uci() == "g1f3"
-  expect Move({promotion: Ok(Queen), *knight_out_fields}).to_uci() == "g1f3q"
+  expect Move.from_uci("e7e8q").map_ok(Move.to_uci) == Ok("e7e8q")
 
   # The move as UCI writes it, as `to_uci` does.
   to_str : Move -> Str
   to_str(move) -> move.to_uci()
-  expect "${knight_out}" == "g1f3"
+  expect Move.from_uci("e1g1").map_ok(|move| "${move}") == Ok("e1g1")
 
   equals : (Move, Move) -> Bool
 )
 
-# A knight's first move, to show a move's parts.
-knight_out_fields : {from: Square, to: Square, role: Role, captured: Result(Role, [NoCapture]), promotion: Result(Role, [NoPromotion]), kind: MoveKind}
-knight_out_fields = {from: Square(6), to: Square(21), role: Knight, captured: Err(NoCapture), promotion: Err(NoPromotion), kind: Normal}
-
-knight_out : Move
-knight_out = Move(knight_out_fields)
-
-# The squares, and the role a pawn becomes, UCI's text writes; which piece
-# moves, what it takes and what kind of move it is are the position's to
-# say.
-uci_parts : List(U8) -> Result((Square, Square, Result(Role, [NoPromotion])), [Malformed])
-uci_parts([a, b, c, d]) -> Ok((square(a, b)?, square(c, d)?, Err(NoPromotion)))
-uci_parts([a, b, c, d, letter]) -> (
-  role = Role.from_char(letter)?
-  if !Role.promotions.contains(role) | letter.is_ascii_upper() return Err(Malformed)
-  Ok((square(a, b)?, square(c, d)?, Ok(role)))
-)
-uci_parts(_) -> Err(Malformed)
-expect uci_parts("e7e8q".to_utf8()).map_ok(|(from, to, _)| (from.to_str(), to.to_str())) == Ok(("e7", "e8"))
-expect uci_parts("e7e8k".to_utf8()) == Err(Malformed)
-expect uci_parts("e7".to_utf8()) == Err(Malformed)
-
 # The square a file's letter and a rank's digit name.
 square : (U8, U8) -> Result(Square, [Malformed])
-square(letter, digit) -> Ok(Square.of_coords(File.from_char(letter)?, Rank.from_char(digit)?))
+square(letter, digit) -> Square.from_str(Str.from_ascii([letter, digit]).err_as(Malformed)?)

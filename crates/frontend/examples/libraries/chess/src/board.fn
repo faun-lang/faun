@@ -5,10 +5,10 @@
 # position's.
 
 import square {Square.*}
-import direction {Direction.*}
+import direction {Direction.*, step}
 import color {Color.*}
 import role {Role.*}
-import piece {Piece.*}
+import piece {Piece.*, piece_letter, piece_of_letter}
 
 export {Board, forward, pawn_captures, knight_jumps}
 
@@ -21,17 +21,17 @@ Board : List(Result(Piece, [Empty])).(
 
   # What stands on `square`.
   piece_at : (Board, Square) -> Result(Piece, [Empty])
-  piece_at(Board(cells), square) -> cells.get(square.to_nat()).ok_or(Err(Empty))
+  piece_at(Board(cells), Square(n)) -> cells.get(n).ok_or(Err(Empty))
   expect Board.empty.put(Square(4), Piece(White, King)).piece_at(Square(4)) == Ok(Piece(White, King))
 
   # The board with `piece` on `square`, in place of whatever stood there.
   put : (Board, Square, Piece) -> Board
-  put(Board(cells), square, piece) -> Board(cells.put(square.to_nat(), Ok(piece)))
+  put(Board(cells), Square(n), piece) -> Board(cells.put(n, Ok(piece)))
   expect Board.empty.put(Square(0), Piece(White, Rook)).pieces() == [(Square(0), Piece(White, Rook))]
 
   # The board with nothing on `square`.
   remove : (Board, Square) -> Board
-  remove(Board(cells), square) -> Board(cells.put(square.to_nat(), Err(Empty)))
+  remove(Board(cells), Square(n)) -> Board(cells.put(n, Err(Empty)))
   expect Board.empty.put(Square(0), Piece(White, Rook)).remove(Square(0)) == Board.empty
 
   # Every piece on the board and its square, `a1` first.
@@ -55,8 +55,8 @@ Board : List(Result(Piece, [Empty])).(
     Direction.straight.any(|way| board.first_along(square, way) is Ok(Piece(==by, Rook | Queen)))
       | Direction.diagonal.any(|way| board.first_along(square, way) is Ok(Piece(==by, Bishop | Queen)))
       | knight_jumps(square).any(|from| board.piece_at(from) == Ok(Piece(by, Knight)))
-      | Direction.all.any(|way| square.step(way) is Ok(from) & board.piece_at(from) == Ok(Piece(by, King)))
-      | pawn_captures(by).any(|way| square.step(way.opposite()) is Ok(from) & board.piece_at(from) == Ok(Piece(by, Pawn)))
+      | Direction.all.any(|way| step(square, way) is Ok(from) & board.piece_at(from) == Ok(Piece(by, King)))
+      | pawn_captures(by).any(|way| step(square, way.opposite()) is Ok(from) & board.piece_at(from) == Ok(Piece(by, Pawn)))
   expect Board.start.is_attacked(Square(21), White)
   expect !Board.start.is_attacked(Square(28), White)
   expect Board.start.is_attacked(Square(45), Black)
@@ -64,7 +64,7 @@ Board : List(Result(Piece, [Empty])).(
   # The first piece met going from `square` the way `direction` points,
   # `square` itself left out.
   first_along : (Board, Square, Direction) -> Result(Piece, [Empty])
-  first_along(board, square, direction) -> square.step(direction) is (
+  first_along(board, square, direction) -> step(square, direction) is (
     Ok(next) then board.piece_at(next) is (
       Ok(piece) then Ok(piece)
       Err(Empty) then board.first_along(next, direction)
@@ -130,7 +130,7 @@ knight_jumps : Square -> List(Square)
 knight_jumps(square) -> [
   (North, NorthWest), (North, NorthEast), (East, NorthEast), (East, SouthEast),
   (South, SouthEast), (South, SouthWest), (West, SouthWest), (West, NorthWest),
-].flat_map(|(first, second)| square.step(first).and_then(|middle| middle.step(second)) is (
+].flat_map(|(first, second)| step(square, first).and_then(|middle| step(middle, second)) is (
   Ok(landing) then [landing]
   Err(OffBoard) then []
 ))
@@ -142,7 +142,7 @@ row : Str -> Result(List(Result(Piece, [Empty])), [InvalidBoard])
 row(text) -> (
   cells = text.to_utf8().try_fold([], |cells, letter| (
     if letter >= '1' & letter <= '8' return Ok(cells.concat(List.repeat(Err(Empty), (letter - '0').to_nat())))
-    piece = Piece.from_char(letter).err_as(InvalidBoard)?
+    piece = piece_of_letter(letter).err_as(InvalidBoard)?
     Ok(cells.append(Ok(piece)))
   ))?
   if cells.len() == 8 then Ok(cells) else Err(InvalidBoard)
@@ -153,7 +153,7 @@ row(text) -> (
 written : (List(Result(Piece, [Empty])), Nat, List(U8)) -> Str
 written([], empty, out) -> Str.from_ascii(counted(empty, out)).ok_or("")
 written([Err(Empty), *rest], empty, out) -> written(rest, empty + 1, out)
-written([Ok(piece), *rest], empty, out) -> written(rest, 0, counted(empty, out).append(piece.to_char()))
+written([Ok(piece), *rest], empty, out) -> written(rest, 0, counted(empty, out).append(piece_letter(piece)))
 
 # `out` with the count of `empty` squares written after it, where there
 # are any.

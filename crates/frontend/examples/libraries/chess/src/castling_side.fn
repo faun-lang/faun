@@ -14,7 +14,7 @@ CastlingSide : [KingSide, QueenSide].(
   all = [KingSide, QueenSide]
   expect CastlingSide.all.len() == 2
 
-  cmp : (CastlingSide, CastlingSide) -> Order
+  equals : (CastlingSide, CastlingSide) -> Bool
   to_str : CastlingSide -> Str
 )
 

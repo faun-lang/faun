@@ -1,84 +1,48 @@
-# The board's 64 squares, each a file and a rank. The library's root
-# exports `Square` sealed, so outside it a square is always on the board:
-# one made from a number or from text is checked once, where it is made,
-# and never again.
-
-import file {File.*}
-import rank {Rank.*}
-import direction {Direction.*}
+# The board's 64 squares. The library's root exports `Square` sealed, so
+# outside it a square is always on the board: one made from coordinates
+# or from text is checked once, where it is made, and never again.
 
 export {Square.*}
 
 # A square of the board: `a1` is 0, `b1` 1, and so on along each rank up
 # to `h8`, 63, as shakmaty and cozy-chess number them.
 Square : Nat.(
-  # Every square, `a1` to `h8`, a rank at a time.
-  all : List(Square)
-  all = List.range(64).map(Square)
-  expect Square.all.len() == 64
-  expect Square.all.first().map_ok(Square.to_str) == Ok("a1")
+  # The square on file `file` and rank `rank`, each counted from nought:
+  # `a1` is `(0, 0)` and `h8` `(7, 7)`.
+  from_coords : (Nat, Nat) -> Result(Square, [OutOfRange])
+  from_coords(file, rank) if file < 8 & rank < 8 -> Ok(Square(rank * 8 + file))
+  from_coords(_, _) -> Err(OutOfRange)
+  expect Square.from_coords(4, 3).map_ok(Square.to_str) == Ok("e4")
+  expect Square.from_coords(8, 0) == Err(OutOfRange)
 
-  # The square where a file and a rank cross.
-  of_coords : (File, Rank) -> Square
-  of_coords(file, rank) -> Square(rank.to_nat() * 8 + file.to_nat())
-  expect (
-    file = File.from_char('e')
-    rank = Rank.from_char('4')
-    (file, rank) is (Ok(f), Ok(r)) & Square.of_coords(f, r).to_str() == "e4"
-  )
+  # The square's file, counted from nought: 0 for the `a` file, 7 for the
+  # `h` file.
+  file : Square -> Nat
+  file(Square(n)) -> n % 8
+  expect Square.from_str("e4").map_ok(Square.file) == Ok(4)
 
-  # The square numbered `n`, `a1` being 0 and `h8` 63, where there is one.
-  from_nat : Nat -> Result(Square, [OutOfRange])
-  from_nat(n) if n < 64 -> Ok(Square(n))
-  from_nat(_) -> Err(OutOfRange)
-  expect Square.from_nat(63).map_ok(Square.to_str) == Ok("h8")
-  expect Square.from_nat(64) == Err(OutOfRange)
-
-  # The square's number: 0 for `a1` to 63 for `h8`.
-  to_nat : Square -> Nat
-  to_nat(Square(n)) -> n
-  expect Square.from_str("e4").map_ok(Square.to_nat) == Ok(28)
-
-  # The square's file.
-  file : Square -> File
-  file(Square(n)) -> File(n % 8)
-  expect Square.from_str("e4").map_ok(|square| square.file().to_char()) == Ok('e')
-
-  # The square's rank.
-  rank : Square -> Rank
-  rank(Square(n)) -> Rank(n / 8)
-  expect Square.from_str("e4").map_ok(|square| square.rank().to_char()) == Ok('4')
+  # The square's rank, counted from nought: 0 for the first rank, 7 for the
+  # eighth.
+  rank : Square -> Nat
+  rank(Square(n)) -> n / 8
+  expect Square.from_str("e4").map_ok(Square.rank) == Ok(3)
 
   # The square a name such as `e4` gives: a file's letter, then a rank's
   # digit.
   from_str : Str -> Result(Square, [Malformed])
   from_str(text) -> text.to_utf8() is (
-    [letter, digit] then Ok(of_coords(File.from_char(letter)?, Rank.from_char(digit)?))
+    [letter, digit] if letter >= 'a' & letter <= 'h' & digit >= '1' & digit <= '8' then
+      Ok(Square((digit - '1').to_nat() * 8 + (letter - 'a').to_nat()))
     _ then Err(Malformed)
   )
-  expect Square.from_str("h8").map_ok(Square.to_nat) == Ok(63)
+  expect Square.from_str("h8") == Square.from_coords(7, 7).err_as(Malformed)
   expect Square.from_str("i1") == Err(Malformed)
   expect Square.from_str("e44") == Err(Malformed)
 
   # The square's name, as `e4`.
   to_str : Square -> Str
-  to_str(square) -> Str.from_ascii([square.file().to_char(), square.rank().to_char()]).ok_or("")
-  expect Square.all.map(Square.to_str).last() == Ok("h8")
+  to_str(Square(n)) -> Str.from_ascii(['a' + U8.of_nat(n % 8), '1' + U8.of_nat(n / 8)]).ok_or("")
+  expect Square.from_coords(0, 0).map_ok(Square.to_str) == Ok("a1")
 
-  # The square one step away the way `direction` points, or `OffBoard`
-  # where that leaves the board.
-  step : (Square, Direction) -> Result(Square, [OffBoard])
-  step(Square(n), North) if n < 56 -> Ok(Square(n + 8))
-  step(Square(n), South) if n >= 8 -> Ok(Square(n - 8))
-  step(Square(n), East) if n % 8 < 7 -> Ok(Square(n + 1))
-  step(Square(n), West) if n % 8 > 0 -> Ok(Square(n - 1))
-  step(Square(n), NorthEast) if n < 56 & n % 8 < 7 -> Ok(Square(n + 9))
-  step(Square(n), NorthWest) if n < 56 & n % 8 > 0 -> Ok(Square(n + 7))
-  step(Square(n), SouthEast) if n >= 8 & n % 8 < 7 -> Ok(Square(n - 7))
-  step(Square(n), SouthWest) if n >= 8 & n % 8 > 0 -> Ok(Square(n - 9))
-  step(_, _) -> Err(OffBoard)
-  expect Square.from_str("e4").and_then(|square| square.step(NorthEast)).map_ok(Square.to_str) == Ok("f5")
-  expect Square.from_str("h4").and_then(|square| square.step(East)) == Err(OffBoard)
-
-  cmp : (Square, Square) -> Order
+  equals : (Square, Square) -> Bool
 )
