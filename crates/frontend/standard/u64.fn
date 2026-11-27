@@ -147,6 +147,32 @@ U64 : Nat.(
   expect U64.of_nat(0xffffffffffffffff).leading_zeros() == 0
   expect U64.of_nat(0x0000000580000000).leading_zeros() == 29
 
+  # How many of the word's bits are clear: the ones of its complement.
+  count_zeros : U64 -> Nat
+  count_zeros(word) -> count_ones(!word)
+  expect U64.of_nat(0).count_zeros() == 64
+  expect U64.of_nat(0x8000000000000000).count_zeros() == 63
+  expect U64.of_nat(0xffffffffffffffff).count_zeros() == 0
+  expect U64.of_nat(0x0000000580000000).count_zeros() == 61
+
+  # How many bits are set above the highest clear one: the leading zeros
+  # of its complement, so the width for a word of all ones.
+  leading_ones : U64 -> Nat
+  leading_ones(word) -> leading_zeros(!word)
+  expect U64.of_nat(0).leading_ones() == 0
+  expect U64.of_nat(0x8000000000000000).leading_ones() == 1
+  expect U64.of_nat(0xffffffffffffffff).leading_ones() == 64
+  expect U64.of_nat(0xfffffffffffffff8).leading_ones() == 61
+
+  # How many bits are set below the lowest clear one: the trailing zeros
+  # of its complement, so the width for a word of all ones.
+  trailing_ones : U64 -> Nat
+  trailing_ones(word) -> trailing_zeros(!word)
+  expect U64.of_nat(0).trailing_ones() == 0
+  expect U64.of_nat(1).trailing_ones() == 1
+  expect U64.of_nat(0xffffffffffffffff).trailing_ones() == 64
+  expect U64.of_nat(0x1fffffffffffffff).trailing_ones() == 61
+
   # `n` as a word when it fits, and a refusal when it does not: the
   # checked narrowing, for values worked out at run time.
   from_nat : Nat -> Result(U64, [TooBig])

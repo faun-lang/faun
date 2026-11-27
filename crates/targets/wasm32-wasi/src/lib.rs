@@ -41,6 +41,12 @@ impl Target for Wasm32Wasi {
         WORD_BITS
     }
 
+    /// `i32.popcnt`, `i32.ctz` and `i32.clz`, each one instruction; a word
+    /// of 64 bits is counted a half at a time, as it is held.
+    fn counts(&self) -> barb::Counts {
+        barb::Counts::ALL
+    }
+
     fn limits(&self, program: &Program) -> Result<(), String> {
         startup_parameters(program, self.name())
     }

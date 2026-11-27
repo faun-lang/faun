@@ -20,6 +20,22 @@ pub(crate) fn lower(text: &str, target: &dyn Target) -> Result<Program, String> 
     faun_driver::machine_ir(&barb, target)
 }
 
+/// [`lower`], with every count of a word's bits answered by its body, as
+/// on a target with no instruction for any.
+#[allow(
+    dead_code,
+    reason = "not every test binary including this walks counts"
+)]
+pub(crate) fn walking_counts(text: &str, target: &dyn Target) -> Result<Program, String> {
+    let (dir, path) = source_file(text);
+    let barb = ::faun_frontend::lower_to_barb(&path, &faun_driver::platform(target));
+    fs::remove_dir_all(dir).expect("the scratch source to go");
+    let mut barb = barb?;
+    barb.answer_counts(barb::Counts::NONE);
+    barb::optimize(&mut barb);
+    faun_driver::machine_ir(&barb, target)
+}
+
 /// Lower a Faun package's expectations as `faun test` builds them: an
 /// application printing the number of each that does not hold.
 #[allow(

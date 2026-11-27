@@ -2747,6 +2747,7 @@ impl Lowering<'_> {
         match op {
             Op::NaturalConstant(_) => unreachable!("target acceptance rejects arbitrary precision"),
             Op::Float { .. } => unreachable!("this target says it computes no floats"),
+            Op::Count { .. } => unreachable!("this target says it counts no bits itself"),
             Op::Cell { .. }
             | Op::CellTag { .. }
             | Op::CellField { .. }

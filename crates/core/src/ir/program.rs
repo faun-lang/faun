@@ -242,6 +242,7 @@ impl Program {
             | Op::Load { address: value, .. }
             | Op::Convert { value }
             | Op::Shift { value, .. }
+            | Op::Count { value, .. }
             | Op::If {
                 condition: value, ..
             } => (None, std::slice::from_ref(value)),

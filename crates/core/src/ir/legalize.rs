@@ -1274,6 +1274,7 @@ impl Pass<'_> {
                     .collect();
                 b.float(float, &operands)
             }
+            Op::Count { count, value } => b.count(count, v(value)),
             // A shift is never over a natural, so there is no helper for it
             // and nothing to choose between here.
             Op::Shift {

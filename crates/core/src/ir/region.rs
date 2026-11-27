@@ -92,6 +92,7 @@ const fn scalar(op: &Op) -> bool {
             | Op::Binary { .. }
             | Op::Shift { .. }
             | Op::Float { .. }
+            | Op::Count { .. }
             | Op::Convert { .. }
     )
 }

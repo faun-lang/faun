@@ -1013,6 +1013,9 @@ impl<'a> Lowering<'a> {
                 self.asm.xor_self(result()?);
                 self.asm.bind(kept);
             }
+            (Opcode::CountBits, Immediate::Count(count)) => {
+                self.count_bits(count, result()?, reg(0)?);
+            }
             (Opcode::ShiftUp | Opcode::ShiftDown, Immediate::Bits(_)) => {
                 let direction = if inst.opcode == Opcode::ShiftUp {
                     ShiftDirection::Left
@@ -1293,6 +1296,46 @@ impl<'a> Lowering<'a> {
             }
             _ => None,
         };
+    }
+
+    /// `count` of the bits of `src`, nought above its width, in `dst`,
+    /// which may be `src`. A scan of nought sets the zero flag and leaves
+    /// its destination undefined, so a jump past what nought answers
+    /// follows it: the width for the lowest set bit, and for the highest
+    /// what the flip below the width's own top bit takes to the width.
+    fn count_bits(&mut self, count: barb::BitCount, dst: Reg, src: Reg) {
+        let width = if count.bits > 32 {
+            RegisterWidth::Word
+        } else {
+            RegisterWidth::Low32
+        };
+        let bits = u32::from(count.bits);
+        match count.count {
+            barb::Count::Ones => self.asm.pop_count(dst, src, width),
+            barb::Count::TrailingZeros => {
+                self.asm.bit_scan(true, dst, src, width);
+                let found = self.asm.label();
+                self.asm.jump_if(Condition::NotEqual, found);
+                self.asm.mov_imm32(dst, bits);
+                self.asm.bind(found);
+            }
+            // The highest set bit's index is below the width, so taking it
+            // from one less than the width flips its bits; nought answers
+            // what the same flip takes to the width.
+            barb::Count::LeadingZeros => {
+                self.asm.bit_scan(false, dst, src, width);
+                let found = self.asm.label();
+                self.asm.jump_if(Condition::NotEqual, found);
+                self.asm.mov_imm32(dst, 2 * bits - 1);
+                self.asm.bind(found);
+                self.asm.alu_immediate(
+                    Alu::Xor,
+                    dst,
+                    i32::try_from(bits - 1).expect("a width below 2^31"),
+                    32,
+                );
+            }
+        }
     }
 
     fn forget(&mut self, reg: Reg) {

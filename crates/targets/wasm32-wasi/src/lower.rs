@@ -53,6 +53,9 @@ const I32_STORE16: u8 = 0x3B;
 /// The loads and the stores, a byte, two, and a word wide.
 const LOADS: [u8; 3] = [I32_LOAD8_U, I32_LOAD16_U, I32_LOAD];
 const STORES: [u8; 3] = [I32_STORE8, I32_STORE16, I32_STORE];
+const I32_CLZ: u8 = 0x67;
+const I32_CTZ: u8 = 0x68;
+const I32_POPCNT: u8 = 0x69;
 const I32_AND: u8 = 0x71;
 const I32_OR: u8 = 0x72;
 const I32_XOR: u8 = 0x73;
@@ -729,6 +732,7 @@ impl Lowering<'_> {
                 });
                 self.set(results[0]);
             }
+            Op::Count { count, value } => self.bit_count(*count, *value, results[0]),
             Op::Compare {
                 relation,
                 left,
@@ -1368,6 +1372,33 @@ impl Lowering<'_> {
         } else {
             data.next_multiple_of(ALIGN)
         }
+    }
+
+    /// `count` of `value`'s bits, a number of its width, which is the
+    /// whole word's or less: for a narrower one, a set bit just above it
+    /// stops the count of trailing zeros at its width, and the count of
+    /// leading zeros is the word's less the bits above it.
+    fn bit_count(&mut self, count: barb::BitCount, value: ValueId, result: ValueId) {
+        self.push(value);
+        let narrower = count.bits < WORD_BITS;
+        match count.count {
+            barb::Count::Ones => self.body.byte(I32_POPCNT),
+            barb::Count::TrailingZeros => {
+                if narrower {
+                    self.constant_i32(1 << count.bits);
+                    self.body.byte(I32_OR);
+                }
+                self.body.byte(I32_CTZ);
+            }
+            barb::Count::LeadingZeros => {
+                self.body.byte(I32_CLZ);
+                if narrower {
+                    self.constant_i32(i32::from(WORD_BITS - count.bits));
+                    self.body.byte(I32_SUB);
+                }
+            }
+        }
+        self.set(result);
     }
 
     fn constant_i32(&mut self, value: i32) {

@@ -66,6 +66,15 @@ pub(crate) fn encode(program: &Allocated) -> Code {
             Inst::ShiftByCount { direction, dst } => asm.shift_by_count(direction, dst),
             Inst::RotateLeft { dst, bits, by } => asm.rotate_left(dst, bits, by),
             Inst::Multiply { dst, src } => asm.multiply(dst, src),
+            Inst::BitScan {
+                forward,
+                dst,
+                src,
+                width,
+            } => asm.bit_scan(forward, dst, src, width == RegisterWidth::Word),
+            Inst::PopCount { dst, src, width } => {
+                asm.pop_count(dst, src, width == RegisterWidth::Word);
+            }
             Inst::MultiplyImmediate {
                 dst,
                 src,
@@ -616,6 +625,21 @@ impl RawEncoder {
     }
 
     /// The low 64 bits of `dst * src`, leaving every other register alone.
+    /// `bsf dst, src` or `bsr dst, src`.
+    fn bit_scan(&mut self, forward: bool, dst: Reg, src: Reg, wide: bool) {
+        self.step();
+        self.rex(wide, Some(dst), src);
+        self.emit(&[0x0F, if forward { 0xBC } else { 0xBD }, modrm(dst, src)]);
+    }
+
+    /// `popcnt dst, src`, whose mandatory prefix comes before any REX.
+    fn pop_count(&mut self, dst: Reg, src: Reg, wide: bool) {
+        self.step();
+        self.emit(&[0xF3]);
+        self.rex(wide, Some(dst), src);
+        self.emit(&[0x0F, 0xB8, modrm(dst, src)]);
+    }
+
     fn multiply(&mut self, dst: Reg, src: Reg) {
         self.step();
         self.rex(true, Some(dst), src);
@@ -967,6 +991,23 @@ mod tests {
         #[rustfmt::skip]
         assert_eq!(encoded(|a| a.mov_imm64(Reg::Rdx, 0x7FFF_FFFF_FFFF_FFFF)),
             [0x48, 0xBA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F]);
+    }
+
+    /// `popcnt`'s mandatory prefix comes before the REX byte.
+    #[test]
+    fn bit_scans_and_counts_encode_at_both_widths() {
+        assert_eq!(
+            encoded(|a| a.bit_scan(true, Reg::Rax, Reg::Rcx, RegisterWidth::Word)),
+            [0x48, 0x0F, 0xBC, 0xC1]
+        );
+        assert_eq!(
+            encoded(|a| a.bit_scan(false, Reg::R9, Reg::Rdx, RegisterWidth::Low32)),
+            [0x44, 0x0F, 0xBD, 0xCA]
+        );
+        assert_eq!(
+            encoded(|a| a.pop_count(Reg::Rax, Reg::R8, RegisterWidth::Word)),
+            [0xF3, 0x49, 0x0F, 0xB8, 0xC0]
+        );
     }
 
     #[test]

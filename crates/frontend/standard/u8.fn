@@ -192,6 +192,32 @@ U8 : Nat.(
   expect U8.of_nat(0xff).leading_zeros() == 0
   expect U8.of_nat(0x58).leading_zeros() == 1
 
+  # How many of the word's bits are clear: the ones of its complement.
+  count_zeros : U8 -> Nat
+  count_zeros(word) -> count_ones(!word)
+  expect U8.of_nat(0).count_zeros() == 8
+  expect U8.of_nat(0x80).count_zeros() == 7
+  expect U8.of_nat(0xff).count_zeros() == 0
+  expect U8.of_nat(0x58).count_zeros() == 5
+
+  # How many bits are set above the highest clear one: the leading zeros
+  # of its complement, so the width for a word of all ones.
+  leading_ones : U8 -> Nat
+  leading_ones(word) -> leading_zeros(!word)
+  expect U8.of_nat(0).leading_ones() == 0
+  expect U8.of_nat(0x80).leading_ones() == 1
+  expect U8.of_nat(0xff).leading_ones() == 8
+  expect U8.of_nat(0xf8).leading_ones() == 5
+
+  # How many bits are set below the lowest clear one: the trailing zeros
+  # of its complement, so the width for a word of all ones.
+  trailing_ones : U8 -> Nat
+  trailing_ones(word) -> trailing_zeros(!word)
+  expect U8.of_nat(0).trailing_ones() == 0
+  expect U8.of_nat(1).trailing_ones() == 1
+  expect U8.of_nat(0xff).trailing_ones() == 8
+  expect U8.of_nat(0x1f).trailing_ones() == 5
+
   # `n` as a byte when it fits, and a refusal when it does not: the
   # checked narrowing, for values worked out at run time.
   from_nat : Nat -> Result(U8, [TooBig])

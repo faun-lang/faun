@@ -560,6 +560,127 @@ fn a_pair_of_small_numbers_is_two_small_words() {
     assert_eq!(status(&prepared), 3);
 }
 
+/// A word of `bits` bits read from standard input, least significant byte
+/// first, and its six counts of its bits.
+fn bit_counts_program(bits: u16) -> String {
+    let word = format!("U{bits}");
+    let read: Vec<_> = (0..bits / 8)
+        .map(|at| format!("{word}.of_nat(byte(bytes, {at})).shift_left({})", at * 8))
+        .collect();
+    format!(
+        "import std.host {{Host}}
+
+         byte : (List(U8), Nat) -> Nat
+         byte(bytes, at) -> bytes.get(at).ok_or(0).to_nat()
+
+         main! : Host -> []
+         main!(host) -> (
+           read = host.stdin.read!({})
+           read is Ok(Data(bytes)) else return host.exit!(1)
+           w = {}
+           host.print!(\"${{w.count_ones()}} ${{w.count_zeros()}} ${{w.leading_zeros()}} ${{w.leading_ones()}} ${{w.trailing_zeros()}} ${{w.trailing_ones()}}\")
+           host.exit!(0)
+         )",
+        bits / 8,
+        read.join(" | ")
+    )
+}
+
+/// The six counts Rust's own integers give, as `bit_counts_program`'s
+/// write them.
+macro_rules! six {
+    ($w:expr) => {
+        format!(
+            "{} {} {} {} {} {}",
+            $w.count_ones(),
+            $w.count_zeros(),
+            $w.leading_zeros(),
+            $w.leading_ones(),
+            $w.trailing_zeros(),
+            $w.trailing_ones()
+        )
+    };
+}
+
+/// Whether `program` writes a count of a word's bits of its own.
+fn counts_bits(program: &Program) -> bool {
+    program
+        .functions()
+        .iter()
+        .filter_map(faun_core::ir::Function::body)
+        .flat_map(|body| program.every(body))
+        .any(|op| matches!(op, Op::Count { .. }))
+}
+
+/// What the six counts of `value` read at `bits` come to, as Rust's
+/// integers give them, and the bytes a program reads it from.
+fn counted_by_rust(value: u64, bits: u16) -> (String, Vec<u8>) {
+    let input = value.to_le_bytes()[..usize::from(bits / 8)].to_vec();
+    let expected = match bits {
+        8 => six!(u8::try_from(value).unwrap()),
+        16 => six!(u16::try_from(value).unwrap()),
+        32 => six!(u32::try_from(value).unwrap()),
+        _ => six!(value),
+    };
+    (expected, input)
+}
+
+/// Nought, one, the top bit, all ones and patterns between, each read at
+/// every width with its top bit kept at the top.
+const BIT_PATTERNS: [u64; 11] = [
+    0,
+    1,
+    0x8000_0000_0000_0000,
+    u64::MAX,
+    0x0000_0005_8000_0000,
+    0x0000_0001_0000_0000,
+    0x0000_0000_ffff_ffff,
+    0xffff_ffff_0000_0000,
+    0x0ff0_0000_0000_7e00,
+    0x0000_0000_0005_8058,
+    0x00f0_0f00_0ff0_7e3c,
+];
+
+/// The words' counts of their bits answer as Rust's do at nought, one, the
+/// top bit, all ones and values between, at every width, both where a
+/// target answers them with its own instructions and where each walks the
+/// definition's body; and only the former writes a count of its own.
+#[test]
+fn the_words_count_their_bits_as_their_definitions_do() {
+    for bits in [8u16, 16, 32, 64] {
+        let text = bit_counts_program(bits);
+        let answered = TARGET
+            .prepare(&read(&text).expect("a program counting bits"))
+            .expect("a program any target holds");
+        let walked = TARGET
+            .prepare(&faun::walking_counts(&text, &TARGET).expect("a program counting bits"))
+            .expect("a program any target holds");
+        assert_eq!(
+            counts_bits(&answered),
+            TARGET.counts() != barb::Counts::NONE
+        );
+        assert!(!counts_bits(&walked));
+        for value in BIT_PATTERNS {
+            // The same places at every width: the top bit is the top bit
+            // of the word, and the rest is read below it.
+            let top = value >> 63 << (bits - 1);
+            let value = (value & (u64::MAX >> (64 - bits))) | top;
+            let (expected, input) = counted_by_rust(value, bits);
+            let input = input.as_slice();
+            assert_eq!(
+                execute_with_input(&answered, input),
+                (0, expected.clone()),
+                "{bits}: {value:#x}"
+            );
+            assert_eq!(
+                execute_with_input(&walked, input),
+                (0, expected),
+                "{bits}: {value:#x}"
+            );
+        }
+    }
+}
+
 /// A list built while the program runs is a buffer: counting builds one by
 /// pushing in place, reversing builds another, and the first element is
 /// read back from where the buffer holds it.

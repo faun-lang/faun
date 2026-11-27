@@ -30,6 +30,22 @@ use faun_core::targets::{Favour, SymbolTable, Target, startup_parameters, write_
 /// and what any class but a fixed one means here.
 pub(crate) const WORD_BITS: u16 = 64;
 
+/// Which instructions past the x86-64 baseline an image may use. None, so
+/// an image runs on every x86-64 processor, as rustc's do by default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Extensions {
+    /// `popcnt`, which counts a word's set bits in one instruction where
+    /// the baseline takes a dozen. A count of ones is answered by it where
+    /// this is set, and by the definition's own arithmetic, Hacker's
+    /// Delight's count, where it is not, as rustc answers `count_ones` at
+    /// the baseline. `lzcnt` and `tzcnt`, from the same generation, would
+    /// answer the counts of zeros a jump shorter than `bsr` and `bsf` do.
+    pub(crate) popcnt: bool,
+}
+
+/// The extensions images are built for: the baseline alone.
+pub(crate) const EXTENSIONS: Extensions = Extensions { popcnt: false };
+
 /// Parameters a call passes, one per System V integer argument register.
 const ARG_COUNT: usize = 6;
 
@@ -60,6 +76,20 @@ impl Target for X86_64Linux {
 
     fn shifts_by_register(&self) -> bool {
         true
+    }
+
+    /// The counts of zeros are `bsf` and `bsr` at the baseline, with a jump
+    /// for nought; a count of ones is `popcnt`, past it, so only where
+    /// the target's extensions say, none by default.
+    fn counts(&self) -> barb::Counts {
+        let zeros = barb::Counts::NONE
+            .with(barb::Count::TrailingZeros)
+            .with(barb::Count::LeadingZeros);
+        if EXTENSIONS.popcnt {
+            zeros.with(barb::Count::Ones)
+        } else {
+            zeros
+        }
     }
 
     fn limits(&self, program: &Program) -> Result<(), String> {

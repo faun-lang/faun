@@ -260,6 +260,23 @@ pub(crate) enum Inst {
         bits: u16,
         by: Option<u8>,
     },
+    /// The index of the lowest set bit of `src` in `dst`, `bsf`, or of the
+    /// highest, `bsr`, at the register's low 32 bits or all 64. Where `src`
+    /// is nought the zero flag is set and `dst` is left undefined, so what
+    /// follows tests the flag before reading it.
+    BitScan {
+        forward: bool,
+        dst: Reg,
+        src: Reg,
+        width: RegisterWidth,
+    },
+    /// How many bits of `src` are set, in `dst`: `popcnt`, past the
+    /// baseline, written only where [`crate::EXTENSIONS`] says so.
+    PopCount {
+        dst: Reg,
+        src: Reg,
+        width: RegisterWidth,
+    },
     /// The low word of a product; signed and unsigned multiplication agree
     /// on these bits, and no instruction reads a high half.
     Multiply {
@@ -415,6 +432,8 @@ impl Inst {
             | Self::LoadDataAddress { dst, .. } => !dst.is_xmm(),
             Self::PushRegister { src } => !src.is_xmm(),
             Self::Multiply { dst, src }
+            | Self::BitScan { dst, src, .. }
+            | Self::PopCount { dst, src, .. }
             | Self::MultiplyImmediate { dst, src, .. }
             | Self::Alu { dst, src, .. } => !dst.is_xmm() && !src.is_xmm(),
             // `rsp` names no scaled index.
@@ -654,6 +673,19 @@ impl AllocatedBuilder {
 
     pub(crate) fn shift_by_count(&mut self, direction: ShiftDirection, dst: Reg) {
         self.push(Inst::ShiftByCount { direction, dst });
+    }
+
+    pub(crate) fn bit_scan(&mut self, forward: bool, dst: Reg, src: Reg, width: RegisterWidth) {
+        self.push(Inst::BitScan {
+            forward,
+            dst,
+            src,
+            width,
+        });
+    }
+
+    pub(crate) fn pop_count(&mut self, dst: Reg, src: Reg, width: RegisterWidth) {
+        self.push(Inst::PopCount { dst, src, width });
     }
 
     pub(crate) fn multiply(&mut self, dst: Reg, src: Reg) {

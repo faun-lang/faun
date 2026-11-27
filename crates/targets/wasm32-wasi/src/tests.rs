@@ -47,3 +47,35 @@ fn multivalue_function_and_region_abis_are_supported() {
         assert_eq!(status(&programs::abi::region(kind, 3)), 0);
     }
 }
+
+/// Each count of a word's bits is one instruction at a width up to the
+/// word's, and a word of 64 bits is counted a half at a time.
+#[test]
+fn a_count_of_bits_is_counted_a_word_at_a_time() {
+    use faun_core::ir::{Function, Op};
+    for (word, bits) in [("U8", 8), ("U16", 16), ("U32", 32), ("U64", 32)] {
+        for method in ["count_ones", "trailing_zeros", "leading_zeros"] {
+            let source = format!(
+                "import std.host {{Host}}
+
+                 main! : Host -> []
+                 main!(host) -> host.exit!(U8.of_nat({word}.of_nat(host.args.len()).{method}()))"
+            );
+            let prepared = TARGET
+                .prepare(&faun::lower(&source, &TARGET).unwrap())
+                .unwrap();
+            let widths: Vec<u16> = prepared
+                .functions()
+                .iter()
+                .filter_map(Function::body)
+                .flat_map(|body| prepared.every(body))
+                .filter_map(|op| match op {
+                    Op::Count { count, .. } => Some(count.bits),
+                    _ => None,
+                })
+                .collect();
+            let halves = if word == "U64" { 2 } else { 1 };
+            assert_eq!(widths, vec![bits; halves], "{word}.{method}");
+        }
+    }
+}

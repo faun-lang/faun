@@ -259,6 +259,7 @@ impl Program {
             Op::Float { float, operands } => {
                 format!("{float} {}", arguments(self.values(operands)))
             }
+            Op::Count { count, value } => format!("{count} v{}", value.index()),
             Op::Shift {
                 direction,
                 value,

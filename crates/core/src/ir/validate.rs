@@ -226,6 +226,7 @@ impl References<'_> {
             Op::Load { address: value, .. }
             | Op::Convert { value, .. }
             | Op::Shift { value, .. }
+            | Op::Count { value, .. }
             | Op::Keep { value }
             | Op::Claim { value }
             | Op::Release { value } => self.value(value)?,
@@ -594,6 +595,7 @@ impl Checker<'_> {
             Op::Binary { left, right, .. } => self.binary(left, right, results)?,
             Op::Shift { value, by, .. } => self.shift(value, by, results)?,
             Op::Float { float, operands } => self.float(float, operands, results)?,
+            Op::Count { count, value } => self.count(count, value, results)?,
             Op::Compare {
                 relation: super::Relation::FloatNotAbove(format),
                 left,
@@ -820,6 +822,28 @@ impl Checker<'_> {
         operands
             .iter()
             .try_for_each(|&operand| self.require(operand, pattern))
+    }
+
+    fn count(
+        &self,
+        count: barb::BitCount,
+        value: ValueId,
+        results: &[ValueId],
+    ) -> Result<(), String> {
+        let [result] = results else {
+            return Err("a count of bits must have one result".into());
+        };
+        if !matches!(count.bits, 8 | 16 | 32 | 64) {
+            return Err(format!("{count} counts at no word's width"));
+        }
+        let most = Class::Held(barb::Bounds {
+            low: 0,
+            high: Some(u64::from(count.bits)),
+        });
+        if !most.fits(self.program.class(*result)) {
+            return Err(format!("{count} must answer as many as {}", count.bits));
+        }
+        self.require(value, Class::fixed(count.bits))
     }
 
     fn shift(&self, value: ValueId, by: u16, results: &[ValueId]) -> Result<(), String> {

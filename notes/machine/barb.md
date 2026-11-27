@@ -36,6 +36,7 @@ records it as a fact:
 
 - arithmetic: add, multiply, monus, divide, modulo, bitwise and/or/xor,
   power, rotation
+- bit counts: ones, trailing zeros, leading zeros, at a word's width
 - sequences: length, reverse-onto, prepend, append, drop, take, replace
 - floats: add, subtract, multiply, divide, square root, comparison
 
@@ -51,8 +52,15 @@ definition's code is the standard's `add`, it is IEEE add. The frontend
 says nothing, and `just bless` rewrites the table when the standard
 changes.
 
-So the frontend API is just the program: types, functions, the entry, and
-which declarations the target provides.
+Bit counts are recognized by shape, as rotation is: a definition taking a
+word is read as arithmetic modulo its width, and its terms are matched
+against Hacker's Delight's branch-free count and the two counts of zeros
+built on it. A target says which counts it has instructions for, and Barb
+keeps only those definitions whole; the rest are inlined like any other.
+A count spelled another way, such as a loop clearing bits, runs its body.
+
+So the frontend API is just the program: types, functions, the entry,
+which declarations the target provides, and which bit counts it answers.
 
 Every program has exactly one entry, and every optimization is rooted
 there: what it doesn't reach is dropped, and only its parameters come from
