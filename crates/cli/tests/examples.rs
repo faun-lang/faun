@@ -27,7 +27,7 @@ fn advent_of_code_2015_day_one_answers_the_puzzle_examples() {
 }
 
 /// Word squares read their words a line each from standard input, and say
-/// each square found as a line: a sorted set's `from`, `Str.slice`,
+/// each square found as a line: a sorted set's `from`, byte cuts,
 /// `lines!` and `print_lines!` at work.
 #[test]
 fn word_squares_are_read_and_said_a_line_each() {
@@ -36,6 +36,21 @@ fn word_squares_are_read_and_said_a_line_each() {
         support::run_file(&example("squares.fn"), words.as_bytes()),
         (0, "abcdefghi,defxyzjkl,ghijklmno\n".to_owned())
     );
+}
+
+#[test]
+fn word_squares_skip_short_words() {
+    assert_eq!(
+        support::run_file(&example("squares.fn"), b"a\n"),
+        (0, String::new())
+    );
+}
+
+#[test]
+fn word_break_uses_utf8_suffixes() {
+    let (failed, count) = support::test_file(&example("libraries/trie/examples/segment.fn"));
+    assert!(failed.is_empty(), "{failed:?}");
+    assert!(count >= 5, "all word-break cases should run");
 }
 
 /// Hello, world, written once from where it lies; how small that is, is

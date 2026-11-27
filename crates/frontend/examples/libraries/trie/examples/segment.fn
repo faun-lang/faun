@@ -11,7 +11,7 @@ package {
 import trie {Trie}
 
 dictionary : Trie({})
-dictionary = Trie.of_list(["a", "an", "and", "as", "ask", "cat", "cats", "dog", "dogs", "sand", "not", "s"].map(|word| (word, {})))
+dictionary = Trie.of_list(["a", "an", "and", "as", "ask", "cat", "cats", "dog", "dogs", "sand", "not", "s", "été", "🐝"].map(|word| (word, {})))
 
 Split = Result(List(Str), [Unsplittable])
 
@@ -19,24 +19,27 @@ Split = Result(List(Str), [Unsplittable])
 # split of every suffix, shortest first, each from those after it.
 segmented : Str -> Split
 segmented(text) -> (
-  length = text.len()
-  splits = List.range(length + 1).fold([], |later, done| [split_from(text, length - done, later), *later])
+  bytes = text.to_utf8()
+  length = bytes.len()
+  splits = List.range(length + 1).fold([], |later, done| [split_from(bytes, length - done, later), *later])
   splits.first().ok_or(Err(Unsplittable))
 )
 
-# The best split of `text` from `start` on, given those from each place
-# after it, nearest first.
-split_from : (Str, Nat, List(Split)) -> Split
-split_from(text, start, _) if start == text.len() -> Ok([])
-split_from(text, start, later) -> (
-  rest = text.slice(start, text.len()).ok_or("")
-  choices = dictionary.prefixes(rest).flat_map(|(word, _)|
-    if later.get(word.len() - 1) is Ok(Ok(words)) then [[word, *words]] else [])
-  choices.sort_on(|words| words.len()).first().err_as(Unsplittable)
-)
+# The best split from byte offset `start`, given the splits after it,
+# nearest first. An offset inside a character cannot start a word.
+split_from : (List(U8), Nat, List(Split)) -> Split
+split_from(bytes, start, _) if start == bytes.len() -> Ok([])
+split_from(bytes, start, later) ->
+  if Str.from_utf8(bytes.drop(start)) is Ok(rest) then (
+    choices = dictionary.prefixes(rest).flat_map(|(word, _)|
+      if later.get(word.len() - 1) is Ok(Ok(words)) then [[word, *words]] else [])
+    choices.sort_on(|words| words.len()).first().err_as(Unsplittable)
+  ) else Err(Unsplittable)
 
 # Of splits as short, the one whose first word is shortest wins, since the
 # trie answers the words beginning a text shortest first.
 expect segmented("catsanddog") == Ok(["cat", "sand", "dog"])
 expect segmented("askanddogs") == Ok(["ask", "and", "dogs"])
 expect segmented("") == Ok([]) & segmented("catz") == Err(Unsplittable)
+expect segmented("catété🐝") == Ok(["cat", "été", "🐝"])
+expect segmented("caté🐝") == Err(Unsplittable)

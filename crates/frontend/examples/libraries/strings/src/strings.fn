@@ -46,8 +46,7 @@ find_all(text, pattern) -> (
 find_first : (List(a), List(a)) -> Result(Nat, [NotFound]) where Equatable(a)
 find_first(text, pattern) -> find_all(text, pattern).first().err_as(NotFound)
 
-# Every place `pattern` begins in `text`, counting bytes, as `Str.slice`
-# does.
+# Every byte offset where `pattern` begins in `text`.
 occurrences : (Str, Str) -> List(Nat)
 occurrences(text, pattern) -> find_all(text.to_utf8(), pattern.to_utf8())
 
