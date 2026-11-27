@@ -789,7 +789,8 @@ chunk(kind, body) -> (
 
 # `n`'s low 32 bits, most significant first.
 word : Nat -> List(U8)
-word(n) -> [U8.of_nat(n >> 24), U8.of_nat(n >> 16), U8.of_nat(n >> 8), U8.of_nat(n)]
+word(n) -> [U8.wrap(n >> 24), U8.wrap(n >> 16), U8.wrap(n >> 8), U8.wrap(n)]
+expect word(0x112345678) == [0x12, 0x34, 0x56, 0x78]
 
 # Every colour round-trips through its own colour type, at every level
 # and with every filter.

@@ -16,6 +16,11 @@ Nat : [Zero, Succ(Nat)].(
   of_nat(n) -> n
   expect Nat.of_nat(3) == 3
 
+  # The natural itself, for operations generic over a natural projection.
+  to_nat : Nat -> Nat
+  to_nat(n) -> n
+  expect Nat.to_nat(3) == 3
+
   add : (Nat, Nat) -> Nat
   add(0, y) -> y
   add(Succ(n), y) -> Succ(n + y)

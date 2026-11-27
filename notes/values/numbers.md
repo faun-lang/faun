@@ -40,7 +40,7 @@ error: a numeral cannot be a `Money`
 A word's module bounds what may be written with a private value beside the
 type, `numerals_below = 256` in `u8.fn`. `300` written where a `U8` is
 wanted is refused, as pattern or expression, and so is `-1`. The bound is
-on what is written, not on what is computed: `U8.of_nat(300)` is `44`,
+on what is written, not on what is computed: `U8.wrap(300)` is `44`,
 since wrapping is what a `U8` means. `Nat` and `Int` take a numeral of any
 size, so `0x10000000000000000` is `18446744073709551616`.
 
@@ -159,8 +159,12 @@ have `&`, `|`, `^`, `!`, `shift_left` and `shift_right`, written `<<` and
 `>>`, `rotate_left` and `rotate_right`; a shift by the width or more is
 zero. They count their bits as Rust's integers do: `count_ones`,
 `trailing_zeros`, the index of the lowest set bit, and `leading_zeros`,
-each a `Nat`, and the last two the width for nought. `Int` has no bitwise operations. `of_nat` wraps; `from_nat` refuses instead, `U8.from_nat(256)`
-being `Err(TooBig)`; and widening, `U64.of_u8`, cannot wrap.
+each a `Nat`, and the last two the width for nought. `Int` has no bitwise
+operations. `wrap` keeps the destination's low bits, whether the input is a `Nat` or
+another word: `U8.wrap(256)` is 0 and `U8.wrap(U16.of_nat(300))` is 44.
+Use `from_nat` when a value must fit: `U8.from_nat(256)` is `Err(TooBig)`.
+Exact widening, such as `U64.of_u8`, cannot wrap. The older `of_nat`
+spelling still wraps and remains the numeral constructor.
 
 Each word is held in machine words, and so is its arithmetic. A `U32`'s
 sums and products are worked out at 64 bits and narrowed after. A `U64`'s
