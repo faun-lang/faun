@@ -1,0 +1,123 @@
+# A set of squares, held as the 64 bits of a word, a bit a square, `a1`
+# the lowest: what shakmaty and cozy-chess call a bitboard. The set
+# operations are the word's bitwise ones, so `&`, `|`, `^` and `!` are
+# intersection, union, symmetric difference and complement.
+
+import square {Square.*}
+
+export {Bitboard.*}
+
+Bitboard : U64.(
+  # No square.
+  empty : Bitboard
+  empty = Bitboard(U64.zero)
+  expect Bitboard.empty.is_empty() & Bitboard.empty.count() == 0
+
+  # Every square.
+  full : Bitboard
+  full = Bitboard(!U64.zero)
+  expect Bitboard.full.count() == 64
+
+  # The set of `square` alone.
+  of_square : Square -> Bitboard
+  of_square(Square(n)) -> Bitboard(U64.of_nat(1).shift_left(n))
+  expect Square.from_str("e4").map_ok(|e4| Bitboard.of_square(e4).squares().map(Square.to_str)) == Ok(["e4"])
+
+  # Whether `square` is in the set.
+  contains : (Bitboard, Square) -> Bool
+  contains(Bitboard(bits), Square(n)) -> (bits.shift_right(n) & 1) == 1
+  expect Square.from_str("e4").map_ok(|e4| Bitboard.full.contains(e4) & !Bitboard.empty.contains(e4)) == Ok(True)
+
+  # The set with `square` added.
+  with : (Bitboard, Square) -> Bitboard
+  with(board, square) -> board | of_square(square)
+  expect Square.from_str("e4").map_ok(|e4| Bitboard.empty.with(e4).contains(e4)) == Ok(True)
+
+  # The set with `square` taken out.
+  without : (Bitboard, Square) -> Bitboard
+  without(board, square) -> board & !of_square(square)
+  expect Square.from_str("e4").map_ok(|e4| Bitboard.full.without(e4).count()) == Ok(63)
+
+  # How many squares the set holds.
+  count : Bitboard -> Nat
+  count(Bitboard(bits)) -> ones(bits)
+  expect corners.count() == 4
+
+  # Whether the set holds no square.
+  is_empty : Bitboard -> Bool
+  is_empty(Bitboard(bits)) -> bits == 0
+  expect !corners.is_empty()
+
+  # The squares of the set, `a1` first and `h8` last.
+  squares : Bitboard -> List(Square)
+  squares(Bitboard(bits)) -> lowest_first(bits, [])
+  expect corners.squares().map(Square.to_str) == ["a1", "h1", "a8", "h8"]
+
+  # The squares in both sets: `a & b`.
+  and : (Bitboard, Bitboard) -> Bitboard
+  and(Bitboard(a), Bitboard(b)) -> Bitboard(a & b)
+  expect (corners & first_rank).squares().map(Square.to_str) == ["a1", "h1"]
+
+  # The squares in either set: `a | b`.
+  or : (Bitboard, Bitboard) -> Bitboard
+  or(Bitboard(a), Bitboard(b)) -> Bitboard(a | b)
+  expect (corners | first_rank).count() == 10
+
+  # The squares in one set and not the other: `a ^ b`.
+  xor : (Bitboard, Bitboard) -> Bitboard
+  xor(Bitboard(a), Bitboard(b)) -> Bitboard(a ^ b)
+  expect (corners ^ first_rank).count() == 8
+
+  # The squares not in the set: `!a`.
+  not : Bitboard -> Bitboard
+  not(Bitboard(bits)) -> Bitboard(!bits)
+  expect (!corners).count() == 60
+
+  # The set as a grid, the eighth rank first, `x` for a square in it and
+  # `.` for one not, as a board is drawn from White's side.
+  to_str : Bitboard -> Str
+  to_str(board) -> List.range(8).reverse()
+    .map(|rank| List.range(8).map(|file| if board.contains(Square(rank * 8 + file)) then "x" else ".").join(""))
+    .join("\n")
+  expect corners.to_str() == "x......x\n........\n........\n........\n........\n........\n........\nx......x"
+
+  equals : (Bitboard, Bitboard) -> Bool
+)
+
+# The laws the operators' symbols promise, shown on a few sets.
+samples : List(Bitboard)
+samples = [Bitboard.empty, Bitboard.full, corners, first_rank, !corners, corners ^ first_rank]
+
+expect samples.all(|a| samples.all(|b| (a & b) == (b & a) & (a | b) == (b | a)))
+expect samples.all(|a| samples.all(|b| samples.all(|c| ((a & b) & c) == (a & (b & c)) & ((a | b) | c) == (a | (b | c)))))
+expect samples.all(|b| !!b == b & (b & !b) == Bitboard.empty & (b | !b) == Bitboard.full)
+expect samples.all(|a| samples.all(|b| !(a & b) == (!a | !b) & !(a | b) == (!a & !b)))
+
+# The four corner squares, and the first rank, to show the operations on.
+corners : Bitboard
+corners = Bitboard(U64.of_nat(0x8100000000000081))
+
+first_rank : Bitboard
+first_rank = Bitboard(U64.of_nat(0xff))
+
+# How many bits of `bits` are set, counted in place a pair, then a nibble,
+# then a byte at a time, and the bytes summed by one multiplication: the
+# count Hacker's Delight gives, with no loop.
+ones : U64 -> Nat
+ones(bits) -> (
+  pairs = bits - (bits.shift_right(1) & 0x5555555555555555)
+  nibbles = (pairs & 0x3333333333333333) + (pairs.shift_right(2) & 0x3333333333333333)
+  bytes = (nibbles + nibbles.shift_right(4)) & 0x0f0f0f0f0f0f0f0f
+  (bytes * 0x0101010101010101).shift_right(56).to_nat()
+)
+expect ones(0) == 0 & ones(0xff) == 8 & ones(0xffffffffffffffff) == 64
+
+# The squares of `bits`, lowest first, after those `found` holds: the
+# lowest set bit, `bits & (0 - bits)`, is the square as many places up as
+# there are bits below it.
+lowest_first : (U64, List(Square)) -> List(Square)
+lowest_first(0, found) -> found
+lowest_first(bits, found) -> (
+  lowest = bits & (0 - bits)
+  lowest_first(bits ^ lowest, found.append(Square(ones(lowest - 1))))
+)

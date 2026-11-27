@@ -25,6 +25,9 @@ expect Move.from_uci("e2e5").map_ok(|move| Position.start.play(move) == Err(Ille
 
 expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") == Ok(Position.start)
 expect Square.from_coords(4, 3).map_ok(Square.to_str) == Ok("e4")
+
+# The squares a piece attacks are a `Bitboard`, a set of squares.
+expect Square.from_str("g1").map_ok(|g1| Position.start.attacks_from(g1).squares().map(Square.to_str)) == Ok(["e2", "f3", "h3"])
 ```
 
 Every expectation above is one of the library's own, in [`src/`](src),
@@ -45,6 +48,8 @@ everything FEN writes and everything the rules ask.
   one `legal_moves` just gave, as below.
 - `position.is_check()`, `is_checkmate()` and `is_stalemate()` say how
   the side to move stands.
+- `position.occupied()`, `by_color(color)` and `attacks_from(square)`
+  answer sets of squares, as `Bitboard`s, below.
 - `position.piece_at(square)` and `turn()` read it; the rest of what FEN
   writes, castling rights, the en passant square and the clocks, `to_fen`
   gives.
@@ -57,6 +62,42 @@ king or rook has left its square, an en passant square no pawn just passed
 over, or the side not to move in check (`OpponentInCheck`). So every
 `Position` is one the rules can be asked of, and no method needs a
 failure of its own for a board without a king.
+
+## Bitboards
+
+A `Bitboard` is a set of squares, held as a 64-bit word with a bit a
+square, `a1` the lowest, as shakmaty's `Bitboard` and cozy-chess's
+`BitBoard` are. A GUI highlights one: the squares a piece attacks, the
+squares a side holds.
+
+- `Bitboard.empty`, `Bitboard.full` and `Bitboard.of_square(square)`
+  make one; `board.with(square)` and `board.without(square)` add and take
+  out a square.
+- `board.contains(square)`, `count()`, `is_empty()` and `squares()`, the
+  squares in order from `a1`, read one.
+- `a & b` is the squares in both, `a | b` those in either, `a ^ b` those in
+  one and not the other, and `!a` those not in `a`; each answers a
+  `Bitboard`, and the set operations' laws hold: `&` and `|` associate and
+  commute, `!!b == b`, De Morgan's laws, `b & !b == Bitboard.empty` and
+  `b | !b == Bitboard.full`. The squares in `a` but not `b` are `a & !b`.
+- `"${board}"` draws it as a grid, the eighth rank first, `x` for a square
+  in it. A knight on `e4`:
+
+```text
+........
+........
+...x.x..
+..x...x.
+........
+..x...x.
+...x.x..
+........
+```
+
+`position.attacks_from(square)` is the squares the piece on `square`
+attacks, whether or not moving there is legal, a slider's up to the first
+piece in its way; for a pawn, the two squares diagonally ahead of it; for
+an empty square, the empty set.
 
 ## Moves
 
@@ -136,13 +177,17 @@ departs where Faun makes something simpler.
 - **Failures as tags.** FEN's errors are shakmaty's `ParseFenError` and
   `PositionError` in one row of tags, `FenError`, each named for its
   cause, so a caller's own failures join it through `?`.
-- **The board is 64 squares, not bitboards.** cozy-chess keeps a
-  bitboard a piece and finds sliding moves by magic tables, shakmaty
-  likewise. Faun has `U64` and its bit operations, but a list of the 64
-  squares reads as the rules do, and every rule is written once as the
-  rules say it: each piece's moves, then each move played, then the king
-  looked at. Pins, checks, discovered checks and the en passant capture
-  that uncovers its king along a rank are not cases of their own.
+- **A board of bitboards, its moves found plainly.** The board is a
+  bitboard for each side and one for each role, as shakmaty's and
+  cozy-chess's are, so playing a move rewrites eight words rather than a
+  list of 64 squares, and a square's attackers are found by looking out
+  from it as each kind of piece would, a set intersection each. Knights'
+  and kings' attacks are worked out once for every square; a slider's
+  run is walked square by square, where both crates look it up in magic
+  tables, which would be the one part of an engine written for speed
+  rather than to be read. Each move is still played and the king looked
+  at, so pins, checks, discovered checks and the en passant capture that
+  uncovers its king along a rank are not cases of their own.
 - **FEN's en passant square.** A pawn's double step always leaves its
   square, as FEN's own rule says, whether or not a pawn could take it
   there; shakmaty writes it only where a capture is legal. Moves are the
@@ -152,8 +197,9 @@ departs where Faun makes something simpler.
 
 Each type has a module of its own in [`src/`](src), named for it, as
 `square.fn` holds `Square` and `move.fn` holds `Move`, with the helpers
-that serve it beside it; the types only the library uses, such as the
-board and the castling rights, are among them.
+that serve it beside it, as `bitboard.fn` holds `Bitboard`; the types
+only the library uses, such as the board and the castling rights, are
+among them.
 [`src/chess.fn`](src/chess.fn) is the root, and the one entry point: its
 export list is the whole public API, `perft` and `divide` with it.
 
@@ -163,12 +209,12 @@ insufficient material) and Zobrist hashing.
 ## Speed
 
 Written as one would teach it, in the most natural Faun: where that runs
-slowly, the compiler has a bug to fix. On x86-64 it finds nearly two
+slowly, the compiler has a bug to fix. On x86-64 it finds nearly three
 million positions a second: the start's perft to depth 5, 4,865,609, in
-about two and a half seconds. A plain C mailbox generator that plays and
-tests each move the same way, the twin in
+under two seconds. A plain C mailbox generator that plays and tests each
+move the same way, the twin in
 [`eval/workloads/perft`](../../../../../eval/workloads/perft), is some
-twenty times as fast. The ratchet measures it, so making it faster
+twelve times as fast. The ratchet measures it, so making it faster
 is the compiler's work.
 
 ## Example
