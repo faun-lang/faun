@@ -54,6 +54,14 @@ the three are one, `to_`.
   where there is nothing.
 - `try_x` is the version of `x` that stops at the first `Err`: `try_map`,
   `try_fold`.
+- `x_unchecked` is the version of `x` that skips a check its caller has
+  already made, and answers a plain value where `x` answers a `Result`:
+  a chess position's `play_unchecked` takes a move from its own
+  `legal_moves`, where `play` checks any move. Its doc comment says what
+  the caller must guarantee. With no panics, breaking that answers a value
+  whose answers mean nothing, never a crash; a library offers one only
+  where the check costs more than the work it guards, and only beside the
+  checked `x`.
 - A failure is a tag named by its cause, never text: `TooBig`,
   `Malformed`, `OutOfBounds`, `Missing`, `NotAscii`. Callers match on it,
   and two libraries refusing for one reason may share a word.
