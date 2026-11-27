@@ -191,12 +191,15 @@ impl CheckedWords {
 }
 
 /// Only specialize straight-line scalar computations. Calls and heap or
-/// control operations can dominate longer arms and change code layout.
+/// control operations can dominate longer arms and change code layout; a
+/// claim given up or taken is counted where it stands either way.
 fn scalar_arm(p: &Program, region: RegionId) -> bool {
     p.walk(region).all(|(op, results)| {
         matches!(
             op,
-            Op::Constant { .. }
+            Op::Claim { .. }
+                | Op::Release { .. }
+                | Op::Constant { .. }
                 | Op::Convert { .. }
                 | Op::Binary { .. }
                 | Op::Float { .. }
