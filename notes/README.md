@@ -65,7 +65,7 @@ syntax shown on purpose, marks its fence `` ```ruby ignore ``.
 ### `machine/`: how meaning becomes work
 
 - [Architecture](machine/architecture.md): the frontend, Barb, the machine
-  IR and the three targets
+  IR and the targets
 - [Barb](machine/barb.md): the first-order core's shape
 - [Memory](machine/memory.md): reference counting and in-place reuse
 - [Ranges](machine/ranges.md): what a number can be, as intervals and
