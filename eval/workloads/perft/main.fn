@@ -1,0 +1,34 @@
+# Count the paths of legal chess moves to a depth from two positions, the
+# start and Kiwipete, through the chess library: perft, the count that
+# checks a move generator.
+
+package {
+  uses: {
+    chess: "../../../crates/frontend/examples/libraries/chess/src/chess"
+  }
+}
+
+import std.host {Host}
+import chess {Position, perft}
+
+# Peter McKenzie's Kiwipete, a position with castling, en passant, pins
+# and promotions near at hand on both sides.
+kiwipete : Str
+kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
+
+# Each position's perft to `depth`, a line each.
+counts : Nat -> Str
+counts(depth) -> (
+  tricky = Position.from_fen(kiwipete).ok_or(Position.start)
+  "start ${perft(Position.start, depth)}\nkiwipete ${perft(tricky, depth)}"
+)
+
+expect counts(1) == "start 20\nkiwipete 48"
+expect counts(2) == "start 400\nkiwipete 2039"
+
+main! : Host -> []
+main!(host) -> (
+  depth = Nat.from_str(host.args.get(1).ok_or("2")).ok_or(2)
+  printed = host.println!(counts(depth))
+  host.exit!(0)
+)
