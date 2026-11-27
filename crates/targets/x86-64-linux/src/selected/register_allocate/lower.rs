@@ -963,7 +963,7 @@ impl<'a> Lowering<'a> {
             (Opcode::DataAddress, Immediate::Data(data)) => {
                 self.load_data_address(result()?, data);
             }
-            (Opcode::Add, Immediate::Bits(64)) => {
+            (Opcode::Add, Immediate::Bits(bits)) if bits > 32 => {
                 let source = self.selected.operands[inst.operands.range()][1];
                 let (left, right, dst) = (reg(0)?, reg(1)?, result()?);
                 if dst == left {

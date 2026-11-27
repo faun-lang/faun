@@ -427,10 +427,11 @@ const SCALARS: faun_regalloc::RegSet = faun_regalloc::RegSet(0xFFFF_FFFF);
 
 impl Inst {
     /// Whether what this answers may be anywhere rather than where its
-    /// first operand is: a full-width sum, which written as an address
-    /// worked out reads both operands where they stand.
+    /// first operand is: a sum worked out across the whole register, which
+    /// written as an address worked out reads both operands where they
+    /// stand. A sum wider than 32 bits is, whatever its class bounds it by.
     fn answers_anywhere(self) -> bool {
-        self.opcode == Opcode::Add && self.immediate == Immediate::Bits(64)
+        self.opcode == Opcode::Add && matches!(self.immediate, Immediate::Bits(bits) if bits > 32)
     }
 
     fn operand_spec(self, at: usize) -> Option<OperandSpec> {
