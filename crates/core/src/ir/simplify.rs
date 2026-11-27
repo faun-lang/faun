@@ -1298,10 +1298,18 @@ impl Simplify {
     }
 
     /// Whether `left` is never less than `right`, so that a monus of them
-    /// never stops at nought: where `left` was written as something plus a
-    /// number known before the program runs that is at least the most
-    /// `right` can be.
+    /// never stops at nought: where `left` is a number known before the
+    /// program runs, or was written as something plus one, that is at
+    /// least the most `right` can be. A word's difference from nought is
+    /// the first: `0 - w` is written `(0 + 2^64) - w`, whose sum is
+    /// worked out before this reads it.
     fn no_less(&self, source: &Program, left: ValueId, right: ValueId) -> bool {
+        let Some(most) = self.most(source, right) else {
+            return false;
+        };
+        if self.known(source, left).is_some_and(|known| known >= most) {
+            return true;
+        }
         let Some((
             Op::Binary {
                 op: Binary::Add,
@@ -1311,9 +1319,6 @@ impl Simplify {
             ..,
         )) = self.wrote.0[left.index()]
         else {
-            return false;
-        };
-        let Some(most) = self.most(source, right) else {
             return false;
         };
         [one, other]
