@@ -125,6 +125,39 @@ fn a_count_below_a_constant_joined_by_and_is_a_word() {
     );
 }
 
+#[test]
+fn a_words_difference_from_nought_is_worked_out_in_the_word() {
+    // `0 - w` on a `U64` is `(0 + 2^64) - w` modulo 2^64, whose sum is a
+    // number known before the program runs: it is the word's own negation,
+    // as `!w + 1` is, never a natural as wide as 2^64.
+    as_cheap(
+        "word-negated",
+        3,
+        r"
+        step : (List(U8), Nat, U64, U64) -> U64
+        step(input, at, word, total) -> (
+          if at >= input.len() return total
+          next = word * 6364136223846793005 + U64.of_nat(input.get(at).ok_or(0).to_nat())
+          step(input, at + 1, next, total + (next & (0 - next)))
+        )
+
+        walk : List(U8) -> U64
+        walk(input) -> step(input, 0, U64.of_nat(1), U64.of_nat(0))
+        ",
+        r"
+        step : (List(U8), Nat, U64, U64) -> U64
+        step(input, at, word, total) -> (
+          if at >= input.len() return total
+          next = word * 6364136223846793005 + U64.of_nat(input.get(at).ok_or(0).to_nat())
+          step(input, at + 1, next, total + (next & (!next + 1)))
+        )
+
+        walk : List(U8) -> U64
+        walk(input) -> step(input, 0, U64.of_nat(1), U64.of_nat(0))
+        ",
+    );
+}
+
 /// That `package` prints `expected` built for every target.
 fn prints_everywhere(package: &Package, expected: &str) {
     for target in MACHINES {
