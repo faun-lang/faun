@@ -3,9 +3,9 @@
 # knight.
 
 import color {Color.*}
-import role {Role.*}
+import role {Role.*, role_letter, role_of_letter}
 
-export {Piece.*}
+export {Piece.*, piece_letter, piece_of_letter}
 
 # A piece: its side and its role.
 Piece : [Piece(Color, Role)].(
@@ -19,25 +19,25 @@ Piece : [Piece(Color, Role)].(
   role(Piece(_, role)) -> role
   expect Piece(Black, Rook).role() == Rook
 
-  # The piece's letter in FEN: a capital for White, a small letter for
-  # Black.
-  to_char : Piece -> U8
-  to_char(Piece(White, role)) -> role.to_char().to_ascii_upper()
-  to_char(Piece(Black, role)) -> role.to_char()
-  expect Piece(White, Knight).to_char() == 'N'
-  expect Piece(Black, Knight).to_char() == 'n'
-
-  # The piece a FEN letter names: a capital for White, a small letter for
-  # Black.
-  from_char : U8 -> Result(Piece, [Malformed])
-  from_char(letter) -> (
-    role = Role.from_char(letter)?
-    Ok(Piece(if letter.is_ascii_upper() then White else Black, role))
-  )
-  expect Piece.from_char('k') == Ok(Piece(Black, King))
-  expect Piece.from_char('P') == Ok(Piece(White, Pawn))
-  expect Piece.from_char('1') == Err(Malformed)
-
-  cmp : (Piece, Piece) -> Order
+  equals : (Piece, Piece) -> Bool
   to_str : Piece -> Str
 )
+
+# The piece's letter in FEN: a capital for White, a small letter for
+# Black.
+piece_letter : Piece -> U8
+piece_letter(Piece(White, role)) -> role_letter(role).to_ascii_upper()
+piece_letter(Piece(Black, role)) -> role_letter(role)
+expect piece_letter(Piece(White, Knight)) == 'N'
+expect piece_letter(Piece(Black, Knight)) == 'n'
+
+# The piece a FEN letter names: a capital for White, a small letter for
+# Black.
+piece_of_letter : U8 -> Result(Piece, [Malformed])
+piece_of_letter(letter) -> (
+  role = role_of_letter(letter)?
+  Ok(Piece(if letter.is_ascii_upper() then White else Black, role))
+)
+expect piece_of_letter('k') == Ok(Piece(Black, King))
+expect piece_of_letter('P') == Ok(Piece(White, Pawn))
+expect piece_of_letter('1') == Err(Malformed)

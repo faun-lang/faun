@@ -12,21 +12,19 @@ package {
   }
 }
 
-import chess {Position, Move, Square, Piece, White, Knight, DoublePush, perft}
+import chess {Position, Move, Square, perft}
 
 expect Position.start.legal_moves().len() == 20
 expect perft(Position.start, 2) == 400
 
-# A move is read from UCI against the position it is played from, which
-# says which piece moves and how, and `play` checks it is legal there.
-expect Position.start.move_from_uci("e2e4").map_ok(Move.kind) == Ok(DoublePush)
-expect Position.start.move_from_uci("e2e4").and_then(|move| Position.start.play(move).err_as(NoLegalMove)).map_ok(Position.to_fen)
-    == Ok("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
-expect Position.start.move_from_uci("e2e5") == Err(NoLegalMove)
+# A move is read from UCI alone, and `play` checks it is legal where it
+# is played.
+expect Move.from_uci("e2e4").map_ok(|move| Position.start.play(move).map_ok(Position.to_fen))
+    == Ok(Ok("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"))
+expect Move.from_uci("e2e5").map_ok(|move| Position.start.play(move) == Err(IllegalMove(move))) == Ok(True)
 
 expect Position.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") == Ok(Position.start)
-expect Square.from_str("e4").map_ok(Square.to_nat) == Ok(28)
-expect Piece(White, Knight).to_char() == 'N'
+expect Square.from_coords(4, 3).map_ok(Square.to_str) == Ok("e4")
 ```
 
 Every expectation above is one of the library's own, in [`src/`](src),
@@ -47,9 +45,9 @@ everything FEN writes and everything the rules ask.
   one `legal_moves` just gave, as below.
 - `position.is_check()`, `is_checkmate()` and `is_stalemate()` say how
   the side to move stands.
-- `position.piece_at(square)`, `pieces()`, `king(color)`, `turn()`,
-  `castling()`, `en_passant()`, `halfmove_clock()` and
-  `fullmove_number()` read it.
+- `position.piece_at(square)` and `turn()` read it; the rest of what FEN
+  writes, castling rights, the en passant square and the clocks, `to_fen`
+  gives.
 
 A FEN is refused with the reason as a tag, `Err(InvalidCastling)` say,
 where a field is malformed, and also where the position it writes is one
@@ -62,9 +60,20 @@ failure of its own for a board without a king.
 
 ## Moves
 
-A `Move` is plain data: which piece goes from where to where, and what it
-takes and becomes. It says nothing of the position it is played on, so
-playing one checks it:
+A `Move` is what cozy-chess's is: the square a piece leaves, the square
+it lands on, and the role a pawn becomes, if it does.
+
+- `Move.from_uci(text)` reads one as UCI writes it, `e2e4` or `e7e8q`,
+  and `move.to_uci()`, and `"${move}"`, write it. A castle is the king's
+  move of two squares, `e1g1`, as standard UCI writes it.
+- `Move.of_squares(from, to)` and `Move.of_promotion(from, to, role)`
+  make one, and `from()`, `to()` and `promotion()` read it.
+
+A move holds nothing else, so it cannot disagree with itself. Which piece
+moves is `position.piece_at(move.from())`. What it takes, and whether it
+castles, takes in passing or steps a pawn two squares, the position works
+out as the move is played: a castle is the king moving two files, taking
+in passing a pawn moving across a file onto the en passant square.
 
 - `position.play(move)` answers the position after `move` where it is one
   of the position's legal moves, and `Err(IllegalMove(move))` where it is
@@ -76,18 +85,6 @@ playing one checks it:
   other move still answers a position, since nothing in Faun panics, but
   possibly one no game reaches, a king taken or the side not to move in
   check, and nothing asked of it then means anything.
-- `position.move_from_uci(text)` reads a move as UCI writes it, and
-  answers `Malformed` for text that is not UCI and `NoLegalMove` for text
-  naming no legal move of the position. UCI gives only the squares and a
-  promotion; the position says which piece moves, what it takes and what
-  kind of move it is, so reading goes through it.
-
-A move says `from()`, `to()`, the `role()` that moves, the role it
-`captured()` and the role a pawn becomes, `promotion()`, each a `Result`
-where there may be none, and its `kind()`: `Normal`, `DoublePush`,
-`EnPassant` or `Castle(KingSide)` and `Castle(QueenSide)`.
-`move.to_uci()`, and `"${move}"`, write it as UCI does: `e2e4`, `e7e8q`,
-and a castle as the king's two squares, `e1g1`.
 
 ## Perft
 
@@ -113,35 +110,27 @@ departs where Faun makes something simpler.
   variants, with `Chess` for the standard game, and cozy-chess one
   `Board`. Faun has no traits and this library no variants, so
   `Position` is the one type, as cozy-chess's `Board` is.
-- **A move is data, and playing it is checked.** As in shakmaty, a
-  `Move` is plain data and `play` checks it, answering a `Result`, while
-  `play_unchecked` trusts the caller; cozy-chess's `play` panics on an
-  illegal move, and `try_play` checks. Most moves come from outside, so
-  a check where they are played is where it belongs, and `legal_moves`
-  keeps no position for each move, most of which are never played. A
-  `Move`'s constructor stays in the library: a move is had from a
-  position, which knows what it takes and what kind of move it is.
-- **UCI through the position.** shakmaty has a `UciMove` type, turned
-  into a move by `to_move(position)`. Here `move_from_uci` reads the text
-  against the position in one step, since text alone cannot say which
-  piece moves, and a type holding the text between the two would add a
-  name and do nothing else.
-- **Two refusals.** `play` refuses with `IllegalMove(move)`, holding the
-  move as shakmaty's `PlayError` does; `move_from_uci` with `NoLegalMove`,
-  having no move to hold. They are named apart so both may join one row
-  through `?`.
-- **Sealed values.** `File`, `Rank` and `Square` are numbers no one
-  outside the library can make out of range, as shakmaty's and
-  cozy-chess's enums are; `Square.from_nat`, `from_str` and the like
-  check once. Squares are numbered as both crates number them, `a1` 0 to
-  `h8` 63. A square steps to its neighbour by a `Direction`,
-  `square.step(North)`, rather than by numbers added, so walking off the
-  board is an `Err(OffBoard)` to match on rather than arithmetic to get
-  right.
-- **No flags.** Which side and which castle are `Color` and
-  `CastlingSide`, never a `Bool`: `rights.has(White, KingSide)`.
-  A `Piece` is `Piece(color, role)`, as shakmaty's is a color and a
-  role.
+- **A move is two squares and a promotion.** cozy-chess's `Move` is
+  just that; shakmaty's also says which role moves, what it takes and
+  what kind of move it is, which a move read from text cannot know
+  until it meets a position. Here the position works those out when the
+  move is played, so UCI is read without a position, a move can be made
+  by hand, and none can say one thing and do another.
+- **Playing is checked.** As in shakmaty, `play` checks a move and
+  answers a `Result`, holding the move refused as its `PlayError` does,
+  and `play_unchecked` trusts the caller; cozy-chess's `play` panics on
+  an illegal move, and `try_play` checks. Most moves come from outside,
+  so the check belongs where they are played.
+- **A small surface.** What a GUI, an engine, a puzzle or PGN tool or a
+  perft reaches for is public, and the rest is the library's own. A
+  square gives its file and rank as numbers from nought rather than as
+  types of their own, and castling rights, the en passant square and
+  the clocks are FEN's to show.
+- **Sealed values.** `Square` is a number no one outside the library
+  can make off the board; `Square.from_coords` and `from_str` check once.
+  Squares are numbered as both crates number them, `a1` 0 to `h8` 63.
+- **No flags.** A side is a `Color`, never a `Bool`, and a `Piece` is
+  `Piece(color, role)`, as shakmaty's is a color and a role.
 - **Failures as tags.** FEN's errors are shakmaty's `ParseFenError` and
   `PositionError` in one row of tags, `FenError`, each named for its
   cause, so a caller's own failures join it through `?`.
@@ -160,10 +149,11 @@ departs where Faun makes something simpler.
 ## Layout
 
 Each type has a module of its own in [`src/`](src), named for it, as
-`square.fn` holds `Square` and `castling_rights.fn` holds
-`CastlingRights`, with the helpers that serve it beside it.
-[`src/chess.fn`](src/chess.fn) is the root, and the one entry point: it
-exports the whole public API, and `perft` and `divide` with it.
+`square.fn` holds `Square` and `move.fn` holds `Move`, with the helpers
+that serve it beside it; the types only the library uses, such as the
+board and the castling rights, are among them.
+[`src/chess.fn`](src/chess.fn) is the root, and the one entry point: its
+export list is the whole public API, `perft` and `divide` with it.
 
 Not here yet: SAN, Chess960, the draw rules (repetition, fifty moves,
 insufficient material) and Zobrist hashing.

@@ -1,6 +1,9 @@
-# The eight ways a piece steps from one square to the next.
+# The eight ways a piece steps from one square to the next, and the step
+# itself.
 
-export {Direction.*}
+import square {Square.*}
+
+export {Direction.*, step}
 
 # One of the eight ways a king steps, as White sees the board: `North`
 # toward the eighth rank, `East` toward the `h` file.
@@ -35,3 +38,18 @@ Direction : [North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWes
   equals : (Direction, Direction) -> Bool
   to_str : Direction -> Str
 )
+
+# The square one step from `square` the way `direction` points, or
+# `OffBoard` where that leaves the board.
+step : (Square, Direction) -> Result(Square, [OffBoard])
+step(Square(n), North) if n < 56 -> Ok(Square(n + 8))
+step(Square(n), South) if n >= 8 -> Ok(Square(n - 8))
+step(Square(n), East) if n % 8 < 7 -> Ok(Square(n + 1))
+step(Square(n), West) if n % 8 > 0 -> Ok(Square(n - 1))
+step(Square(n), NorthEast) if n < 56 & n % 8 < 7 -> Ok(Square(n + 9))
+step(Square(n), NorthWest) if n < 56 & n % 8 > 0 -> Ok(Square(n + 7))
+step(Square(n), SouthEast) if n >= 8 & n % 8 < 7 -> Ok(Square(n - 7))
+step(Square(n), SouthWest) if n >= 8 & n % 8 > 0 -> Ok(Square(n - 9))
+step(_, _) -> Err(OffBoard)
+expect step(Square(28), NorthEast).map_ok(Square.to_str) == Ok("f5")
+expect step(Square(31), East) == Err(OffBoard)

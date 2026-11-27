@@ -3,11 +3,11 @@
 # promotion among them, moves read from and written as UCI, and perft, the
 # count of the move paths to a depth that checks a move generator.
 #
-# A `Position` is the whole state of a game at one moment. Its
-# `legal_moves` are `Move`s, plain data, and `play` checks a move is legal
-# before playing it, wherever the move came from; `play_unchecked` plays a
-# move `legal_moves` just gave without asking again. Every type is sealed
-# where a value could be wrong: a `Square` is always on the board, and a
+# A `Position` is the whole state of a game at one moment. A `Move` is two
+# squares and what a pawn becomes, read from UCI or one of a position's
+# `legal_moves`; `play` checks a move is legal before playing it, wherever
+# it came from, and `play_unchecked` plays a move `legal_moves` just gave
+# without asking again. A `Square` is always on the board, and a
 # `Position` always one a game can reach.
 #
 # Written in the most natural Faun spelling, a list of 64 squares and
@@ -16,31 +16,20 @@
 
 package {}
 
-import file {File}
-import rank {Rank}
 import square {Square}
-import direction {Direction.*}
 import color {Color.*}
 import role {Role.*}
 import piece {Piece.*}
-import castling_side {CastlingSide.*}
-import castling_rights {CastlingRights}
-import move {Move, MoveKind.*}
+import move {Move}
 import position {Position, FenError}
 
 export {
-  File,
-  Rank,
   Square,
-  Direction.*,
   Color.*,
   Role.*,
   Piece.*,
-  CastlingSide.*,
-  CastlingRights,
-  Position,
   Move,
-  MoveKind.*,
+  Position,
   FenError,
   perft,
   divide,
@@ -91,9 +80,15 @@ expect positions.all(|(fen, counts)| Position.from_fen(fen) is Ok(position)
 after_uci : (Str, Str) -> Result(Str, _)
 after_uci(fen, uci) -> (
   position = Position.from_fen(fen)?
-  move = position.move_from_uci(uci)?
+  move = Move.from_uci(uci)?
   Ok(position.play(move)?.to_fen())
 )
+
+# Whether `position`, from the FEN `fen` writes, refuses the move UCI's
+# `uci` writes as illegal.
+refuses : (Str, Str) -> Bool
+refuses(fen, uci) -> (Position.from_fen(fen), Move.from_uci(uci)) is (Ok(position), Ok(move))
+  & position.play(move) == Err(IllegalMove(move))
 
 # Every FEN read back is written as it was read.
 expect positions.all(|(fen, _)| Position.from_fen(fen).map_ok(Position.to_fen) == Ok(fen))
@@ -101,22 +96,21 @@ expect positions.all(|(fen, _)| Position.from_fen(fen).map_ok(Position.to_fen) =
 # Castling: both sides at once, the rook going with the king, and the
 # rights of a king that has moved gone.
 expect after_uci(kiwipete, "e1c1") == Ok("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/2KR3R b kq - 1 1")
-expect Position.from_fen(kiwipete).and_then(|position| position.move_from_uci("e1c1").err_as(InvalidBoard)).map_ok(Move.kind) == Ok(Castle(QueenSide))
+expect after_uci("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "e8g8") == Ok("r4rk1/8/8/8/8/8/8/R3K2R w KQ - 1 2")
 
 # A castle through an attacked square is not legal, though the squares
 # between are empty: the bishop on f1 is gone and a rook covers it.
-expect (
-  open = Position.from_fen("4kr2/8/8/8/8/8/8/4K2R w K - 0 1")
-  open is Ok(position) & position.move_from_uci("e1g1") == Err(NoLegalMove)
-)
+expect refuses("4kr2/8/8/8/8/8/8/4K2R w K - 0 1", "e1g1")
 
 # En passant, and the en passant capture that would leave the king
 # attacked along its rank, which is not legal.
 expect after_uci("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2", "e5d6") == Ok("4k3/8/3P4/8/8/8/8/4K3 b - - 0 2")
-expect (
-  pinned = Position.from_fen("8/8/8/K2pP2r/8/8/8/7k w - d6 0 2")
-  pinned is Ok(position) & position.move_from_uci("e5d6") == Err(NoLegalMove)
-)
+expect refuses("8/8/8/K2pP2r/8/8/8/7k w - d6 0 2", "e5d6")
+
+# A pawn's double step leaves the en passant square behind it, and only
+# that.
+expect after_uci(kiwipete, "a2a4") == Ok("r3k2r/p1ppqpb1/bn2pnp1/3PN3/Pp2P3/2N2Q1p/1PPBBPPP/R3K2R b KQkq a3 0 1")
+expect after_uci(kiwipete, "a2a3") == Ok("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R b KQkq - 0 1")
 
 # Promotion, to each role, taking or not.
 expect (
@@ -126,25 +120,19 @@ expect (
       == ["e7e8q", "e7e8r", "e7e8b", "e7e8n", "e7d8q", "e7d8r", "e7d8b", "e7d8n"]
 )
 expect after_uci("3r3k/4P3/8/8/8/8/8/K7 w - - 0 1", "e7d8n") == Ok("3N3k/8/8/8/8/8/8/K7 b - - 0 1")
+expect refuses("3r3k/4P3/8/8/8/8/8/K7 w - - 0 1", "e7e8")
 
 # A pinned piece may move only along its pin.
 expect (
   pinned = Position.from_fen("4k3/4r3/8/8/8/8/4R3/4K3 w - - 0 1")
   pinned is Ok(position)
-    & position.legal_moves().filter(|move| move.role() == Rook).map(Move.to_uci)
+    & position.legal_moves().filter(|move| position.piece_at(move.from()) == Ok(Piece(White, Rook))).map(Move.to_uci)
       == ["e2e3", "e2e4", "e2e5", "e2e6", "e2e7"]
 )
 
-# A move is legal wherever a position has it: `e2e4` from the start plays
-# on another position with a pawn on `e2`, and is refused, holding the
-# move, where that pawn is blocked.
-expect (
-  e4 = Position.start.move_from_uci("e2e4")
-  stuck = Position.from_fen("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1")
-  (e4, stuck) is (Ok(move), Ok(position)) & position.play(move) == Ok(position.play_unchecked(move))
-)
-expect (
-  e4 = Position.start.move_from_uci("e2e4")
-  blocked = Position.from_fen("4k3/8/8/8/4p3/8/4P3/4K3 w - - 0 1")
-  (e4, blocked) is (Ok(move), Ok(position)) & position.play(move) == Err(IllegalMove(move))
-)
+# A move is legal wherever a position has it: `e2e4` plays on any
+# position with a pawn free to step from `e2`, and is refused, holding the
+# move, where that pawn is blocked or missing.
+expect after_uci("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1", "e2e4") == Ok("4k3/8/8/8/4P3/8/8/4K3 b - e3 0 1")
+expect refuses("4k3/8/8/8/4p3/8/4P3/4K3 w - - 0 1", "e2e4")
+expect refuses("4k3/8/8/8/8/8/8/4K3 w - - 0 1", "e2e4")

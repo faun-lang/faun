@@ -1,44 +1,39 @@
 # The six kinds of piece, whichever side they are.
 
-export {Role.*}
+export {Role.*, promotions, role_letter, role_of_letter}
 
 # A kind of piece, as shakmaty calls it, whichever side it is.
 Role : [Pawn, Knight, Bishop, Rook, Queen, King].(
-  # Every role, pawn to king.
-  all : List(Role)
-  all = [Pawn, Knight, Bishop, Rook, Queen, King]
-  expect Role.all.map(Role.to_char) == ['p', 'n', 'b', 'r', 'q', 'k']
-
-  # What a pawn may become on the last rank, the strongest first.
-  promotions : List(Role)
-  promotions = [Queen, Rook, Bishop, Knight]
-  expect Role.promotions.len() == 4
-
-  # The role's small letter, as UCI writes a promotion: `p`, `n`, `b`,
-  # `r`, `q` or `k`.
-  to_char : Role -> U8
-  to_char(Pawn) -> 'p'
-  to_char(Knight) -> 'n'
-  to_char(Bishop) -> 'b'
-  to_char(Rook) -> 'r'
-  to_char(Queen) -> 'q'
-  to_char(King) -> 'k'
-  expect Knight.to_char() == 'n'
-
-  # The role a letter names, in either case.
-  from_char : U8 -> Result(Role, [Malformed])
-  from_char(letter) -> letter.to_ascii_lower() is (
-    'p' then Ok(Pawn)
-    'n' then Ok(Knight)
-    'b' then Ok(Bishop)
-    'r' then Ok(Rook)
-    'q' then Ok(Queen)
-    'k' then Ok(King)
-    _ then Err(Malformed)
-  )
-  expect Role.from_char('Q') == Ok(Queen)
-  expect Role.from_char('x') == Err(Malformed)
-
-  cmp : (Role, Role) -> Order
+  equals : (Role, Role) -> Bool
   to_str : Role -> Str
 )
+
+# What a pawn may become on the last rank, the strongest first.
+promotions : List(Role)
+promotions = [Queen, Rook, Bishop, Knight]
+expect promotions.len() == 4
+
+# The role's small letter, as UCI writes a promotion and FEN a black
+# piece: `p`, `n`, `b`, `r`, `q` or `k`.
+role_letter : Role -> U8
+role_letter(Pawn) -> 'p'
+role_letter(Knight) -> 'n'
+role_letter(Bishop) -> 'b'
+role_letter(Rook) -> 'r'
+role_letter(Queen) -> 'q'
+role_letter(King) -> 'k'
+expect [Pawn, Knight, Bishop, Rook, Queen, King].map(role_letter) == ['p', 'n', 'b', 'r', 'q', 'k']
+
+# The role a letter names, in either case.
+role_of_letter : U8 -> Result(Role, [Malformed])
+role_of_letter(letter) -> letter.to_ascii_lower() is (
+  'p' then Ok(Pawn)
+  'n' then Ok(Knight)
+  'b' then Ok(Bishop)
+  'r' then Ok(Rook)
+  'q' then Ok(Queen)
+  'k' then Ok(King)
+  _ then Err(Malformed)
+)
+expect role_of_letter('Q') == Ok(Queen)
+expect role_of_letter('x') == Err(Malformed)
