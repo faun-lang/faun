@@ -85,3 +85,41 @@ fn a_run_is_merged_only_as_wide_as_a_branch_carries() {
     assert_eq!(branches(&merged), 2);
     assert_eq!(returned(&merged, merged.entry()), [111u8.into()]);
 }
+
+/// What the first branch answers that only the second's arms read is not
+/// answered by the merged branch.
+#[test]
+fn what_only_later_arms_read_stays_inside_the_merged_branch() {
+    let (mut p, main) = Program::new("main");
+    p.define(main, |b, _| {
+        let three = b.constant(Class::Word, 3);
+        let four = b.constant(Class::Word, 4);
+        let below = b.compare(Relation::Less, three, four);
+        let first = b.if_(
+            below,
+            &[Class::Word],
+            |b| b.yield_(&[three]),
+            |b| b.yield_(&[four]),
+        );
+        let second = b.if_(
+            below,
+            &[Class::Word],
+            |b| {
+                let more = b.binary(Binary::Add, first[0], three);
+                b.yield_(&[more]);
+            },
+            |b| b.yield_(&[first[0]]),
+        );
+        b.ret(&[second[0]]);
+    });
+    let merged = merge_ifs(&p, usize::MAX);
+    validate(&merged).unwrap();
+    let body = merged.function(merged.entry()).body().unwrap();
+    let answered: Vec<usize> = merged
+        .walk(body)
+        .filter(|(op, _)| matches!(op, Op::If { .. }))
+        .map(|(_, results)| results.len())
+        .collect();
+    assert_eq!(answered, [1]);
+    assert_eq!(returned(&merged, merged.entry()), [6u8.into()]);
+}
