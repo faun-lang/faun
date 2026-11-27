@@ -8,14 +8,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Class, Op, Program, RegionId, Relation, ValueId};
+use super::{Class, Op, Program, RegionId, Relation, ValueId, Width};
 
 /// Which conversions take nothing off, indexed by what each writes.
 ///
 /// A conversion is one where every value reaching it, on the path to it,
 /// is already below what it keeps: a target may read its value where it
 /// stands. Only a bound that an enclosing `if` puts on the value converted
-/// counts, along with what its class already says.
+/// counts, along with what its class already says and how wide a load
+/// read it.
 #[must_use]
 pub fn conversions_taking_nothing(program: &Program) -> Vec<bool> {
     let guards = Guards::of(program);
@@ -36,12 +37,15 @@ pub fn conversions_taking_nothing(program: &Program) -> Vec<bool> {
 struct Guards {
     constants: Vec<Option<u64>>,
     comparisons: Vec<Option<(Relation, ValueId, ValueId)>>,
+    /// The greatest a value a load narrower than a word read can be.
+    loaded: Vec<Option<u64>>,
 }
 
 impl Guards {
     fn of(program: &Program) -> Self {
         let mut constants = vec![None; program.values_count()];
         let mut comparisons = vec![None; program.values_count()];
+        let mut loaded = vec![None; program.values_count()];
         for function in program.functions() {
             let Some(body) = function.body() else {
                 continue;
@@ -57,6 +61,14 @@ impl Guards {
                         left,
                         right,
                     } => comparisons[results[0].index()] = Some((relation, left, right)),
+                    Op::Load { width, .. } => {
+                        loaded[results[0].index()] = match width {
+                            Width::Byte => Some(0xff),
+                            Width::Bits16 => Some(0xffff),
+                            Width::Bits32 => Some(0xffff_ffff),
+                            Width::Word => None,
+                        };
+                    }
                     _ => {}
                 }
             }
@@ -64,6 +76,7 @@ impl Guards {
         Self {
             constants,
             comparisons,
+            loaded,
         }
     }
 }
@@ -136,6 +149,7 @@ impl Walk<'_> {
             .filter(|&&(bounded, _)| bounded == value)
             .map(|&(_, high)| high)
             .chain(declared)
+            .chain(self.guards.loaded[value.index()])
             .min();
         high.is_some_and(|high| kept >= 64 || high >> kept == 0)
     }
