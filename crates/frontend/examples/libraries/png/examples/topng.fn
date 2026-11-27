@@ -1,6 +1,7 @@
 # Encodes a PAM file (Netpbm's P7) of 8-bit red, green and blue, with or
 # without alpha, from standard input as a PNG file on standard output: the
-# reverse of `topam`. `-0` to `-9` say how hard deflate looks, 6 where
+# reverse of `topam`. The file is written in the fewest channels that hold
+# the image exactly. `-0` to `-9` say how hard deflate looks, 6 where
 # none does, and `--unfiltered` writes every row unfiltered. A file not
 # understood says why on standard error, with status one; a command line
 # not understood gives the usage, with status two.
@@ -12,17 +13,17 @@ package {
 }
 
 import std.host {Host}
-import png {encode, decode, Encoding, Image, Level}
+import png {encode_with, decode, Options, Image, Level}
 
 usage : Str
 usage = "usage: topng [-0 ... -9] [--unfiltered] < image.pam > image.png"
 
 # What the flags ask for, or nothing where they are not understood.
-encoding_of : (List(Str), Encoding) -> Result(Encoding, [Usage])
-encoding_of([], encoding) -> Ok(encoding)
-encoding_of(["--unfiltered", *rest], encoding) -> encoding_of(rest, {filtering: Unfiltered, *encoding})
-encoding_of([flag, *rest], encoding) -> flag.to_utf8() is (
-  ['-', digit] if digit.is_digit() then encoding_of(rest, {level: Level.of_nat((digit - '0').to_nat()), *encoding})
+options_of : (List(Str), Options) -> Result(Options, [Usage])
+options_of([], options) -> Ok(options)
+options_of(["--unfiltered", *rest], options) -> options_of(rest, {filter: Unfiltered, *options})
+options_of([flag, *rest], options) -> flag.to_utf8() is (
+  ['-', digit] if digit.is_digit() then options_of(rest, {level: Level.of_nat((digit - '0').to_nat()), *options})
   _ then Err(Usage)
 )
 
@@ -36,9 +37,7 @@ image_of(input) -> (
   (fields, at) = header(input, 3, {width: 0, height: 0, depth: 0, maxval: 0})?
   {width, height, depth, maxval} = fields
   if maxval != 255 | (depth != 3 & depth != 4) return Err(NotPam)
-  samples = input.drop(at)
-  if samples.len() != width * height * depth return Err(NotPam)
-  Ok({width, height, pixels: if depth == 4 then samples else opaque(samples, [])})
+  Image.from_pixels(width, height, if depth == 4 then Rgba else Rgb, input.drop(at)).map_err(|_| NotPam)
 )
 
 header : (List(U8), Nat, Fields) -> Result((Fields, Nat), [NotPam])
@@ -61,20 +60,16 @@ header(input, at, fields) -> (
 number : Str -> Result(Nat, [NotPam])
 number(text) -> Nat.from_str(text).map_err(|_| NotPam)
 
-opaque : (List(U8), List(U8)) -> List(U8)
-opaque([red, green, blue, *rest], out) -> opaque(rest, out.append(red).append(green).append(blue).append(255))
-opaque(_, out) -> out
-
 main! : Host -> []
 main!(host) -> (
-  asked = encoding_of(host.args.drop(1), {level: Level.default, filtering: Adaptive})
-  asked is Ok(encoding) else return (
+  asked = options_of(host.args.drop(1), {level: Level.default, filter: Adaptive})
+  asked is Ok(options) else return (
     written = host.stderr.write_all!("${usage}\n".to_utf8())
     host.exit!(2)
   )
   read = host.stdin.read_to_end!()
   read is Ok(input) else return host.exit!(1)
-  encoded = image_of(input).and_then(|image| encode(image, encoding))
+  encoded = image_of(input).map_ok(|image| encode_with(image.reduced(), options))
   encoded is Ok(file) else return (
     written = host.stderr.write_all!("topng: ${encoded}\n".to_utf8())
     host.exit!(1)
@@ -83,14 +78,14 @@ main!(host) -> (
   host.exit!(if wrote.is_ok() then 0 else 1)
 )
 
-expect encoding_of(["-9", "--unfiltered"], {level: Level.default, filtering: Adaptive})
-  == Ok({level: Level.best, filtering: Unfiltered})
-expect encoding_of(["-x"], {level: Level.default, filtering: Adaptive}) == Err(Usage)
+expect options_of(["-9", "--unfiltered"], {level: Level.default, filter: Adaptive})
+  == Ok({level: Level.best, filter: Unfiltered})
+expect options_of(["-x"], {level: Level.default, filter: Adaptive}) == Err(Usage)
 
 expect (
   pam = "P7\nWIDTH 2\nHEIGHT 1\nDEPTH 3\nMAXVAL 255\nTUPLTYPE RGB\nENDHDR\n".to_utf8().concat([1, 2, 3, 4, 5, 6])
   image = image_of(pam)
-  image == Ok({width: 2, height: 1, pixels: [1, 2, 3, 255, 4, 5, 6, 255]})
-    & image.and_then(|i| encode(i, {level: Level.default, filtering: Adaptive})).map_ok(decode) == Ok(image)
+  image.map_ok(|i| (i.color(), i.pixels())) == Ok((Rgb, [1, 2, 3, 4, 5, 6]))
+    & image.map_ok(|i| decode(encode_with(i, {level: Level.default, filter: Adaptive})) == Ok(i)) == Ok(True)
 )
 expect image_of("P6\n".to_utf8()) == Err(NotPam)
