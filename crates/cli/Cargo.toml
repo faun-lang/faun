@@ -34,11 +34,13 @@ zstd = "0.14.4"
 faun-frontend.workspace = true
 
 # The recognition tests name what a program holds by position, and write
-# Barb's table of the standard's float code.
+# Barb's table of the standard's float code. The sha256 library's digests
+# are held to RustCrypto's.
 [dev-dependencies]
 faun-barb = { workspace = true, features = ["test-support"] }
 libtest-mimic = "0.8"
 num-bigint = "0.4.8"
+sha2 = "0.10.9"
 
 # Each refused program is its own test, which libtest cannot list.
 [[test]]

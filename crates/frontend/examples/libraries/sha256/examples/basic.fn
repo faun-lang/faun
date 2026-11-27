@@ -1,0 +1,16 @@
+# Prints the SHA-256 of standard input, as `sha256sum` does.
+
+package {
+  uses: {
+    sha256: "../src/sha256"
+  }
+}
+
+import sha256 {sha256}
+
+app : {stdin: List(U8), *} -> Str
+app(input) -> "${sha256(input.stdin)}  -"
+
+expect app({stdin: "abc".to_utf8()}) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  -"
+
+main!(host) -> host.run_stdin!(app)

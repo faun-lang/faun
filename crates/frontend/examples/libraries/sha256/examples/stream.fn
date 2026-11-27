@@ -1,0 +1,27 @@
+# Prints the SHA-256 of standard input, read 64 KiB at a time, so a file
+# of any size is hashed without holding it all.
+
+package {
+  uses: {
+    sha256: "../src/sha256"
+  }
+}
+
+import std.host {Host}
+import sha256 {Sha256}
+
+# Each piece read is given to `hasher`; at the end of the input, its digest
+# is printed.
+hash! : (Host, Sha256) -> []
+hash!(host, hasher) -> (
+  read = host.stdin.read!(65536)
+  read is Ok(chunk) else return host.exit!(1)
+  if chunk is Data(bytes) then hash!(host, hasher.update(bytes))
+  else (
+    wrote = host.println!(hasher.digest().to_hex())
+    host.exit!(if wrote.is_ok() then 0 else 1)
+  )
+)
+
+main! : Host -> []
+main!(host) -> hash!(host, Sha256.empty)

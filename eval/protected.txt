@@ -8,3 +8,4 @@ flake.nix
 flake.lock
 crates/frontend/examples/benchmarks-game/
 crates/frontend/examples/libraries/md5/
+crates/frontend/examples/libraries/sha256/

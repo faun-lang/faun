@@ -65,6 +65,7 @@ fn programs() -> Vec<(PathBuf, Input)> {
             ("crc32", Input::Bytes(16)),
             ("inflate", Input::Argument("200")),
             ("queens", Input::Argument("6")),
+            ("sha256", Input::Bytes(1000)),
             ("sieve", Input::Argument("1000")),
             ("sort", Input::Argument("24")),
         ]
