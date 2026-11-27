@@ -1,0 +1,17 @@
+# The lowest set bit of each of `n` words a generator steps through, summed:
+# a word kept by `w & (!w + 1)`, the negation spelled as its complement
+# plus one, which never leaves the word.
+package {}
+
+import std.host {Host}
+
+lowest : (Nat, U64, U64) -> U64
+lowest(0, _, total) -> total
+lowest(Succ(n), word, total) -> lowest(n, word * 6364136223846793005 + 1442695040888963407, total + (word & (!word + 1)))
+
+main! : Host -> []
+main!(host) -> (
+  n = Nat.from_str(host.args.get(1).ok_or("1000")).ok_or(1000)
+  printed = host.println!("${lowest(n, U64.of_nat(1), U64.of_nat(0))}")
+  host.exit!(0)
+)
