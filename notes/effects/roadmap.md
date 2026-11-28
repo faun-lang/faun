@@ -125,6 +125,41 @@ the bytes come from, so the method names only what it answers.
 
 ### 2. Clocks and sleep
 
+**Status: the monotonic clock is done; sleep and wall time are not.**
+`host.monotonic.now!()` answers an `Instant`, and `later.since(earlier)` a
+`Duration`, on x86-64 Linux and WASI. What was decided, and why:
+
+- **Names follow Rust and Jiff together.** `Instant` is the monotonic
+  moment, as in Rust's standard library; wall time will be a `Timestamp`, as
+  in Jiff, which chose that name so as not to be taken for Rust's
+  `Instant`. Temporal's `Instant` means wall time, so that name stays off it.
+- **`Duration` is signed**, as Jiff's `SignedDuration` is: one moment less a
+  later one is negative, and saturating it to nought, as Rust's `Duration`
+  does, hides the mistake. It holds an `Int` of nanoseconds, so no sum
+  overflows. It is exact: a calendar's day or month is a calendar library's,
+  apart from it, as Jiff keeps `Span` apart from `SignedDuration`. It lives
+  in the standard library, since a program makes one without a host.
+- **`Instant` holds a `U64` and shows nobody.** It has `cmp` and `since` and
+  no `to_str` or number to read, so how it is held (a `U64`, as WASI,
+  Haskell's `getMonotonicTimeNSec` and OCaml's `mtime` hold one; signed, as
+  Go and Java do; or seconds and nanoseconds, as Rust does) can change with
+  no program noticing.
+- **A read fills a buffer.** `clock_fill!` is built on `clock!(id, address,
+  count)` through `Built::Read`, as entropy is. Answering a 64-bit word
+  directly would need `split.rs` to split an external routine's result on a
+  32-bit target, which it leaves alone. Measured on x86-64 over a million
+  reads: 251 ns each, against 228 ns for C's raw `clock_gettime` syscall, so
+  the buffer costs about 10%. C through the vDSO takes 16.5 ns, fifteen times
+  less than any syscall: reading the vDSO from the auxiliary vector is the
+  change that would matter, not the buffer.
+- **WASI writes the time only to eight aligned bytes**, which a list's are
+  not, so the target reads it into its own aligned scratch cells and copies.
+- **Still to come:** `Monotonic.sleep!` against a deadline, an opaque value
+  for a benchmark to time work that an optimizer may not move past a read,
+  and `Clock.now!` answering a `Timestamp`.
+
+What was proposed:
+
 - **Shape:** a 64-bit value. Linux's `clock_gettime` fills a 16-byte
   `timespec`, and WASI's `clock_time_get` writes a `u64` through a pointer, so
   both are "fill a buffer". Sleep is `clock_nanosleep` on Linux, and

@@ -62,9 +62,9 @@ impl Target for X86_64Linux {
         WORD_BITS
     }
 
-    /// The streams', and the kernel's cryptographically secure generator.
+    /// The streams', and the kernel's cryptographically secure generator and clocks.
     fn provides(&self) -> &'static [&'static str] {
-        faun_core::targets::STREAMS_AND_ENTROPY
+        faun_core::targets::HOSTED
     }
 
     /// A process is given the low 47 bits of address.

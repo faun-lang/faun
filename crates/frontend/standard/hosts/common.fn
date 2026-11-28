@@ -6,7 +6,7 @@
 
 import bounds {Printable}
 
-export {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, filled, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
+export {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, Instant.*, little_endian, filled, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
 
 # What a stream or a file moves.
 Bytes = List(U8)
@@ -40,6 +40,32 @@ EntropyError = [EntropyUnavailable]
 # Everything any of them can meet, for a program's own signatures, which
 # `?` joins each into.
 IoError = [NotFound, Denied, AlreadyExists, NotADirectory, IsADirectory, NotEmpty, Escapes, BrokenPipe, NoSpace, Unsupported, Other(Nat)]
+
+# A moment on the monotonic clock: comparable with another of the same run,
+# and one less another is how long passed between them. It says nothing
+# about the time of day, and holds no number a program can read, since
+# where the clock starts is the target's to choose: Linux's starts at boot.
+# A moment is never earlier than one read before it in the same run.
+# Whether the clock goes on while the machine sleeps is the target's to
+# say; on Linux it does not.
+#
+# Only the host module makes one, so its nanoseconds stay hidden, and how a
+# moment is held can change without a program noticing.
+Instant : [Instant(U64)].(
+  cmp : (Instant, Instant) -> Order
+
+  # How long passed from `earlier` to `later`: negative where `earlier`
+  # is the later of the two.
+  since : (Instant, Instant) -> Duration
+  since(Instant(later), Instant(earlier)) -> Duration.of_nanos(Int.of_nat(later.to_nat()) - Int.of_nat(earlier.to_nat()))
+  expect Instant(U64.of_nat(5000)).since(Instant(U64.of_nat(2000))) == Duration.of_micros(3)
+  expect Instant(U64.of_nat(2000)).since(Instant(U64.of_nat(5000))) == Duration.of_micros(-3)
+)
+
+# The number up to eight bytes write, the least significant first.
+little_endian : List(U8) -> U64
+little_endian(bytes) -> bytes.take(8).reverse().fold(U64.zero, |value, byte| (value << 8) | U64.of_u8(byte))
+expect little_endian([1, 2]) == 0x0201
 
 # What a read answers, from the bytes the target filled and what it said:
 # none is the end, since a read asked for none never reaches the target.

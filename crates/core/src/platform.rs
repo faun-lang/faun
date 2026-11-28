@@ -367,6 +367,16 @@ impl Routines {
                 Returns::Filled,
                 Some(Built::Read("random!".into())),
             ),
+            // A clock, by the number the target names it by, read into a
+            // new byte string of a count of bytes, in the target's own
+            // layout: as many as came, and what the target answered.
+            held(
+                "clock_fill!",
+                (true, true),
+                &[word, word],
+                Returns::Filled,
+                Some(Built::Read("clock!".into())),
+            ),
             offered("exit!", &[word], Returns::Never),
             // Bytes where they lie to or from what a descriptor names, and a
             // name opened: how many, or the descriptor, or an error.
@@ -378,6 +388,11 @@ impl Routines {
             ),
             primitive("open_at!", &[Takes::StaticBytes, word, word], count),
             primitive("random!", &[Takes::Scalar(Class::Address), word], count),
+            primitive(
+                "clock!",
+                &[word, Takes::Scalar(Class::Address), word],
+                count,
+            ),
             // One argument, two machine values: a machine reads where a run
             // of bytes starts and how long it is.
             primitive("write!", &[Takes::StaticBytes], Returns::Unit),

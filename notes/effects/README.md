@@ -131,10 +131,11 @@ Host
 
 Clocks and entropy are small enough not to need their own notes:
 
-- `WallClock.now! : WallClock -> Time`: nanoseconds since the Unix epoch as
+- `Clock.now! : Clock -> Timestamp` (not built yet): nanoseconds since the Unix epoch as
   an `Int`. It may move backwards.
-- `Monotonic.now! : Monotonic -> Instant` never decreases within one
-  invocation and is comparable only within it. `Monotonic.sleep! :
+- `Monotonic.now! : Monotonic -> Instant` (built; see the
+  [roadmap](roadmap.md)) never decreases within one invocation and is
+  comparable only within it; `later.since(earlier)` is a signed `Duration`. `Monotonic.sleep! :
   (Monotonic, Duration) -> {}`.
 - `Entropy.bytes! : (Entropy, Nat) -> Result(List(U8), [EntropyUnavailable])`
   returns cryptographically secure bytes (built; see the

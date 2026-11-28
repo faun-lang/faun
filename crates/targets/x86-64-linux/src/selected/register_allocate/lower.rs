@@ -21,6 +21,8 @@ const SYS_CLOSE: u64 = 3;
 const SYS_OPENAT2: u64 = 437;
 /// Bytes from the kernel's generator, where a program says.
 const SYS_GETRANDOM: u64 = 318;
+/// A clock's time, as a `timespec` where a program says.
+const SYS_CLOCK_GETTIME: u64 = 228;
 /// A name is read from where the program runs.
 const AT_FDCWD: u64 = (-100i64).cast_unsigned();
 /// A name reaching above where it is read from, by `..`, from the root, or
@@ -1156,6 +1158,27 @@ impl<'a> Lowering<'a> {
                 self.materialize(Reg::Rax, SYS_GETRANDOM);
                 self.asm.syscall();
                 self.forget_call_clobbers();
+                let dst = result()?;
+                debug_assert_eq!(dst, Reg::Rax);
+                self.forget(dst);
+            }
+            (Opcode::Clock, Immediate::None) => {
+                // The kernel answers nought for a clock read, and a read
+                // answers how many bytes it filled: the count it was handed,
+                // still in `rdx`, which the kernel leaves as it was, where
+                // the kernel answered nought, and `-errno` where it did not.
+                // Without a branch: a mask of every bit where it answered
+                // nought, and of none where it did not, keeps the count or
+                // drops it.
+                self.materialize(Reg::Rax, SYS_CLOCK_GETTIME);
+                self.asm.syscall();
+                self.forget_call_clobbers();
+                self.asm.alu(Alu::Test, Reg::Rax, Reg::Rax, 64);
+                self.asm.set_if(Condition::NotEqual, Reg::Rcx);
+                self.asm.alu_immediate(Alu::Subtract, Reg::Rcx, 1, 64);
+                self.asm.alu(Alu::And, Reg::Rcx, Reg::Rdx, 64);
+                self.asm.alu(Alu::Add, Reg::Rax, Reg::Rcx, 64);
+                self.forget(Reg::Rcx);
                 let dst = result()?;
                 debug_assert_eq!(dst, Reg::Rax);
                 self.forget(dst);

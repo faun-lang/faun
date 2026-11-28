@@ -1,0 +1,108 @@
+# An exact length of time, to the nanosecond, which may be negative: what
+# one moment less another is, and what a program waits for or adds to a
+# moment. Its units are always named where one is made or read, so a count
+# of milliseconds is never taken for one of seconds.
+#
+# It is exact: a day here is 86400 seconds, never the calendar's day, which
+# a change of the clocks makes 23 or 25 hours long. A calendar's lengths are
+# a calendar library's, and stay apart from this.
+#
+# It holds an `Int`, so no sum or difference of two overflows.
+
+import hasher {Hasher}
+
+export {Duration}
+
+Duration : [Duration(Int)].(
+  cmp : (Duration, Duration) -> Order
+
+  hash_into : (Duration, h) -> h where Hasher(h)
+
+  zero : Duration
+  zero = Duration(Int.zero)
+
+  of_nanos : Int -> Duration
+  of_nanos(count) -> Duration(count)
+
+  of_micros : Int -> Duration
+  of_micros(count) -> Duration(count * 1000)
+
+  of_millis : Int -> Duration
+  of_millis(count) -> Duration(count * 1000000)
+
+  of_secs : Int -> Duration
+  of_secs(count) -> Duration(count * 1000000000)
+  expect Duration.of_secs(2) == Duration.of_millis(2000)
+  expect Duration.of_micros(-3) < Duration.zero
+
+  # How many nanoseconds, exactly.
+  to_nanos : Duration -> Int
+  to_nanos(Duration(count)) -> count
+  expect Duration.of_millis(3).to_nanos() == 3000000
+
+  # How many seconds, as the nearest `F64`: what a rate divides by.
+  to_secs : Duration -> F64
+  to_secs(Duration(count)) -> F64.of_int(count) / 1000000000.0
+  expect Duration.of_millis(1500).to_secs() == 1.5
+
+  add : (Duration, Duration) -> Duration
+  add(Duration(a), Duration(b)) -> Duration(a + b)
+
+  sub : (Duration, Duration) -> Duration
+  sub(Duration(a), Duration(b)) -> Duration(a - b)
+  expect Duration.of_secs(1) - Duration.of_millis(1500) == Duration.of_millis(-500)
+
+  neg : Duration -> Duration
+  neg(Duration(count)) -> Duration(count.neg())
+
+  abs : Duration -> Duration
+  abs(Duration(count)) -> Duration(Int.of_nat(count.abs()))
+
+  is_negative : Duration -> Bool
+  is_negative(Duration(count)) -> count.is_negative()
+
+  # `times` as long, which may be negative.
+  times : (Duration, Int) -> Duration
+  times(Duration(count), factor) -> Duration(count * factor)
+  expect Duration.of_millis(250).times(4) == Duration.of_secs(1)
+
+  # In the largest unit it reaches, with as many decimals as it needs and
+  # no more: `1.5s`, `250ms`, `3.25µs`, `12ns`, `-2s`, `0s`.
+  to_str : Duration -> Str
+  to_str(Duration(count)) if count.is_negative() -> "-".concat(written(count.abs()))
+  to_str(Duration(count)) -> written(count.abs())
+  expect Duration.of_millis(1500).to_str() == "1.5s"
+  expect Duration.of_millis(250).to_str() == "250ms"
+  expect Duration.of_nanos(3250).to_str() == "3.25µs"
+  expect Duration.of_nanos(12).to_str() == "12ns"
+  expect Duration.of_secs(-2).to_str() == "-2s"
+  expect Duration.zero.to_str() == "0s"
+  expect Duration.of_nanos(1000000001).to_str() == "1.000000001s"
+)
+
+# `nanos` in the largest unit it reaches.
+written : Nat -> Str
+written(0) -> "0s"
+written(nanos) if nanos >= 1000000000 -> in_unit(nanos, 1000000000, 9, "s")
+written(nanos) if nanos >= 1000000 -> in_unit(nanos, 1000000, 6, "ms")
+written(nanos) if nanos >= 1000 -> in_unit(nanos, 1000, 3, "µs")
+written(nanos) -> nanos.to_str().concat("ns")
+
+# `nanos` as whole units of `scale`, then the rest as `digits` decimals
+# with the zeros that end them dropped, then `unit`.
+in_unit : (Nat, Nat, Nat, Str) -> Str
+in_unit(nanos, scale, digits, unit) -> (
+  whole = (nanos / scale).to_str()
+  rest = nanos % scale
+  fraction = (rest == 0).select("", ".".concat(trimmed(zeros(rest.to_str(), digits))))
+  whole.concat(fraction).concat(unit)
+)
+
+# `text` led by zeros to `width`.
+zeros : (Str, Nat) -> Str
+zeros(text, width) -> "0".repeat(width - text.len()).concat(text)
+
+# `text` without the zeros that end it.
+trimmed : Str -> Str
+trimmed(text) if text.ends_with("0") -> trimmed(text.drop_suffix("0"))
+trimmed(text) -> text
