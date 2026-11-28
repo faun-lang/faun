@@ -15,10 +15,10 @@ package {
 
 import random {Pcg32}
 
-app : {args: List(Str)} -> Result(Str, [OutOfBounds, Malformed])
+app : {args: List(Str)} -> Result(Str, [OutOfBounds, Malformed, TooBig])
 app(input) -> (
   count = Nat.from_str(input.args.get(0)?)?
-  seed = Nat.from_str(input.args.get(1)?)?
+  seed = U64.from_nat(Nat.from_str(input.args.get(1)?)?)?
   (mixed, after) = Pcg32.seed(seed).shuffle(List.range(count))
   Ok(mixed.map(Nat.to_str).join(" "))
 )
@@ -30,5 +30,5 @@ expect (
 
 main!(host) -> host.run!(cli)
 
-cli : {args: List(Str)} -> Result(Str, [OutOfBounds, Malformed])
+cli : {args: List(Str)} -> Result(Str, [OutOfBounds, Malformed, TooBig])
 cli(input) -> app({args: input.args.drop(1)})

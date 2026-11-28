@@ -3,9 +3,22 @@
 #
 # `Pcg32` is PCG-XSH-RR: a small deterministic generator with one private
 # 64-bit state and a `U32` output, named for its algorithm, as any other
-# generator here would be. Seed it once, from a number to repeat a run, or
-# from the host's entropy for a run nobody can predict, and every draw after
-# that is pure: thread the returned state through `next`.
+# generator here would be. Seed it once and every draw after that is pure:
+# thread the returned state through `next`.
+#
+# Its seed is its whole state, 64 bits, so `seed` takes a `U64` and nothing
+# handed to it is dropped. `from_entropy!(host.entropy)` draws exactly that
+# many bytes, so a caller never says how many; a generator with more state
+# draws more. A run nobody can predict is seeded from entropy. A run to be
+# repeated draws its `U64` first, prints it, and seeds from that:
+#
+#     drawn = host.entropy.bytes!(8)?
+#     seed = drawn.fold(U64.zero, |value, byte| (value << 8) | U64.of_u8(byte))
+#     printed = host.println!("seed ${seed}")
+#     generator = Pcg32.seed(seed)
+#
+# A generator cannot be turned back into the number it came from, so a seed
+# not printed first is not to be had afterwards.
 #
 # It is not cryptographically secure, and nothing here is. A key, a nonce or
 # a token comes from `host.entropy.bytes!` itself, every time: a generator's
@@ -22,21 +35,17 @@ Pcg32 : U64.(
   # written below. `*` and `+` on a `U64` wrap modulo 2^64 and are worked out
   # in machine words wherever they appear, as the 64-bit state is held in
   # them, across calls too.
-  seed : Nat -> Pcg32
-  seed(value) -> Pcg32(
-    (U64.of_nat(value) + 0x14057b7ef767814f) * 0x5851f42d4c957f2d + 0x14057b7ef767814f
-  )
+  seed : U64 -> Pcg32
+  seed(value) -> Pcg32((value + 0x14057b7ef767814f) * 0x5851f42d4c957f2d + 0x14057b7ef767814f)
 
-  # A generator seeded from eight bytes `entropy` draws, so no two runs are
-  # alike: `Pcg32.seed_from!(host.entropy)`. Printing the seed `seed` was
-  # handed, rather than the generator, is how a run is repeated; to do that,
-  # draw the bytes yourself and hand `seed` their number.
-  seed_from! : e -> Result(Pcg32, error) where
+  # A generator seeded from 8 bytes `entropy` draws, its whole state, so no
+  # two runs are alike: `Pcg32.from_entropy!(host.entropy)`.
+  from_entropy! : e -> Result(Pcg32, error) where
     e.bytes! : (e, Nat) -> Result(List(U8), error)
-  seed_from!(entropy) -> (
+  from_entropy!(entropy) -> (
     drawn = entropy.bytes!(8)
     bytes = drawn?
-    Ok(seed(bytes.fold(0, |value, byte| value * 256 + byte.to_nat())))
+    Ok(seed(bytes.fold(U64.zero, |value, byte| (value << 8) | U64.of_u8(byte))))
   )
 
   # One draw: the output is the state's high bits xor-shifted and rotated by
