@@ -172,6 +172,9 @@ pub(crate) enum Opcode {
     OpenAt,
     /// A descriptor given up: nought, or `-errno`.
     CloseFd,
+    /// Bytes from the kernel's generator to where they are to lie: how
+    /// many came, or `-errno`.
+    Random,
     Exit,
     Grow,
     ArgumentCount,
@@ -217,9 +220,11 @@ impl Opcode {
     /// answers, where the operand is read there.
     const fn syscall_operand(self, at: usize) -> Option<Reg> {
         match (self, at) {
-            (Self::Write | Self::OpenAt, 0) | (Self::WriteFd | Self::ReadFd, 1) => Some(Reg::Rsi),
+            (Self::Write | Self::OpenAt, 0) | (Self::WriteFd | Self::ReadFd | Self::Random, 1) => {
+                Some(Reg::Rsi)
+            }
             (Self::Write, 1) | (Self::WriteFd | Self::ReadFd, 2) => Some(Reg::Rdx),
-            (Self::WriteFd | Self::ReadFd | Self::CloseFd, 0) => Some(Reg::Rdi),
+            (Self::WriteFd | Self::ReadFd | Self::CloseFd | Self::Random, 0) => Some(Reg::Rdi),
             _ => None,
         }
     }
@@ -234,6 +239,7 @@ impl Opcode {
             | Self::ReadFd
             | Self::OpenAt
             | Self::CloseFd
+            | Self::Random
             | Self::Grow => Constraint::Fixed(Reg::Rax),
             Self::ReadByte => Constraint::Fixed(Reg::Rdx),
             _ => Constraint::Any,
@@ -333,10 +339,12 @@ impl Opcode {
             | Self::ReadFd
             | Self::OpenAt
             | Self::CloseFd
+            | Self::Random
             | Self::Exit
             | Self::Grow
             | Self::ReadByte => {
                 let scratch = match self {
+                    Self::Random => RegSet::of(&[Reg::Rdx]),
                     Self::Write => RegSet::of(&[Reg::Rax, Reg::Rdi]),
                     Self::OpenAt => RegSet::of(&[Reg::Rdi, Reg::Rdx, Reg::R10]),
                     Self::Exit => RegSet::of(&[Reg::Rax]),
@@ -366,6 +374,7 @@ impl Opcode {
             | Self::ReadFd
             | Self::OpenAt
             | Self::CloseFd
+            | Self::Random
             | Self::Exit
             | Self::Grow
             | Self::ReadByte
@@ -929,6 +938,7 @@ impl Selected {
             | Opcode::Below
             | Opcode::FloatNotAbove
             | Opcode::Store
+            | Opcode::Random
             | Opcode::Write => 2,
             Opcode::WriteFd | Opcode::ReadFd => 3,
             Opcode::OpenAt => 4,
@@ -1335,6 +1345,7 @@ fn verify_effects(opcode: Opcode, id: InstId) -> Result<(), String> {
             | Opcode::ReadFd
             | Opcode::OpenAt
             | Opcode::CloseFd
+            | Opcode::Random
             | Opcode::Exit
             | Opcode::Grow
             | Opcode::ReadByte => {
@@ -1434,6 +1445,7 @@ fn verify_immediate(inst: Inst, id: InstId) -> Result<(), String> {
                     | Opcode::ReadFd
                     | Opcode::OpenAt
                     | Opcode::CloseFd
+                    | Opcode::Random
                     | Opcode::Exit
                     | Opcode::Grow
                     | Opcode::ArgumentCount
@@ -1904,6 +1916,7 @@ impl Selector<'_> {
                             "read_fd!" => Opcode::ReadFd,
                             "open_at!" => Opcode::OpenAt,
                             "fd_close!" => Opcode::CloseFd,
+                            "random!" => Opcode::Random,
                             "exit!" => Opcode::Exit,
                             "grow" => Opcode::Grow,
                             "read_byte!" => Opcode::ReadByte,

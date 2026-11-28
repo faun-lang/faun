@@ -3689,17 +3689,18 @@ impl Lowering<'_> {
                 vec![answer]
             }
             Built::Read(_) => {
-                let [(descriptor, _), (count, _)] = carried[..] else {
-                    unreachable!("a read is handed a descriptor and a count");
+                let [leading @ .., (count, _)] = &carried[..] else {
+                    unreachable!("a read is handed a count");
                 };
+                let leading: Vec<_> = leading
+                    .iter()
+                    .map(|&(atom, _)| Self::scalar(locals, atom))
+                    .collect();
                 let bytes = self.filled_element(self.barb.function(asked.0).result);
                 Self::filled(
                     b,
                     primitive,
-                    (
-                        Self::scalar(locals, descriptor),
-                        Self::scalar(locals, count),
-                    ),
+                    (&leading, Self::scalar(locals, *count)),
                     bytes,
                 )
                 .to_vec()
@@ -3776,13 +3777,13 @@ impl Lowering<'_> {
         self.byte_element(self.barb.fields(constructor)[0])
     }
 
-    /// Room for `count` bytes, which the primitive fills from `descriptor`:
-    /// as many of them as it says it filled, and what it answered, which is
-    /// more than `count` only where it refused.
+    /// Room for `count` bytes, which the primitive fills, handed `leading`
+    /// first: as many of them as it says it filled, and what it answered,
+    /// which is more than `count` only where it refused.
     fn filled(
         b: &mut super::Builder,
         primitive: FunctionId,
-        (descriptor, count): (ValueId, ValueId),
+        (leading, count): (&[ValueId], ValueId),
         element: Class,
     ) -> [ValueId; 4] {
         let count = met(b, count, Class::Word);
@@ -3790,7 +3791,9 @@ impl Lowering<'_> {
         let room = b.buffer_room(count, bytes);
         let start = b.constant(Class::Word, 0);
         let at = b.buffer_at((room, start), bytes);
-        let answer = b.call_one(primitive, &[descriptor, at, count]);
+        let mut args = leading.to_vec();
+        args.extend([at, count]);
+        let answer = b.call_one(primitive, &args);
         let refused = b.compare(Relation::Less, count, answer);
         let got = b.if_(
             refused,

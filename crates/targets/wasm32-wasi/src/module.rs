@@ -72,8 +72,9 @@ fn types(out: &mut Bytes, code: &Code) {
                 // (fd, iovs, iovs_len, transferred)
                 "fd_write" | "fd_read" => (&[I32; 4], 1),
                 "proc_exit" => (&[I32], 0), // (status)
-                // (argc_out, argv_size_out), and (argv, argv_buf)
-                "args_sizes_get" | "args_get" => (&[I32; 2], 1),
+                // (argc_out, argv_size_out), (argv, argv_buf), and (buf,
+                // buf_len)
+                "args_sizes_get" | "args_get" | "random_get" => (&[I32; 2], 1),
                 // (dir, lookup flags, path, path_len, open flags, rights,
                 // rights inherited, descriptor flags, opened)
                 "path_open" => (&[I32, I32, I32, I32, I32, I64, I64, I32, I32], 1),

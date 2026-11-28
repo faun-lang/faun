@@ -549,6 +549,8 @@ fn test_platform() -> Platform {
         "write!",
         "read_byte!",
         "grow",
+        "random_fill!",
+        "random!",
     ];
     Platform::new("x86_64-linux", names.map(routine))
 }

@@ -21,7 +21,7 @@ The foundation is sound. The hardest pieces already exist:
 - **Confinement.** Linux opens with `openat2` and `RESOLVE_BENEATH`, and WASI
   uses its preopens.
 
-The gaps are breadth (no clocks, entropy, environment, sockets or processes),
+The gaps are breadth (no clocks, environment, sockets or processes),
 a routine vocabulary that answers only one word or one filled buffer, the
 routine catalog living in `faun_core`, and no poller or reactor.
 
@@ -101,9 +101,24 @@ host modules are per target anyway.
 
 ### 1. Entropy
 
-- **Shape:** fill a buffer, exactly like `fd_read!`.
-- **Linux:** `getrandom(buf, len, 0)`. **WASI:** `random_get(buf, len)`.
-  **sim65:** omit.
+**Status: done.** `host.entropy` is an `Entropy`, whose `fill!(count)`
+answers exactly `count` bytes or `Err(EntropyUnavailable)`; `some!(count)`
+answers one draw of up to 65536.
+
+- **Shape:** fill a buffer, as `fd_read!` does. `Built::Read` now hands its
+  primitive any leading scalars, then the buffer and the count, so
+  `random_fill!` is built on a `random!(address, count)` with no descriptor.
+- **Linux:** `getrandom(buf, len, 0)`, which blocks only until the kernel's
+  generator is first ready. **WASI:** `random_get(buf, len)`, imported only by
+  a program that draws. **sim65 and macOS:** omitted, so a program drawing is
+  refused at compile time.
+- **Failure is a value.** Faun has no panics, so the one tag is answered
+  rather than the program aborted. It is rare: a sandbox refusing the call, or
+  a WASI runner that has no generator.
+- **The loop is in Faun.** `fill_random!` in `hosts/common.fn` draws until it
+  has `count`, since Linux may answer fewer than asked past 256 bytes, and a
+  draw answering none where some were asked is `EntropyUnavailable` rather
+  than a reason to ask forever. Nothing is buffered between draws.
 - **Why first:** it's the smallest possible new routine, and it unlocks
   seeded hashing that can't be predicted, randomized tests, and UUIDs.
 

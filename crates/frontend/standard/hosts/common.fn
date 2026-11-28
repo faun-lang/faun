@@ -6,7 +6,7 @@
 
 import bounds {Printable}
 
-export {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, filled, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
+export {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, filled, drawn, fill_random!, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
 
 # What a stream or a file moves.
 Bytes = List(U8)
@@ -33,6 +33,10 @@ WriteError = [BrokenPipe, NoSpace, Other(Nat)]
 # What closing a file can meet: an error writing it met and did not say.
 CloseError = [NoSpace, Other(Nat)]
 
+# What asking the target's generator for random bytes can meet: that it has
+# none to give, which no program can mend by asking again or by waiting.
+EntropyError = [EntropyUnavailable]
+
 # Everything any of them can meet, for a program's own signatures, which
 # `?` joins each into.
 IoError = [NotFound, Denied, AlreadyExists, NotADirectory, IsADirectory, NotEmpty, Escapes, BrokenPipe, NoSpace, Unsupported, Other(Nat)]
@@ -43,6 +47,29 @@ filled : (List(U8), Result(Nat, e)) -> Result(Chunk, e)
 filled(_, Err(error)) -> Err(error)
 filled([], Ok(_)) -> Ok(End)
 filled(bytes, Ok(_)) -> Ok(Data(bytes))
+
+# What a draw from the generator answers, from the bytes the target filled
+# and what it said.
+drawn : (List(U8), Result(Nat, e)) -> Result(List(U8), EntropyError)
+drawn(_, Err(_)) -> Err(EntropyUnavailable)
+drawn(bytes, Ok(_)) -> Ok(bytes)
+
+# Exactly `count` more random bytes after `got`, however few each draw
+# answers. A draw that answers none where some were asked is the generator
+# having none to give, rather than a reason to ask forever.
+fill_random! : (s, Nat, List(U8)) -> Result(List(U8), EntropyError) where
+  s.some! : (s, Nat) -> Result(List(U8), EntropyError)
+fill_random!(_, 0, got) -> Ok(got)
+fill_random!(source, count, got) -> (
+  drew = source.some!(count)
+  fill_on!(source, count, got, drew)
+)
+
+fill_on! : (s, Nat, List(U8), Result(List(U8), EntropyError)) -> Result(List(U8), EntropyError) where
+  s.some! : (s, Nat) -> Result(List(U8), EntropyError)
+fill_on!(_, _, _, Err(error)) -> Err(error)
+fill_on!(_, _, _, Ok([])) -> Err(EntropyUnavailable)
+fill_on!(source, count, got, Ok(bytes)) -> fill_random!(source, count - bytes.len(), got.concat(bytes))
 
 # Every byte to the end, after `read`. Each chunk goes on the end of what
 # came before, in place where there is room. A stream that never ends is

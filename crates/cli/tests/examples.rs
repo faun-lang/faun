@@ -1042,6 +1042,48 @@ fn files_answer_what_opening_one_met() {
     assert_eq!(left["here.txt"], b"there!");
 }
 
+/// The generator answers exactly what was asked: none without asking,
+/// 32, and 100000, which Linux hands over in more than one draw. Two
+/// draws differ, and so do two runs, on every target with a generator;
+/// the 6502 has none, so a program asking for one is refused there.
+#[test]
+fn entropy_fills_exactly_what_was_asked() {
+    let package = support::Package::new(
+        "entropy",
+        "import std.host {EntropyError}
+
+         main! : Host -> []
+         main!(host) -> (
+           none = host.entropy.fill!(0)
+           a = host.entropy.fill!(32)
+           b = host.entropy.fill!(32)
+           big = host.entropy.fill!(100000)
+           printed = host.println!(\"${a}\")
+           host.exit!(checked(none, a, b, big))
+         )
+
+         checked : (Result(List(U8), EntropyError), Result(List(U8), EntropyError), Result(List(U8), EntropyError), Result(List(U8), EntropyError)) -> U8
+         checked(Ok([]), Ok(a), Ok(b), Ok(big)) if a.len() == 32 & b.len() == 32 & big.len() == 100000 & a != b -> 0
+         checked(_, _, _, _) -> 1",
+    );
+    for target in ["x86_64-linux", "wasm32-wasi"] {
+        let run = || support::faun(&["run", "--target", target], &package.entry(), &[], b"");
+        let (first, drawn, error) = run();
+        assert_eq!(first, Some(0), "{target}: {error}");
+        let (second, again, error) = run();
+        assert_eq!(second, Some(0), "{target}: {error}");
+        assert_ne!(drawn, again, "{target}: two runs drew the same bytes");
+    }
+    let (status, _, error) = support::faun(
+        &["build", "--target", "mos6502-sim65"],
+        &package.entry(),
+        &[],
+        b"",
+    );
+    assert_ne!(status, Some(0));
+    assert!(error.contains("`EntropyError` is not exported"), "{error}");
+}
+
 /// Appending writes after a list's end where nothing else holds its
 /// buffer, and otherwise grows it with room after: twenty thousand appends
 /// are linear work, which a copy per append would not finish.

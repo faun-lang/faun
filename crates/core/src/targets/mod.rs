@@ -54,6 +54,45 @@ pub enum Favour {
     Size,
 }
 
+/// The routines a host's streams, files, exit, heap and arguments take,
+/// whether the machine has a kernel to ask or a simulator's hooks: what a
+/// target provides unless it says otherwise.
+pub const STREAMS: &[&str] = &[
+    "fd_put!",
+    "fd_read!",
+    "fd_open!",
+    "fd_close!",
+    "exit!",
+    "write_fd!",
+    "read_fd!",
+    "open_at!",
+    "write!",
+    "read_byte!",
+    "grow",
+    "argc",
+    "argv",
+];
+
+/// The streams' routines and the generator's: what a target with an
+/// operating system's cryptographically secure generator to ask provides.
+pub const STREAMS_AND_ENTROPY: &[&str] = &[
+    "fd_put!",
+    "fd_read!",
+    "fd_open!",
+    "fd_close!",
+    "exit!",
+    "write_fd!",
+    "read_fd!",
+    "open_at!",
+    "write!",
+    "read_byte!",
+    "grow",
+    "argc",
+    "argv",
+    "random_fill!",
+    "random!",
+];
+
 /// A machine, and everything below the IR that reaching it takes.
 ///
 /// Shared preparation checks layout and representation; each target checks
@@ -83,21 +122,7 @@ pub trait Target: fmt::Debug {
     /// naming anything else is refused here rather than found out by a
     /// backend part way through writing it.
     fn provides(&self) -> &'static [&'static str] {
-        &[
-            "fd_put!",
-            "fd_read!",
-            "fd_open!",
-            "fd_close!",
-            "exit!",
-            "write_fd!",
-            "read_fd!",
-            "open_at!",
-            "write!",
-            "read_byte!",
-            "grow",
-            "argc",
-            "argv",
-        ]
+        STREAMS
     }
 
     /// The routines a program compiled for it is read against.

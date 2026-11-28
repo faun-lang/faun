@@ -138,7 +138,7 @@ pub(crate) fn lower(program: &Program) -> Code {
     // Which imports exist decides their indices, so it has to be settled
     // before anything calls one.
     let reads = state.read.is_some();
-    for import in ["fd_write", "fd_read", "path_open", "fd_close"] {
+    for import in ["fd_write", "fd_read", "path_open", "fd_close", "random_get"] {
         if wanted.contains(&import) || (reads && import == "fd_read") {
             state.imports.push(import);
         }
@@ -386,6 +386,7 @@ impl Plan {
                 }
                 Some("open_at!") => Some("path_open"),
                 Some("fd_close!") => Some("fd_close"),
+                Some("random!") => Some("random_get"),
                 _ => None,
             };
             if let Some(import) = wanted
@@ -1075,6 +1076,7 @@ impl Lowering<'_> {
             "write_fd!" | "read_fd!" => self.stream(name, args, results[0]),
             "open_at!" => self.open_at(args, results[0]),
             "fd_close!" => self.close_fd(args[0], results[0]),
+            "random!" => self.random(args, results[0]),
             "write!" => {
                 let index = self.written;
                 self.written += 1;
@@ -1182,6 +1184,33 @@ impl Lowering<'_> {
         let fd_close = self.import("fd_close").expect("a close imports fd_close");
         self.call(fd_close);
         self.body.byte(I32_SUB);
+        self.set(result);
+    }
+
+    /// Fill a run of bytes from the runner's cryptographically secure
+    /// generator: how many, which is all of them, or `-errno`. WASI fills
+    /// all it is asked for or answers an errno.
+    fn random(&mut self, args: &[ValueId], result: ValueId) {
+        self.push(args[0]);
+        self.push(args[1]);
+        let random_get = self
+            .import("random_get")
+            .expect("a fill imports random_get");
+        self.call(random_get);
+        // The errno, held while it decides which answer this is.
+        self.set(result);
+        self.push(result);
+        self.constant_i32(0);
+        self.body.byte(I32_EQ);
+        self.body.byte(IF);
+        self.body.byte(I32);
+        self.open();
+        self.push(args[1]);
+        self.body.byte(ELSE);
+        self.constant_i32(0);
+        self.push(result);
+        self.body.byte(I32_SUB);
+        self.close();
         self.set(result);
     }
 

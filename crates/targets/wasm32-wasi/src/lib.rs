@@ -41,6 +41,11 @@ impl Target for Wasm32Wasi {
         WORD_BITS
     }
 
+    /// The streams', and the system's cryptographically secure generator.
+    fn provides(&self) -> &'static [&'static str] {
+        faun_core::targets::STREAMS_AND_ENTROPY
+    }
+
     /// `i32.popcnt`, `i32.ctz` and `i32.clz`, each one instruction; a word
     /// of 64 bits is counted a half at a time, as it is held.
     fn counts(&self) -> barb::Counts {
