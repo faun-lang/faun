@@ -231,18 +231,9 @@ impl Counting {
         self.count(b, at, Claim::Give, last);
     }
 
-    /// Take another claim to the object a natural's `handle` names, read
+    /// Give up a claim to the object a natural's `handle` names, read
     /// through the handle itself: the object is reached only where the
     /// call needs it.
-    pub(super) fn take_named(self, b: &mut Builder<'_>, handle: ValueId, retain: FunctionId) {
-        self.count_through(b, handle, self.through_handle(), Claim::Take, |b| {
-            let at = object(b, handle);
-            b.call(retain, &[at]);
-        });
-    }
-
-    /// Give up a claim to the object a natural's `handle` names, as
-    /// [`Self::take_named`] reads it.
     pub(super) fn give_named(self, b: &mut Builder<'_>, handle: ValueId, last: FunctionId) {
         self.count_through(b, handle, self.through_handle(), Claim::Give, |b| {
             let at = object(b, handle);
@@ -347,7 +338,14 @@ impl Library {
     /// Take another claim to a natural, where it is an object.
     pub(super) fn retain_value(&self, b: &mut Builder<'_>, value: ValueId) -> ValueId {
         match self.counting {
-            Some(counting) => where_named(b, value, |b| counting.take_named(b, value, self.retain)),
+            // Taken by the call: written out at every site where a natural is
+            // kept, the count was the larger part of a program holding many,
+            // for the object a natural seldom is. A claim given up is still
+            // counted here, which a loop after it runs no worse for.
+            Some(_) => where_named(b, value, |b| {
+                let at = object(b, value);
+                b.call(self.retain, &[at]);
+            }),
             None => {
                 b.call(self.keep, &[value]);
             }
