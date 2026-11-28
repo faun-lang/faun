@@ -136,7 +136,7 @@ Clocks and entropy are small enough not to need their own notes:
 - `Monotonic.now! : Monotonic -> Instant` never decreases within one
   invocation and is comparable only within it. `Monotonic.sleep! :
   (Monotonic, Duration) -> {}`.
-- `Entropy.fill! : (Entropy, Nat) -> Result(List(U8), [EntropyUnavailable])`
+- `Entropy.bytes! : (Entropy, Nat) -> Result(List(U8), [EntropyUnavailable])`
   returns cryptographically secure bytes (built; see the
   [roadmap](roadmap.md)). Seeded pseudo-random generation is pure library code and needs
   no capability.

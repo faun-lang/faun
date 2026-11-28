@@ -378,8 +378,7 @@ Stderr   write!, write_all! : (Stderr, List(U8)) -> Result(Nat, WriteError)
 Files    open! : (Files, Str, Mode) -> Result(File, OpenError)
 File     read!, read_to_end!, read_to_str!, lines!, write!, write_all!, as the streams
          close! : File -> Result({}, CloseError)
-Entropy  fill! : (Entropy, Nat) -> Result(List(U8), EntropyError)
-         some! : (Entropy, Nat) -> Result(List(U8), EntropyError)
+Entropy  bytes! : (Entropy, Nat) -> Result(List(U8), EntropyError)
 Mode     [Read, Overwrite, Append, CreateNew, Edit, Load]
 Chunk    = [Data(List(U8)), End]
 ```
@@ -414,11 +413,10 @@ answers `End` where the stream has ended; asked for none, it answers none
 without asking the target. A `write!` moves some bytes and answers how many.
 `read_to_end!` and `write_all!` are Faun, going on until the stream is done;
 `write_all!` answers an error where a write takes none of what it is offered,
-rather than asking again. `Entropy.fill!` answers exactly as many
+rather than asking again. `Entropy.bytes!` answers exactly as many
 cryptographically secure bytes as asked, drawing from the operating system's
 generator afresh each time (`getrandom` on Linux, `random_get` on WASI), or
-`EntropyUnavailable` where it has none to give; `some!` is one draw of up to
-64 KiB. sim65 and macOS have no `entropy`, so a program drawing is refused
+`EntropyUnavailable` where it has none to give. sim65 and macOS have no `entropy`, so a program drawing is refused
 there. The `Host`, `Stdin`, `Stdout`,
 `Stderr`, `Files`, `File` and `Entropy` constructors remain private, so only the target
 makes one. A method of a value's own type is reached whether or not the type
