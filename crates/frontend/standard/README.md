@@ -367,6 +367,7 @@ Host : {args: List(Str)}.(
   stderr : Host -> Stderr
   files : Host -> Files
   entropy : Host -> Entropy      # x86-64 Linux and WASI
+  monotonic : Host -> Monotonic  # x86-64 Linux and WASI
 )
 
 Stdin    read! : (Stdin, Nat) -> Result(Chunk, ReadError)
@@ -379,6 +380,8 @@ Files    open! : (Files, Str, Mode) -> Result(File, OpenError)
 File     read!, read_to_end!, read_to_str!, lines!, write!, write_all!, as the streams
          close! : File -> Result({}, CloseError)
 Entropy  bytes! : (Entropy, Nat) -> Result(List(U8), EntropyError)
+Monotonic now! : Monotonic -> Instant
+Instant  since : (Instant, Instant) -> Duration, and cmp
 Mode     [Read, Overwrite, Append, CreateNew, Edit, Load]
 Chunk    = [Data(List(U8)), End]
 ```
@@ -417,7 +420,14 @@ rather than asking again. `Entropy.bytes!` answers exactly as many
 cryptographically secure bytes as asked, drawing from the operating system's
 generator afresh each time (`getrandom` on Linux, `random_get` on WASI), or
 `EntropyUnavailable` where it has none to give. sim65 and macOS have no `entropy`, so a program drawing is refused
-there. The `Host`, `Stdin`, `Stdout`,
+there. `Monotonic.now!` answers the moment it is on the monotonic clock,
+never earlier than one read before it; an `Instant` compares with another
+and `later.since(earlier)` is how long passed, as a signed `Duration`, but
+it holds no number a program can read or print, since where the clock
+starts is the target's. `Duration`, in the standard library, is exact
+nanoseconds as an `Int`, made and read in named units (`of_secs`,
+`of_millis`, `of_micros`, `of_nanos`, `to_nanos`, and `to_secs` as an
+`F64`), and prints in the largest unit it reaches, as `1.5s` or `250ms`. The `Host`, `Stdin`, `Stdout`,
 `Stderr`, `Files`, `File` and `Entropy` constructors remain private, so only the target
 makes one. A method of a value's own type is reached whether or not the type
 was imported, so `host.stdout.write_all!(bytes)` needs only `Host`. A method a

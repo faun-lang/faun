@@ -73,9 +73,10 @@ pub const STREAMS: &[&str] = &[
     "argv",
 ];
 
-/// The streams' routines and the generator's: what a target with an
-/// operating system's cryptographically secure generator to ask provides.
-pub const STREAMS_AND_ENTROPY: &[&str] = &[
+/// The streams' routines, the generator's and the clocks': what a target
+/// with an operating system to ask for cryptographically secure bytes and
+/// the time provides.
+pub const HOSTED: &[&str] = &[
     "fd_put!",
     "fd_read!",
     "fd_open!",
@@ -91,6 +92,8 @@ pub const STREAMS_AND_ENTROPY: &[&str] = &[
     "argv",
     "random_fill!",
     "random!",
+    "clock_fill!",
+    "clock!",
 ];
 
 /// A machine, and everything below the IR that reaching it takes.

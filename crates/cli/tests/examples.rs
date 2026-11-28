@@ -1106,6 +1106,48 @@ fn a_generator_seeded_from_entropy_deals_differently() {
     }
 }
 
+/// The monotonic clock never goes back: a moment read after another is
+/// no earlier, how long passed between them is no less than nothing, and
+/// the other way round no more, on every target with a clock; the 6502 has
+/// none, so a program reading one is refused there.
+#[test]
+fn the_monotonic_clock_never_goes_back() {
+    let package = support::Package::new(
+        "monotonic",
+        "import std.host {Host, Monotonic}
+
+         main! : Host -> []
+         main!(host) -> (
+           first = host.monotonic.now!()
+           second = host.monotonic.now!()
+           third = host.monotonic.now!()
+           ordered = first <= second & second <= third
+           measured = second.since(first) >= Duration.zero & first.since(third) <= Duration.zero
+           printed = host.println!(\"${third.since(first)}\")
+           host.exit!((ordered & measured).select(0, 1))
+         )",
+    );
+    for target in ["x86_64-linux", "wasm32-wasi"] {
+        let (status, printed, error) =
+            support::faun(&["run", "--target", target], &package.entry(), &[], b"");
+        assert_eq!(status, Some(0), "{target}: {error}");
+        assert!(
+            ["ns\n", "µs\n", "ms\n", "s\n"]
+                .iter()
+                .any(|unit| printed.ends_with(unit)),
+            "{target}: {printed}"
+        );
+    }
+    let (status, _, error) = support::faun(
+        &["build", "--target", "mos6502-sim65"],
+        &package.entry(),
+        &[],
+        b"",
+    );
+    assert_ne!(status, Some(0));
+    assert!(error.contains("`Monotonic` is not exported"), "{error}");
+}
+
 /// Appending writes after a list's end where nothing else holds its
 /// buffer, and otherwise grows it with room after: twenty thousand appends
 /// are linear work, which a copy per append would not finish.

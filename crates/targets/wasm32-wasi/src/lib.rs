@@ -41,9 +41,9 @@ impl Target for Wasm32Wasi {
         WORD_BITS
     }
 
-    /// The streams', and the system's cryptographically secure generator.
+    /// The streams', and the system's cryptographically secure generator and clocks.
     fn provides(&self) -> &'static [&'static str] {
-        faun_core::targets::STREAMS_AND_ENTROPY
+        faun_core::targets::HOSTED
     }
 
     /// `i32.popcnt`, `i32.ctz` and `i32.clz`, each one instruction; a word

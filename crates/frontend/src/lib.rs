@@ -551,6 +551,8 @@ fn test_platform() -> Platform {
         "grow",
         "random_fill!",
         "random!",
+        "clock_fill!",
+        "clock!",
     ];
     Platform::new("x86_64-linux", names.map(routine))
 }

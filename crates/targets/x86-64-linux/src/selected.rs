@@ -175,6 +175,9 @@ pub(crate) enum Opcode {
     /// Bytes from the kernel's generator to where they are to lie: how
     /// many came, or `-errno`.
     Random,
+    /// A clock read to where its `timespec` is to lie: the count of bytes
+    /// it was handed, or `-errno`.
+    Clock,
     Exit,
     Grow,
     ArgumentCount,
@@ -220,11 +223,12 @@ impl Opcode {
     /// answers, where the operand is read there.
     const fn syscall_operand(self, at: usize) -> Option<Reg> {
         match (self, at) {
-            (Self::Write | Self::OpenAt, 0) | (Self::WriteFd | Self::ReadFd | Self::Random, 1) => {
-                Some(Reg::Rsi)
+            (Self::Write | Self::OpenAt, 0)
+            | (Self::WriteFd | Self::ReadFd | Self::Random | Self::Clock, 1) => Some(Reg::Rsi),
+            (Self::Write, 1) | (Self::WriteFd | Self::ReadFd | Self::Clock, 2) => Some(Reg::Rdx),
+            (Self::WriteFd | Self::ReadFd | Self::CloseFd | Self::Random | Self::Clock, 0) => {
+                Some(Reg::Rdi)
             }
-            (Self::Write, 1) | (Self::WriteFd | Self::ReadFd, 2) => Some(Reg::Rdx),
-            (Self::WriteFd | Self::ReadFd | Self::CloseFd | Self::Random, 0) => Some(Reg::Rdi),
             _ => None,
         }
     }
@@ -240,6 +244,7 @@ impl Opcode {
             | Self::OpenAt
             | Self::CloseFd
             | Self::Random
+            | Self::Clock
             | Self::Grow => Constraint::Fixed(Reg::Rax),
             Self::ReadByte => Constraint::Fixed(Reg::Rdx),
             _ => Constraint::Any,
@@ -340,6 +345,7 @@ impl Opcode {
             | Self::OpenAt
             | Self::CloseFd
             | Self::Random
+            | Self::Clock
             | Self::Exit
             | Self::Grow
             | Self::ReadByte => {
@@ -375,6 +381,7 @@ impl Opcode {
             | Self::OpenAt
             | Self::CloseFd
             | Self::Random
+            | Self::Clock
             | Self::Exit
             | Self::Grow
             | Self::ReadByte
@@ -940,7 +947,7 @@ impl Selected {
             | Opcode::Store
             | Opcode::Random
             | Opcode::Write => 2,
-            Opcode::WriteFd | Opcode::ReadFd => 3,
+            Opcode::WriteFd | Opcode::ReadFd | Opcode::Clock => 3,
             Opcode::OpenAt => 4,
             Opcode::Call => uses,
         };
@@ -1346,6 +1353,7 @@ fn verify_effects(opcode: Opcode, id: InstId) -> Result<(), String> {
             | Opcode::OpenAt
             | Opcode::CloseFd
             | Opcode::Random
+            | Opcode::Clock
             | Opcode::Exit
             | Opcode::Grow
             | Opcode::ReadByte => {
@@ -1446,6 +1454,7 @@ fn verify_immediate(inst: Inst, id: InstId) -> Result<(), String> {
                     | Opcode::OpenAt
                     | Opcode::CloseFd
                     | Opcode::Random
+                    | Opcode::Clock
                     | Opcode::Exit
                     | Opcode::Grow
                     | Opcode::ArgumentCount
@@ -1917,6 +1926,7 @@ impl Selector<'_> {
                             "open_at!" => Opcode::OpenAt,
                             "fd_close!" => Opcode::CloseFd,
                             "random!" => Opcode::Random,
+                            "clock!" => Opcode::Clock,
                             "exit!" => Opcode::Exit,
                             "grow" => Opcode::Grow,
                             "read_byte!" => Opcode::ReadByte,

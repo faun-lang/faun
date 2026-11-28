@@ -51,6 +51,9 @@ const I32_STORE8: u8 = 0x3A;
 const I32_LOAD16_U: u8 = 0x2F;
 const I32_STORE16: u8 = 0x3B;
 /// The loads and the stores, a byte, two, and a word wide.
+/// Eight bytes, the second operand to where the first says.
+const I64_LOAD: u8 = 0x29;
+const I64_STORE: u8 = 0x37;
 const LOADS: [u8; 3] = [I32_LOAD8_U, I32_LOAD16_U, I32_LOAD];
 const STORES: [u8; 3] = [I32_STORE8, I32_STORE16, I32_STORE];
 const I32_CLZ: u8 = 0x67;
@@ -138,7 +141,14 @@ pub(crate) fn lower(program: &Program) -> Code {
     // Which imports exist decides their indices, so it has to be settled
     // before anything calls one.
     let reads = state.read.is_some();
-    for import in ["fd_write", "fd_read", "path_open", "fd_close", "random_get"] {
+    for import in [
+        "fd_write",
+        "fd_read",
+        "path_open",
+        "fd_close",
+        "random_get",
+        "clock_time_get",
+    ] {
         if wanted.contains(&import) || (reads && import == "fd_read") {
             state.imports.push(import);
         }
@@ -387,6 +397,7 @@ impl Plan {
                 Some("open_at!") => Some("path_open"),
                 Some("fd_close!") => Some("fd_close"),
                 Some("random!") => Some("random_get"),
+                Some("clock!") => Some("clock_time_get"),
                 _ => None,
             };
             if let Some(import) = wanted
@@ -1077,29 +1088,8 @@ impl Lowering<'_> {
             "open_at!" => self.open_at(args, results[0]),
             "fd_close!" => self.close_fd(args[0], results[0]),
             "random!" => self.random(args, results[0]),
-            "write!" => {
-                let index = self.written;
-                self.written += 1;
-                let iovec = IOVECS + IOVEC_LEN * len32(index);
-
-                // Both known, so the vector ships as initialised data; if
-                // not, the call fills it in for itself.
-                if let (Some(base), Some(length)) = (self.constant(args[0]), self.constant(args[1]))
-                {
-                    self.iovecs[index] = Some((base, length));
-                } else {
-                    self.store(iovec, args[0]);
-                    self.store(iovec + 4, args[1]);
-                }
-
-                self.constant_i32(STDOUT);
-                self.constant_i32(iovec.cast_signed());
-                self.constant_i32(1);
-                self.constant_i32(NWRITTEN);
-                let fd_write = self.import("fd_write").expect("a write imports fd_write");
-                self.call(fd_write);
-                self.body.byte(DROP); // The errno, which there is nobody to tell.
-            }
+            "clock!" => self.clock(args, results[0]),
+            "write!" => self.write_stdout(args),
             "exit!" => self.leave(args[0], position),
             "read_byte!" => self.read_byte(results[0]),
             // Handed straight back: nothing is asked of the outside, and
@@ -1118,6 +1108,31 @@ impl Lowering<'_> {
             }
             other => panic!("`{other}` is not one this answers for, which `accepts` says first"),
         }
+    }
+
+    /// A run of bytes to standard output, through a vector of this call's
+    /// own, dropping the errno it answers.
+    fn write_stdout(&mut self, args: &[ValueId]) {
+        let index = self.written;
+        self.written += 1;
+        let iovec = IOVECS + IOVEC_LEN * len32(index);
+
+        // Both known, so the vector ships as initialised data; if
+        // not, the call fills it in for itself.
+        if let (Some(base), Some(length)) = (self.constant(args[0]), self.constant(args[1])) {
+            self.iovecs[index] = Some((base, length));
+        } else {
+            self.store(iovec, args[0]);
+            self.store(iovec + 4, args[1]);
+        }
+
+        self.constant_i32(STDOUT);
+        self.constant_i32(iovec.cast_signed());
+        self.constant_i32(1);
+        self.constant_i32(NWRITTEN);
+        let fd_write = self.import("fd_write").expect("a write imports fd_write");
+        self.call(fd_write);
+        self.body.byte(DROP); // The errno, which there is nobody to tell.
     }
 
     /// Move a run of bytes to or from what a descriptor names, through a
@@ -1206,6 +1221,47 @@ impl Lowering<'_> {
         self.body.byte(I32);
         self.open();
         self.push(args[1]);
+        self.body.byte(ELSE);
+        self.constant_i32(0);
+        self.push(result);
+        self.body.byte(I32_SUB);
+        self.close();
+        self.set(result);
+    }
+
+    /// Read a clock, by WASI's number for it, as nanoseconds into the eight
+    /// bytes where it is handed: how many, which is all of them, or
+    /// `-errno`. The precision asked is a nanosecond, the finest there is.
+    ///
+    /// WASI writes the time only where eight bytes are aligned, which a
+    /// list's bytes need not be, so it is written to the cells at
+    /// [`NWRITTEN`] and [`ARGC`], which together are eight aligned bytes
+    /// neither is using while the clock is read, and copied from there.
+    fn clock(&mut self, args: &[ValueId], result: ValueId) {
+        self.push(args[0]);
+        self.constant_i32(1);
+        self.body.byte(I64_EXTEND_I32_U);
+        self.constant_i32(NWRITTEN);
+        let clock_time_get = self
+            .import("clock_time_get")
+            .expect("a clock read imports clock_time_get");
+        self.call(clock_time_get);
+        self.set(result);
+        self.push(result);
+        self.constant_i32(0);
+        self.body.byte(I32_EQ);
+        self.body.byte(IF);
+        self.body.byte(I32);
+        self.open();
+        self.push(args[1]);
+        self.constant_i32(NWRITTEN);
+        self.body.byte(I64_LOAD);
+        self.body.uleb(3);
+        self.body.uleb(0);
+        self.body.byte(I64_STORE);
+        self.body.uleb(0);
+        self.body.uleb(0);
+        self.push(args[2]);
         self.body.byte(ELSE);
         self.constant_i32(0);
         self.push(result);

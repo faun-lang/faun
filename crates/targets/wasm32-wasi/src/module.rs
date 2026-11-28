@@ -78,7 +78,8 @@ fn types(out: &mut Bytes, code: &Code) {
                 // (dir, lookup flags, path, path_len, open flags, rights,
                 // rights inherited, descriptor flags, opened)
                 "path_open" => (&[I32, I32, I32, I32, I32, I64, I64, I32, I32], 1),
-                "fd_close" => (&[I32], 1), // (fd)
+                "fd_close" => (&[I32], 1),                 // (fd)
+                "clock_time_get" => (&[I32, I64, I32], 1), // (id, precision, time)
                 other => panic!("no signature for `{other}`"),
             };
             signature(s, params, returns);

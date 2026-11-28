@@ -16,10 +16,10 @@
 # A `File` is a resource: what opens one is the program's to close, once,
 # on every way it goes on, and nothing is asked of it afterwards.
 
-import hosts.common {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, filled, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
+import hosts.common {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, Instant.*, little_endian, filled, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
 import bounds {Printable}
 
-export {Host, Stdin, Stdout, Stderr, Files, File, Entropy, Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError}
+export {Host, Stdin, Stdout, Stderr, Files, File, Entropy, Monotonic, Instant, Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError}
 
 # The arguments the program was run with, its own name first.
 Host : {args: List(Str)}.(
@@ -43,6 +43,10 @@ Host : {args: List(Str)}.(
   # Cryptographically secure random bytes.
   entropy : Host -> Entropy
   entropy(_) -> Entropy
+
+  # The monotonic clock: moments to measure between, never the time of day.
+  monotonic : Host -> Monotonic
+  monotonic(_) -> Monotonic
 
   # `text` on standard output, all of it.
   print! : (Host, Str) -> Result({}, WriteError)
@@ -181,6 +185,25 @@ Entropy : [Entropy].(
   bytes!(entropy, count) -> drawing!(entropy, count, [])
 )
 
+# Where a program reads the monotonic clock, as moments to measure between.
+# Its number for the clock is 1, `CLOCK_MONOTONIC`, and a read fills the
+# target's own layout: a 16-byte `timespec`.
+Monotonic : [Monotonic].(
+  # The moment it is now, never earlier than one read before it.
+  now! : Monotonic -> Instant
+  now!(clock) -> (
+    (time, _) = clock_fill!(clock, 1, 16)
+    Instant(nanoseconds(time))
+  )
+)
+
+# A `timespec` as Linux writes one, its seconds and then its nanoseconds,
+# each a little-endian word, as nanoseconds. `CLOCK_MONOTONIC` cannot fail
+# to be read, but a read that did would leave no bytes, and nought.
+nanoseconds : List(U8) -> U64
+nanoseconds(time) -> little_endian(time.take(8)) * 1000000000 + little_endian(time.drop(8))
+expect nanoseconds([2, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0]) == 2000000005
+
 # What Linux names an open stream by. Only this module makes one, so no
 # number a program worked out can be handed to a routine as one.
 Fd : [Fd(U32)]
@@ -195,6 +218,7 @@ fd_read! : (Fd, Nat) -> (List(U8), Nat)
 fd_open! : (Files, List(U8), Nat, Nat) -> Nat
 fd_close! : File -> Nat
 random_fill! : (Entropy, Nat) -> (List(U8), Nat)
+clock_fill! : (Monotonic, Nat, Nat) -> (List(U8), Nat)
 
 # Exactly `count` more random bytes after `got`, drawing no more than 65536
 # at once and however few each draw answers. A draw that answers none where

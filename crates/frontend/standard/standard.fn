@@ -12,6 +12,7 @@ import u8 {U8}
 import u16 {U16}
 import u32 {U32}
 import u64 {U64}
+import duration {Duration}
 import list {List.*}
 import result {Result.*}
 import str {Str}
@@ -25,4 +26,4 @@ import set {Set}
 import sorted_map {SortedMap}
 import sorted_set {SortedSet}
 
-export {Bool.*, Order.*, Nat.*, Int.*, U8, U16, U32, U64, List.*, Result.*, Str, F32, F64, Hasher, Equatable, Ordered, Printable, Hashable, Map, Mixer, Set, SortedMap, SortedSet}
+export {Bool.*, Order.*, Nat.*, Int.*, U8, U16, U32, U64, Duration, List.*, Result.*, Str, F32, F64, Hasher, Equatable, Ordered, Printable, Hashable, Map, Mixer, Set, SortedMap, SortedSet}
