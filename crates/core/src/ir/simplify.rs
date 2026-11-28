@@ -249,17 +249,12 @@ impl rewrite::Pass for Simplify {
                 // whatever it is. Anything else may be a step, and a run of
                 // steps folds into one where a shift would end it.
                 (left == right && shifting(rebuild, b, Direction::Up, left, 1, results[0]))
-                    || self.negated(rebuild, b, (left, right), results[0])
-                    || self.negated(rebuild, b, (right, left), results[0])
+                    || self.folded_past(rebuild, b, (left, right), results[0])
+                    || self.folded_past(rebuild, b, (right, left), results[0])
                     || self.stepping(rebuild, b, left, right, results[0])
                     || self.regrouped(rebuild, b, (left, right), results[0])
                     || self.regrouped(rebuild, b, (right, left), results[0])
             }
-            Op::Binary {
-                op: Binary::Monus,
-                left,
-                right,
-            } => self.complemented(rebuild, b, left, right, results[0]),
             Op::Binary {
                 op: Binary::Mul,
                 left,
@@ -644,113 +639,43 @@ impl Simplify {
         true
     }
 
-    /// What a word's complement is taken from: `x` where `value` is a
-    /// sixty-four-bit word's every bit less `x`, `2^64 - 1 ∸ x`, as a
-    /// `U64`'s `!` is written, and `x` is held in the word. Such a monus
-    /// never stops at nought, and is every bit of `x` flipped.
-    fn complement_of(&self, source: &Program, value: ValueId) -> Option<ValueId> {
-        let every = u64::MAX;
-        let in_word = |class: Class| class.facts().and_then(|facts| facts.high) == Some(every);
-        match self.wrote.0[value.index()]? {
-            (
-                Op::Binary {
-                    op: Binary::Monus,
-                    left,
-                    right,
-                },
-                class,
-                _,
-            ) => {
-                let fits = source
-                    .class(right)
-                    .facts()
-                    .and_then(|facts| facts.high)
-                    .is_some_and(|high| high <= every);
-                (self.number(left) == Some(every) && in_word(class) && fits).then_some(right)
-            }
-            // Once simplified, a complement is the exclusive or it became.
-            (
-                Op::Binary {
-                    op: Binary::Xor,
-                    left,
-                    right,
-                },
-                class,
-                _,
-            ) if in_word(class) => {
-                if self.number(right) == Some(every) {
-                    Some(left)
-                } else if self.number(left) == Some(every) {
-                    Some(right)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    /// A word's every bit less `x` is `x` with every bit flipped: an
-    /// exclusive or with all of them, which a machine does in one step
-    /// rather than writing the ones and taking `x` away.
-    fn complemented(
+    /// A number added to a difference from a number, in a sixty-four-bit
+    /// word, is the difference from their sum: `(c - x) + k` is
+    /// `(c + k) - x`, the sum taken in the word. The difference is one that
+    /// never borrows, a word's or a monus whose left is at least the most
+    /// its right can be. So `!x + 1`, every bit less `x` and one more, is
+    /// `0 - x`, the negation the word holds, with nothing written for it.
+    fn folded_past(
         &self,
         rebuild: &rewrite::Rebuild<'_>,
         b: &mut Builder,
-        left: ValueId,
-        right: ValueId,
-        result: ValueId,
-    ) -> bool {
-        let source = rebuild.source();
-        if !matches!(
-            self.wrote.0[result.index()],
-            Some((
-                Op::Binary {
-                    op: Binary::Monus,
-                    ..
-                },
-                ..
-            ))
-        ) || self.complement_of(source, result).is_none()
-        {
-            return false;
-        }
-        let class = source.class(result);
-        // The ones first, so a machine flipping in place flips them rather
-        // than `x`, which may still be read.
-        let flipped = b.binary_at(
-            class,
-            Binary::Xor,
-            rebuild.value(left),
-            rebuild.value(right),
-        );
-        rebuild.stands_for(result, flipped);
-        true
-    }
-
-    /// A word's complement plus one is its negation, nought less it in the
-    /// word, as two's complement has it: `!x + 1` is `0 - x`, which a
-    /// machine does in one step.
-    fn negated(
-        &self,
-        rebuild: &rewrite::Rebuild<'_>,
-        b: &mut Builder,
-        (complement, one): (ValueId, ValueId),
+        (difference, added): (ValueId, ValueId),
         result: ValueId,
     ) -> bool {
         let source = rebuild.source();
         let class = source.class(result);
-        if self.number(one) != Some(1)
-            || class.facts().and_then(|facts| facts.high) != Some(u64::MAX)
-        {
-            return false;
-        }
-        let Some(x) = self.complement_of(source, complement) else {
+        let in_word = |class: Class| class.facts().and_then(|facts| facts.high) == Some(u64::MAX);
+        let Some(k) = self.number(added) else {
             return false;
         };
-        let zero = b.constant(class, 0);
-        let negation = b.binary_at(class, Binary::Sub, zero, rebuild.value(x));
-        rebuild.stands_for(result, negation);
+        let Some((Op::Binary { op, left, right }, held, _)) = self.wrote.0[difference.index()]
+        else {
+            return false;
+        };
+        let never_borrows = match op {
+            Binary::Sub => in_word(held),
+            Binary::Monus => self.no_less(source, left, right),
+            _ => false,
+        };
+        let Some(c) = self.number(left) else {
+            return false;
+        };
+        if !in_word(class) || !never_borrows {
+            return false;
+        }
+        let from = b.constant(class, c.wrapping_add(k));
+        let folded = b.binary_at(class, Binary::Sub, from, rebuild.value(right));
+        rebuild.stands_for(result, folded);
         true
     }
 
