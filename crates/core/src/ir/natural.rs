@@ -205,9 +205,6 @@ pub(super) enum Inline {
 pub(super) struct Counting {
     /// The count an immortal object holds, which no claim changes.
     immortal: u64,
-    /// How many bytes a word takes, so a count is reached through a
-    /// natural's handle, one past its object, a byte short of a word on.
-    word_bytes: i32,
 }
 
 /// Whether a claim is taken or given up.
@@ -229,22 +226,6 @@ impl Counting {
     /// the last claim held.
     pub(super) fn give(self, b: &mut Builder<'_>, at: ValueId, last: FunctionId) {
         self.count(b, at, Claim::Give, last);
-    }
-
-    /// Give up a claim to the object a natural's `handle` names, read
-    /// through the handle itself: the object is reached only where the
-    /// call needs it.
-    pub(super) fn give_named(self, b: &mut Builder<'_>, handle: ValueId, last: FunctionId) {
-        self.count_through(b, handle, self.through_handle(), Claim::Give, |b| {
-            let at = object(b, handle);
-            b.call(last, &[at]);
-        });
-    }
-
-    /// Where an object's count lies from a handle one past the object: a
-    /// word on, less the byte the handle's tag adds.
-    const fn through_handle(self) -> Offset {
-        Offset::Bytes(self.word_bytes - 1)
     }
 
     fn count(self, b: &mut Builder<'_>, at: ValueId, claim: Claim, otherwise: FunctionId) {
@@ -329,6 +310,34 @@ impl Library {
         small_word(b, n)
     }
 
+    /// The word `n` as a natural: an immediate here where it is below half
+    /// a word, as nearly every word made a natural is, and otherwise what
+    /// `from_word` makes of it; favouring size, all of it `from_word`'s.
+    pub(super) fn promoted(
+        &self,
+        b: &mut Builder<'_>,
+        from_word: FunctionId,
+        n: ValueId,
+    ) -> ValueId {
+        if !self.inline_small {
+            return b.call_one(from_word, &[n]);
+        }
+        let top = number(b, self.half);
+        let fits = lt(b, n, top);
+        b.if_(
+            fits,
+            &[A],
+            |b| {
+                let held = small_word(b, n);
+                b.yield_(&[held]);
+            },
+            |b| {
+                let out = b.call_one(from_word, &[n]);
+                b.yield_(&[out]);
+            },
+        )[0]
+    }
+
     /// The handle naming a natural constant laid out as an object.
     pub(super) fn constant_handle(b: &mut Builder<'_>, data: DataId) -> ValueId {
         let at = b.address_of(data);
@@ -353,11 +362,17 @@ impl Library {
         value
     }
 
-    /// Give up a claim to a natural, where it is an object.
+    /// Give up a claim to a natural, where it is an object: by a call, its
+    /// tag alone looked at here. Counting it here too was more code at
+    /// every claim given up than the call it saves is worth, a natural
+    /// that is an object being rare.
     pub(super) fn release_value(&self, b: &mut Builder<'_>, value: ValueId) {
         match self.counting {
-            Some(counting) => {
-                where_named(b, value, |b| counting.give_named(b, value, self.release));
+            Some(_) => {
+                where_named(b, value, |b| {
+                    let at = object(b, value);
+                    b.call(self.release, &[at]);
+                });
             }
             None => {
                 b.call(self.drop, &[value]);
@@ -751,10 +766,7 @@ pub(super) fn append(
         keep: unless_small(program, "nat.keep", retain),
         drop: unless_small(program, "nat.drop", release),
         inline_small: config.inline_small,
-        counting: config.inline_counts.then_some(Counting {
-            immortal: max,
-            word_bytes: i32::from(config.word_bits / 8),
-        }),
+        counting: config.inline_counts.then_some(Counting { immortal: max }),
         half,
         helpers: [None; Helper::ALL.len()],
     };
