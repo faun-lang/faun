@@ -135,7 +135,9 @@ pub enum Built {
     /// Ask the primitive for up to a count of bytes, the last argument,
     /// into a new byte string's buffer, from its first byte: the string of
     /// as many as came, none where the primitive answered an error, and
-    /// what the primitive answered.
+    /// what the primitive answered. Every argument before the count, such
+    /// as a descriptor, is handed on first, then where the buffer starts,
+    /// then the count.
     Read(String),
 }
 
@@ -355,6 +357,16 @@ impl Routines {
                 consumes: true,
                 ..held("fd_close!", (true, false), &[word], count, None)
             },
+            // Up to a count of bytes from the target's cryptographically
+            // secure generator, into a new byte string: as many as came, and
+            // what the generator answered.
+            held(
+                "random_fill!",
+                (true, true),
+                &[word],
+                Returns::Filled,
+                Some(Built::Read("random!".into())),
+            ),
             offered("exit!", &[word], Returns::Never),
             // Bytes where they lie to or from what a descriptor names, and a
             // name opened: how many, or the descriptor, or an error.
@@ -365,6 +377,7 @@ impl Routines {
                 count,
             ),
             primitive("open_at!", &[Takes::StaticBytes, word, word], count),
+            primitive("random!", &[Takes::Scalar(Class::Address), word], count),
             // One argument, two machine values: a machine reads where a run
             // of bytes starts and how long it is.
             primitive("write!", &[Takes::StaticBytes], Returns::Unit),

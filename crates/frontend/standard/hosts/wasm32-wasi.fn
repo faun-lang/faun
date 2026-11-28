@@ -16,10 +16,10 @@
 # A `File` is a resource: what opens one is the program's to close, once,
 # on every way it goes on, and nothing is asked of it afterwards.
 
-import hosts.common {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, filled, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
+import hosts.common {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, filled, drawn, fill_random!, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
 import bounds {Printable}
 
-export {Host, Stdin, Stdout, Stderr, Files, File, Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError}
+export {Host, Stdin, Stdout, Stderr, Files, File, Entropy, Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError}
 
 # The arguments the program was run with, its own name first.
 Host : {args: List(Str)}.(
@@ -39,6 +39,10 @@ Host : {args: List(Str)}.(
   # The files beneath where the program runs.
   files : Host -> Files
   files(_) -> Files
+
+  # Cryptographically secure random bytes.
+  entropy : Host -> Entropy
+  entropy(_) -> Entropy
 
   # `text` on standard output, all of it.
   print! : (Host, Str) -> Result({}, WriteError)
@@ -165,6 +169,26 @@ File : [File(Fd)].(
   write_all!(file, bytes) -> write_everything!(file, bytes)
 )
 
+# Where a program asks for random bytes: the runner's cryptographically secure
+# generator, asked afresh every time, so nothing a program holds can be
+# copied into another and repeat what it draws. A seeded generator is
+# ordinary library code and needs none of this.
+Entropy : [Entropy].(
+  # Exactly `count` random bytes, or `EntropyUnavailable` where the
+  # generator has none to give.
+  fill! : (Entropy, Nat) -> Result(List(U8), EntropyError)
+  fill!(entropy, count) -> fill_random!(entropy, count, [])
+
+  # Up to `count` random bytes, and no more than 65536: fewer where fewer
+  # came. Asked for none, it answers none and asks the target nothing.
+  some! : (Entropy, Nat) -> Result(List(U8), EntropyError)
+  some!(_, 0) -> Ok([])
+  some!(entropy, count) -> (
+    (bytes, answer) = random_fill!(entropy, 65536 - (65536 - count))
+    drawn(bytes, outcome(answer))
+  )
+)
+
 # What WASI names an open stream by. Only this module makes one, so no
 # number a program worked out can be handed to a routine as one.
 Fd : [Fd(U32)]
@@ -178,6 +202,7 @@ fd_put! : (Fd, List(U8)) -> Nat
 fd_read! : (Fd, Nat) -> (List(U8), Nat)
 fd_open! : (Files, List(U8), Nat, Nat) -> Nat
 fd_close! : File -> Nat
+random_fill! : (Entropy, Nat) -> (List(U8), Nat)
 
 # WASI's `path_open` flags for each mode, with its descriptor flags above
 # the low byte. WASI starts no programs, so nothing need be kept from one.

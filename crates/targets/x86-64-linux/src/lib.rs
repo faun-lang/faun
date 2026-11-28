@@ -62,6 +62,11 @@ impl Target for X86_64Linux {
         WORD_BITS
     }
 
+    /// The streams', and the kernel's cryptographically secure generator.
+    fn provides(&self) -> &'static [&'static str] {
+        faun_core::targets::STREAMS_AND_ENTROPY
+    }
+
     /// A process is given the low 47 bits of address.
     fn address(&self) -> u16 {
         47

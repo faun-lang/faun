@@ -19,6 +19,8 @@ const SYS_READ: u64 = 0;
 const SYS_WRITE: u64 = 1;
 const SYS_CLOSE: u64 = 3;
 const SYS_OPENAT2: u64 = 437;
+/// Bytes from the kernel's generator, where a program says.
+const SYS_GETRANDOM: u64 = 318;
 /// A name is read from where the program runs.
 const AT_FDCWD: u64 = (-100i64).cast_unsigned();
 /// A name reaching above where it is read from, by `..`, from the root, or
@@ -1143,6 +1145,17 @@ impl<'a> Lowering<'a> {
                 self.asm.syscall();
                 self.forget_call_clobbers();
                 // The count, or `-errno`, is where the kernel left it.
+                let dst = result()?;
+                debug_assert_eq!(dst, Reg::Rax);
+                self.forget(dst);
+            }
+            (Opcode::Random, Immediate::None) => {
+                // No flags: the urandom source, which blocks only until the
+                // kernel's generator is first ready.
+                self.materialize(Reg::Rdx, 0);
+                self.materialize(Reg::Rax, SYS_GETRANDOM);
+                self.asm.syscall();
+                self.forget_call_clobbers();
                 let dst = result()?;
                 debug_assert_eq!(dst, Reg::Rax);
                 self.forget(dst);
