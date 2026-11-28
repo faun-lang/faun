@@ -2767,7 +2767,21 @@ impl Lowering<'_> {
             return Answer::Value(Held::One(b.convert(self.width(expr), result)));
         }
         match self.barb.expr(expr) {
-            barb::Expr::Atom(atom) => locals[atom.0.index()].clone().into(),
+            barb::Expr::Atom(atom) => {
+                let held = locals[atom.0.index()].clone();
+                // A natural held where its type's values are, a field of
+                // one built anywhere, read where it is known to be less:
+                // read as what it is known to be.
+                if let Some(Held::One(value)) = &held
+                    && b.class(*value) == Class::Natural
+                {
+                    let class = self.width(expr);
+                    if class != Class::Natural {
+                        return Answer::Value(Held::One(b.convert(class, *value)));
+                    }
+                }
+                held.into()
+            }
             // A value the tier above worked out, as the word it lowers to:
             // which constructor for a tag, and what it counts to for a
             // number. One that carries nothing is nothing to carry.

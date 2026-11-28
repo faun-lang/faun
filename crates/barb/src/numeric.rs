@@ -19,6 +19,8 @@
 //! solver walks a numeric body as it would the Barb body, without asking
 //! the program what any of it is.
 
+use std::rc::Rc;
+
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use super::facts::{Operation, Recognised, SequenceOperation};
@@ -123,9 +125,13 @@ pub(super) enum Kind {
         /// Slots of values it holds that are built out of sight, each now
         /// what is assumed of it.
         resets: Vec<(usize, Bounds)>,
+        /// The constructor it is and what each of its fields holds, where
+        /// it is a constructor applied.
+        record: Option<(usize, Vec<Bounds>)>,
     },
     /// A constructor applied: each argument stored in its slot.
     Build {
+        ctor: usize,
         args: Vec<Var>,
         slots: usize,
         built: Built,
@@ -167,6 +173,8 @@ pub(super) enum Built {
 /// matched, and what its fields are.
 #[derive(Debug)]
 pub(super) struct Arm {
+    /// The constructor it takes.
+    pub ctor: usize,
     pub test: Test,
     pub fields: Vec<(Site, Field)>,
     pub body: Block,
@@ -195,8 +203,14 @@ pub(super) enum Field {
     /// A step's rest: one less than the value matched.
     Rest,
     /// What was built into a slot, below `tags` where its type is a run of
-    /// bare tags.
-    Slot { slot: usize, tags: Option<u64> },
+    /// bare tags; or, where the value matched is known to be part of a
+    /// sequence known before the program runs, what that sequence holds
+    /// there, `within`.
+    Slot {
+        slot: usize,
+        tags: Option<u64>,
+        within: Option<Bounds>,
+    },
 }
 
 /// Read every definition of `program` into numbers.
@@ -242,6 +256,7 @@ pub(super) fn extract(
                         told: told(program, body, params.len()),
                         sites: params.len(),
                         known: vec![None; params.len()],
+                        elements: vec![None; params.len()],
                         divisors: &mut divisors,
                     };
                     Answer::Body(reading.block(body))
@@ -344,6 +359,11 @@ struct Reading<'a> {
     sites: Site,
     /// The natural each value in scope is outright, where it is one.
     known: Vec<Option<u128>>,
+    /// What each value in scope holds in each field of its steps, where it
+    /// is part of a sequence known before the program runs: a sequence
+    /// known outright, or what dropping or taking leaves of one, or the
+    /// rest of a step of one.
+    elements: Vec<Option<Rc<Elements>>>,
     divisors: &'a mut Vec<u64>,
 }
 
@@ -363,12 +383,15 @@ impl Reading<'_> {
                 Kind::Copy(from) => self.known[*from],
                 _ => None,
             };
+            let elements = self.elements_of(binding, &term.kind);
             let site = self.site();
             statements.push(Statement { site, term });
             self.known.push(known);
+            self.elements.push(elements);
         }
         let tail = self.term(body.tail);
         self.known.truncate(level);
+        self.elements.truncate(level);
         Block { statements, tail }
     }
 
@@ -392,7 +415,10 @@ impl Reading<'_> {
                     .program
                     .arms(arms)
                     .iter()
-                    .map(|arm| self.arm(arm.ctor, arm.body))
+                    .map(|arm| {
+                        let elements = self.elements[scrutinee.0.index()].clone();
+                        self.arm(arm.ctor, arm.body, elements.as_deref())
+                    })
                     .collect(),
                 told: self.told.contains(&id),
             },
@@ -400,6 +426,53 @@ impl Reading<'_> {
         Term {
             expr: id.index(),
             kind,
+        }
+    }
+
+    /// What each field an arm for `ctor` binds holds, each at a site of its
+    /// own.
+    fn fields(
+        &mut self,
+        ctor: CtorId,
+        types: &[TypeId],
+        (test, rest): (Test, Option<usize>),
+        elements: Option<&Elements>,
+    ) -> Vec<(Site, Field)> {
+        types
+            .iter()
+            .enumerate()
+            .map(|(at, &ty)| {
+                let field = match test {
+                    Test::Wrapper(_) | Test::Empty => Field::Whole,
+                    _ if rest == Some(at) => Field::Rest,
+                    _ => Field::Slot {
+                        slot: super::ranges::slot(self.program, ctor, at),
+                        tags: tag_count(self.program, ty),
+                        within: elements.and_then(|elements| elements.fields[at]),
+                    },
+                };
+                (self.site(), field)
+            })
+            .collect()
+    }
+
+    /// What the value `binding` makes holds in each field of its steps,
+    /// where it is part of a sequence known before the program runs.
+    fn elements_of(&self, binding: ExprId, kind: &Kind) -> Option<Rc<Elements>> {
+        match (kind, self.program.expr(binding)) {
+            (_, Expr::Static(value)) => {
+                Elements::of(self.program, self.program.constant(value)).map(Rc::new)
+            }
+            (Kind::Copy(from), _) => self.elements[*from].clone(),
+            (
+                Kind::Call {
+                    sequence: Some(SequenceOperation::Drop | SequenceOperation::Take),
+                    args,
+                    ..
+                },
+                _,
+            ) => self.elements[*args.first()?].clone(),
+            _ => None,
         }
     }
 
@@ -415,9 +488,20 @@ impl Reading<'_> {
             outside: Vec::new(),
         };
         found.fields(constant);
+        let record = match constant.view() {
+            super::ConstantView::Constructor(ctor) => Some((
+                ctor.constructor().index(),
+                ctor.fields()
+                    .into_iter()
+                    .map(|field| constant_bounds(self.program, field))
+                    .collect(),
+            )),
+            _ => None,
+        };
         Kind::Const {
             value: constant_bounds(self.program, constant),
             exact,
+            record,
             stores: found.stores,
             resets: unknown(self.program, self.assumed, &found.outside),
         }
@@ -435,6 +519,7 @@ impl Reading<'_> {
             }
         };
         Kind::Build {
+            ctor: ctor.index(),
             args: self.atoms(args),
             slots: super::ranges::slot(self.program, ctor, 0),
             built,
@@ -475,7 +560,8 @@ impl Reading<'_> {
         }
     }
 
-    fn arm(&mut self, ctor: CtorId, body: Body) -> Arm {
+    fn arm(&mut self, ctor: CtorId, body: Body, elements: Option<&Elements>) -> Arm {
+        let elements = elements.filter(|elements| elements.cons == ctor);
         let owner = self.program.ctor(ctor).owner;
         let types = self.program.fields(ctor).to_vec();
         let (test, rest) = if single_field(self.program, owner).is_some() {
@@ -487,26 +573,78 @@ impl Reading<'_> {
                 Shape::Tagged => (Test::Tag(u64::from(self.program.tag(ctor))), None),
             }
         };
-        let fields = types
-            .iter()
-            .enumerate()
-            .map(|(at, &ty)| {
-                let field = match test {
-                    Test::Wrapper(_) | Test::Empty => Field::Whole,
-                    _ if rest == Some(at) => Field::Rest,
-                    _ => Field::Slot {
-                        slot: super::ranges::slot(self.program, ctor, at),
-                        tags: tag_count(self.program, ty),
-                    },
-                };
-                (self.site(), field)
-            })
-            .collect();
+        let fields = self.fields(ctor, &types, (test, rest), elements);
         let level = self.known.len();
         self.known.resize(level + types.len(), None);
+        self.elements.resize(level + types.len(), None);
+        // The rest of a step of a known sequence is part of it.
+        if let (Some(elements), Some(rest)) = (elements, rest) {
+            self.elements[level + rest] = Some(Rc::new(elements.clone()));
+        }
         let body = self.block(body);
         self.known.truncate(level);
-        Arm { test, fields, body }
+        self.elements.truncate(level);
+        Arm {
+            ctor: ctor.index(),
+            test,
+            fields,
+            body,
+        }
+    }
+}
+
+/// What every step of a sequence known before the program runs holds in
+/// each of its fields: nothing said of its rest, and of a field it holds
+/// anything in.
+#[derive(Clone, Debug)]
+pub(super) struct Elements {
+    cons: CtorId,
+    fields: Vec<Option<Bounds>>,
+}
+
+impl Elements {
+    /// What `value` holds, where it is a sequence of no more than
+    /// [`ELEMENTS_READ`] steps.
+    fn of(program: &Program, value: super::Constant<'_>) -> Option<Self> {
+        let super::ConstantView::Spine(spine) = value.view() else {
+            return None;
+        };
+        let Shape::Spine {
+            cons, recursive, ..
+        } = shape(program, value.owner())
+        else {
+            return None;
+        };
+        if spine.length() > ELEMENTS_READ.into() || spine.length() == 0u8.into() {
+            return None;
+        }
+        let width = program.fields(cons).len();
+        let mut fields: Vec<Option<Bounds>> = vec![Some(Bounds::NOTHING); width];
+        fields[recursive] = None;
+        if let Some(bytes) = spine.to_bytes() {
+            let element = usize::from(recursive == 0);
+            let (low, high) = (bytes.iter().min()?, bytes.iter().max()?);
+            fields[element] = Some(Bounds {
+                low: u64::from(*low),
+                high: Some(u64::from(*high)),
+            });
+            return Some(Self { cons, fields });
+        }
+        for each in spine.elements() {
+            for (at, field) in each.into_iter().enumerate() {
+                let at = if at >= recursive { at + 1 } else { at };
+                if let Some(held) = &mut fields[at] {
+                    *held = held.or(constant_bounds(program, field));
+                }
+            }
+        }
+        // A field said to be anything says nothing a slot does not.
+        for held in &mut fields {
+            if held.is_some_and(|bounds| bounds.high.is_none()) {
+                *held = None;
+            }
+        }
+        Some(Self { cons, fields })
     }
 }
 

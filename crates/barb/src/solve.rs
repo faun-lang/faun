@@ -355,6 +355,8 @@ impl Thresholds {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Entry {
     values: Vec<Option<Bounds>>,
+    /// What each parameter was built as, by every call so far.
+    records: Vec<Shape>,
     /// The side of `relations`: twice the parameters, where there are two
     /// to relate, and nought otherwise.
     side: usize,
@@ -366,6 +368,7 @@ impl Entry {
         let side = if params > 1 { 2 * params } else { 0 };
         Self {
             values: vec![None; params],
+            records: vec![Shape::Unseen; params],
             side,
             relations: vec![UNSAID; side * side],
         }
@@ -381,6 +384,17 @@ impl Entry {
         let mut grew = false;
         for (held, &found) in self.values.iter_mut().zip(&handed.values) {
             grew |= settle(held, found, widen);
+        }
+        for ((held, found), value) in self
+            .records
+            .iter_mut()
+            .zip(&handed.records)
+            .zip(&handed.values)
+        {
+            // An argument that is nothing is not handed at all.
+            if !value.is_nothing() || found.is_some() {
+                grew |= held.take(found.as_ref(), widen);
+            }
         }
         let Some(relations) = &handed.relations else {
             return grew;
@@ -413,6 +427,9 @@ impl Entry {
 #[derive(Clone, Debug)]
 struct Handed<D> {
     values: Vec<Bounds>,
+    /// What each argument was built as, where every way it was made is
+    /// seen.
+    records: Vec<Option<Rc<Record>>>,
     relations: Option<D>,
     /// Arguments nothing is known of yet, which say nothing of how they
     /// relate to the rest.
@@ -424,6 +441,8 @@ struct Handed<D> {
 struct Propagation<D> {
     entries: Vec<Entry>,
     results: Vec<Option<Bounds>>,
+    /// What each definition's answer was built as.
+    answered: Vec<Shape>,
     terms: Vec<Bounds>,
     matched: Vec<Bounds>,
     fields: Vec<Option<Bounds>>,
@@ -608,6 +627,7 @@ impl<D: Domain> Propagation<D> {
         Self {
             entries,
             results: vec![None; count],
+            answered: vec![Shape::Unseen; count],
             terms: vec![Bounds::NOTHING; numeric.terms],
             matched: vec![Bounds::NOTHING; numeric.terms],
             fields,
@@ -671,15 +691,17 @@ fn once<D: Domain>(
     let walked = walk(numeric, plan, held, at, (&mut terms, &mut matched), None);
     held.terms = terms;
     held.matched = matched;
-    let Some((answer, found)) = walked else {
+    let Some((answer, mut found)) = walked else {
         return Vec::new();
     };
+    let answered = found.answered.take();
     let mut again = held.learn(plan, found, true);
     let wide = held
         .grown
         .wide(Held::Answer(at))
         .then_some(&plan.thresholds);
-    if settle(&mut held.results[at], answer, wide) {
+    let shaped = !answer.is_nothing() && held.answered[at].take(answered.as_ref(), wide);
+    if settle(&mut held.results[at], answer, wide) | shaped {
         held.grown.grew(plan, Held::Answer(at));
         again.extend_from_slice(&plan.callers[at]);
     }
@@ -703,6 +725,9 @@ fn narrowed<D: Domain>(numeric: &Numeric, plan: &Plan<D>, held: &Propagation<D>)
             continue;
         };
         next.results[at] = Some(answer);
+        if !answer.is_nothing() {
+            next.answered[at].take(found.answered.as_ref(), None);
+        }
         next.learn(plan, found, false);
     }
     // Narrowing widens nothing, so how often anything grew is as it was.
@@ -829,6 +854,9 @@ fn walk<D: Domain>(
         fields: &held.fields,
         found: Found::default(),
         implied: vec![None; count],
+        records: entry.records.iter().map(Shape::record).collect(),
+        answered_record: None,
+        answers: &held.answered,
         defined: vec![None; count],
         answered_implied: None,
         exact: vec![None; count],
@@ -986,8 +1014,140 @@ fn join_said(first: &[Said], second: &[Said]) -> Vec<Said> {
         .collect()
 }
 
+/// What is known of what a definition's answer, or a parameter, was built
+/// as: nothing yet, a record, or that some way it is made is not seen.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum Shape {
+    #[default]
+    Unseen,
+    Seen(Rc<Record>),
+    Unknown,
+}
+
+impl Shape {
+    /// The record, where every way the value is made was seen.
+    fn record(&self) -> Option<Rc<Record>> {
+        match self {
+            Self::Seen(record) => Some(Rc::clone(record)),
+            Self::Unseen | Self::Unknown => None,
+        }
+    }
+
+    /// Take in one more way the value is made, `found` (nothing where it is
+    /// not seen), widening fields that grow where `widen` says. Answers
+    /// whether anything grew.
+    fn take(&mut self, found: Option<&Rc<Record>>, widen: Option<&Thresholds>) -> bool {
+        let next = match (&*self, found) {
+            (Self::Unknown, _) => return false,
+            (_, None) => Self::Unknown,
+            (Self::Unseen, Some(found)) => Self::Seen(Rc::clone(found)),
+            (Self::Seen(held), Some(found)) => Self::Seen(Rc::new(held.widened(found, widen))),
+        };
+        let grew = next != *self;
+        *self = next;
+        grew
+    }
+}
+
+/// What a value was built as, every way it is made: each constructor, with
+/// what each of its fields was built with. A value made some way not seen
+/// -- handed in, answered by a call, read out of a field -- has none, and
+/// its fields are what was built into their slots anywhere.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Record(Vec<(usize, Vec<Bounds>)>);
+
+impl Record {
+    fn of(ctor: usize, fields: Vec<Bounds>) -> Self {
+        Self(vec![(ctor, fields)])
+    }
+
+    /// What the value's fields were built with where it is `ctor`; nothing
+    /// where it never is.
+    fn fields(&self, ctor: usize) -> Option<&[Bounds]> {
+        self.0
+            .iter()
+            .find(|&&(made, _)| made == ctor)
+            .map(|(_, fields)| fields.as_slice())
+    }
+
+    /// Either this or `other`, each field that grows widened where `widen`
+    /// says, as [`settle`] widens a bound.
+    fn widened(&self, other: &Self, widen: Option<&Thresholds>) -> Self {
+        let mut joined = self.0.clone();
+        for (ctor, fields) in &other.0 {
+            if let Some((_, held)) = joined.iter_mut().find(|(made, _)| made == ctor) {
+                for (held, &field) in held.iter_mut().zip(fields) {
+                    let mut kept = Some(*held);
+                    settle(&mut kept, field, widen);
+                    *held = kept.unwrap_or(*held);
+                }
+            } else {
+                joined.push((*ctor, fields.clone()));
+            }
+        }
+        Self(joined)
+    }
+
+    /// Either this or `other`.
+    fn join(&self, other: &Self) -> Self {
+        let mut joined = self.0.clone();
+        for (ctor, fields) in &other.0 {
+            if let Some((_, held)) = joined.iter_mut().find(|(made, _)| made == ctor) {
+                for (held, &field) in held.iter_mut().zip(fields) {
+                    *held = held.or(field);
+                }
+            } else {
+                joined.push((*ctor, fields.clone()));
+            }
+        }
+        Self(joined)
+    }
+}
+
+/// What every arm a match reaches answers was built as, while each says.
+struct Joined {
+    record: Option<Rc<Record>>,
+    seen: bool,
+}
+
+impl Default for Joined {
+    fn default() -> Self {
+        Self {
+            record: None,
+            seen: true,
+        }
+    }
+}
+
+impl Joined {
+    /// One more arm, answering what was built as `record`, where it says.
+    fn take(&mut self, record: Option<Rc<Record>>) {
+        match (record, &mut self.record) {
+            (Some(built), Some(held)) => *held = Rc::new(held.join(&built)),
+            (Some(built), None) if self.seen => self.record = Some(built),
+            _ => {
+                self.seen = false;
+                self.record = None;
+            }
+        }
+    }
+
+    /// What the match answers was built as, given what it answers: nothing
+    /// built where no arm is reached.
+    fn answered(self, answer: Option<Bounds>) -> Option<Rc<Record>> {
+        if answer.is_none_or(Bounds::is_nothing) {
+            Some(Rc::new(Record(Vec::new())))
+        } else {
+            self.record
+        }
+    }
+}
+
 /// What one walk hands on.
 struct Found<D> {
+    /// What the definition's answer was built as, where every way it is
+    /// made is seen.
+    answered: Option<Rc<Record>>,
     calls: Vec<(usize, Handed<D>)>,
     built: Vec<(usize, Bounds)>,
     resets: Vec<(usize, Bounds)>,
@@ -996,6 +1156,7 @@ struct Found<D> {
 impl<D> Default for Found<D> {
     fn default() -> Self {
         Self {
+            answered: None,
             calls: Vec::new(),
             built: Vec::new(),
             resets: Vec::new(),
@@ -1015,6 +1176,13 @@ struct FunctionWalk<'a, D> {
     settled: bool,
     /// What each value being one tag says of the values before it.
     implied: Vec<Option<Rc<Implications>>>,
+    /// What each value in scope was built as, where every way it was made
+    /// is seen: see [`Record`].
+    records: Vec<Option<Rc<Record>>>,
+    /// The record of what the term last worked out, where it has one.
+    answered_record: Option<Rc<Record>>,
+    /// What each definition's answer was built as.
+    answers: &'a [Shape],
     /// How each value was worked out, where from operands a narrowed
     /// answer says something of: see [`super::backward`].
     defined: Vec<Option<Defined>>,
@@ -1030,6 +1198,7 @@ struct FunctionWalk<'a, D> {
 impl<D: Domain> FunctionWalk<'_, D> {
     fn finish(mut self, body: &Block) -> (Bounds, Found<D>) {
         let answer = self.block(body);
+        self.found.answered = self.answered_record.take();
         (answer, self.found)
     }
 
@@ -1046,6 +1215,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 return Bounds::NOTHING;
             }
             let implied = self.answered_implied.take();
+            let record = self.answered_record.take();
             let exact = match term.kind {
                 Kind::Const { exact, .. } => exact,
                 Kind::Copy(from) => self.exact[from],
@@ -1055,6 +1225,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
             let place = self.layout().place(statement.site);
             self.push(held, place);
             self.implied.push(implied);
+            self.records.push(record);
             self.defined.push(match &term.kind {
                 Kind::Call {
                     operation: Some(op),
@@ -1331,25 +1502,38 @@ impl<D: Domain> FunctionWalk<'_, D> {
             }
         }
         self.answered_implied = None;
+        self.answered_record = None;
         match &term.kind {
             Kind::Copy(from) => {
                 self.answered_implied.clone_from(&self.implied[*from]);
+                self.answered_record.clone_from(&self.records[*from]);
                 self.state.values[*from]
             }
             Kind::Const {
                 value,
                 stores,
                 resets,
+                record,
                 ..
             } => {
                 self.found.built.extend_from_slice(stores);
                 self.found.resets.extend_from_slice(resets);
+                self.answered_record = record
+                    .as_ref()
+                    .map(|(ctor, fields)| Rc::new(Record::of(*ctor, fields.clone())));
                 *value
             }
-            Kind::Build { args, slots, built } => {
+            Kind::Build {
+                ctor,
+                args,
+                slots,
+                built,
+            } => {
                 for (at, &arg) in args.iter().enumerate() {
                     self.found.built.push((slots + at, self.state.values[arg]));
                 }
+                let fields = args.iter().map(|&arg| self.state.values[arg]).collect();
+                self.answered_record = Some(Rc::new(Record::of(*ctor, fields)));
                 match *built {
                     Built::Wrap(promised) => args
                         .first()
@@ -1400,7 +1584,14 @@ impl<D: Domain> FunctionWalk<'_, D> {
         let mut answer = match (operation_of, sequence_of) {
             (Some(op), _) => operation(op, tags, held[0], held[1]),
             (None, Some(op)) => self.sequence(op, &held),
-            (None, None) => self.results[callee].unwrap_or(Bounds::NOTHING),
+            (None, None) => {
+                // An answer not yet seen is nothing yet, as its bound is.
+                self.answered_record = match &self.answers[callee] {
+                    Shape::Unseen => Some(Rc::new(Record(Vec::new()))),
+                    shape => shape.record(),
+                };
+                self.results[callee].unwrap_or(Bounds::NOTHING)
+            }
         };
         // A remainder is below its divisor, even one past what a bound can
         // say exactly, so `n % 2^64` is a number a word holds.
@@ -1451,8 +1642,13 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 }
             }
         }
+        let records = atoms
+            .iter()
+            .map(|&atom| self.records[atom].clone())
+            .collect();
         Handed {
             values,
+            records,
             relations,
             unknown,
         }
@@ -1539,6 +1735,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
     /// what holds after it is what held at the end of any arm that answers.
     fn branch(&mut self, on: Var, arms: &[Arm], told: bool) -> Bounds {
         let mut answer = None;
+        let mut built = Joined::default();
         let outer = self.state.clone();
         let level = outer.values.len();
         let mut surviving: Option<State<D>> = None;
@@ -1547,18 +1744,18 @@ impl<D: Domain> FunctionWalk<'_, D> {
             // An arm only adds values to these, and takes back what it
             // borrows, so what it added is all there is to take away.
             self.state.clone_from(&outer);
-            self.implied.truncate(level);
-            self.defined.truncate(level);
-            self.exact.truncate(level);
+            self.truncate(level);
             if !self.enter(on, arm) {
                 continue;
             }
             let found = self.block(&arm.body);
             let answered = self.answered_implied.take();
+            let record = self.answered_record.take();
             answer = Some(answer.map_or(found, |held: Bounds| held.or(found)));
             if found.is_nothing() {
                 continue;
             }
+            built.take(record);
             if told {
                 self.gather(&mut implications, found, answered, &outer, level);
             }
@@ -1572,12 +1769,19 @@ impl<D: Domain> FunctionWalk<'_, D> {
             }
         }
         self.state = surviving.unwrap_or(outer);
-        self.implied.truncate(level);
-        self.defined.truncate(level);
-        self.exact.truncate(level);
+        self.truncate(level);
         self.answered_implied = (!implications.is_empty()).then(|| Rc::new(implications));
+        self.answered_record = built.answered(answer);
         // Where no arm is reached, nothing is.
         answer.unwrap_or(Bounds::NOTHING)
+    }
+
+    /// Forget what is said of each value from `level` on.
+    fn truncate(&mut self, level: usize) {
+        self.implied.truncate(level);
+        self.records.truncate(level);
+        self.defined.truncate(level);
+        self.exact.truncate(level);
     }
 
     /// Add what the arm just walked, answering `found`, says of the values
@@ -1672,7 +1876,7 @@ impl<D: Domain> FunctionWalk<'_, D> {
         let level = self.state.values.len();
         match arm.test {
             Test::Wrapper(promised) => {
-                self.bind_fields(arm, held.and(promised), Bounds::NOTHING);
+                self.bind_fields(on, arm, held.and(promised), Bounds::NOTHING);
                 // A wrapper is its field.
                 self.between(level, on, Some(0), Some(0));
             }
@@ -1680,14 +1884,14 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 if !self.narrow(on, Bounds::at(0)) {
                     return false;
                 }
-                self.bind_fields(arm, Bounds::NOTHING, Bounds::NOTHING);
+                self.bind_fields(on, arm, Bounds::NOTHING, Bounds::NOTHING);
             }
             Test::Step(rest) => {
                 if !self.narrow(on, Bounds { low: 1, high: None }) {
                     return false;
                 }
                 let less = self.state.values[on].down();
-                self.bind_fields(arm, Bounds::NOTHING, less);
+                self.bind_fields(on, arm, Bounds::NOTHING, less);
                 // The rest is one less than what it was taken from.
                 self.between(level + rest, on, Some(-1), Some(-1));
             }
@@ -1695,10 +1899,11 @@ impl<D: Domain> FunctionWalk<'_, D> {
                 if !self.narrow(on, Bounds::at(tag)) {
                     return false;
                 }
-                self.bind_fields(arm, Bounds::NOTHING, Bounds::NOTHING);
+                self.bind_fields(on, arm, Bounds::NOTHING, Bounds::NOTHING);
             }
         }
         self.implied.resize(self.state.values.len(), None);
+        self.records.resize(self.state.values.len(), None);
         self.defined.resize(self.state.values.len(), None);
         self.exact.resize(self.state.values.len(), None);
         // Only a value whose bound is its tag is told apart by one.
@@ -1727,13 +1932,26 @@ impl<D: Domain> FunctionWalk<'_, D> {
     /// Bind an arm's fields: a whole field is `whole`, a rest `rest`, and
     /// any other what was built into its slot, below its tag count where
     /// its type is a run of bare tags.
-    fn bind_fields(&mut self, arm: &Arm, whole: Bounds, rest: Bounds) {
-        for &(site, field) in &arm.fields {
+    fn bind_fields(&mut self, on: Var, arm: &Arm, whole: Bounds, rest: Bounds) {
+        let record = self.records[on].clone();
+        let built = record.as_ref().and_then(|record| record.fields(arm.ctor));
+        for (at, &(site, field)) in arm.fields.iter().enumerate() {
             let held = match field {
+                Field::Slot { tags, .. }
+                    if let Some(built) = built.and_then(|built| built.get(at)) =>
+                {
+                    tags.map_or(*built, |count| {
+                        built.and(Bounds {
+                            low: 0,
+                            high: Some(count - 1),
+                        })
+                    })
+                }
                 Field::Whole => whole,
                 Field::Rest => rest,
-                Field::Slot { slot, tags } => {
-                    let built = self.fields[slot].unwrap_or(Bounds::NOTHING);
+                Field::Slot { slot, tags, within } => {
+                    let built =
+                        within.unwrap_or_else(|| self.fields[slot].unwrap_or(Bounds::NOTHING));
                     tags.map_or(built, |count| {
                         built.and(Bounds {
                             low: 0,
@@ -1962,6 +2180,7 @@ pub(super) mod tests {
                 exact: Some(u128::from(value)),
                 stores: Vec::new(),
                 resets: Vec::new(),
+                record: None,
             })
         }
     }
@@ -2008,6 +2227,7 @@ pub(super) mod tests {
                 on: 0,
                 arms: vec![
                     Arm {
+                        ctor: 0,
                         test: Test::Empty,
                         fields: Vec::new(),
                         body: Block {
@@ -2016,6 +2236,7 @@ pub(super) mod tests {
                         },
                     },
                     Arm {
+                        ctor: 1,
                         test: Test::Step(0),
                         fields: vec![(2, Field::Rest)],
                         body: Block {
@@ -2093,6 +2314,7 @@ pub(super) mod tests {
                 on: 4,
                 arms: vec![
                     Arm {
+                        ctor: 10,
                         test: Test::Tag(0),
                         fields: Vec::new(),
                         body: Block {
@@ -2101,6 +2323,7 @@ pub(super) mod tests {
                         },
                     },
                     Arm {
+                        ctor: 11,
                         test: Test::Tag(1),
                         fields: Vec::new(),
                         body: Block {
@@ -2193,6 +2416,7 @@ pub(super) mod tests {
                     on: 2,
                     arms: vec![
                         Arm {
+                            ctor: 10,
                             test: Test::Tag(0),
                             fields: Vec::new(),
                             body: Block {
@@ -2201,6 +2425,7 @@ pub(super) mod tests {
                             },
                         },
                         Arm {
+                            ctor: 11,
                             test: Test::Tag(1),
                             fields: Vec::new(),
                             body: Block {
@@ -2304,6 +2529,7 @@ pub(super) mod tests {
                         on: 4,
                         arms: vec![
                             Arm {
+                                ctor: 10,
                                 test: Test::Tag(0),
                                 fields: Vec::new(),
                                 body: Block {
@@ -2312,6 +2538,7 @@ pub(super) mod tests {
                                 },
                             },
                             Arm {
+                                ctor: 11,
                                 test: Test::Tag(1),
                                 fields: Vec::new(),
                                 body: Block {
