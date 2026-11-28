@@ -1,33 +1,52 @@
-# PCG-XSH-RR: a small deterministic generator with one private 64-bit state and
-# a `U32` output. It is suitable for simulations, tests, and procedural data;
-# it is not cryptographically secure.
+# Seeded random numbers, for simulations, games, shuffles, tests and
+# procedural data: anything that wants many draws, or a run it can repeat.
 #
-# The private state is a standard wrapping `U64`; callers create a generator
-# only through `seed` and thread the returned state through `next`.
+# `Pcg32` is PCG-XSH-RR: a small deterministic generator with one private
+# 64-bit state and a `U32` output, named for its algorithm, as any other
+# generator here would be. Seed it once, from a number to repeat a run, or
+# from the host's entropy for a run nobody can predict, and every draw after
+# that is pure: thread the returned state through `next`.
+#
+# It is not cryptographically secure, and nothing here is. A key, a nonce or
+# a token comes from `host.entropy.bytes!` itself, every time: a generator's
+# state is an ordinary value, and a copy of it kept or used twice draws the
+# same secret twice, which the operating system's generator never does.
 
 package {}
 
-export {Random}
+export {Pcg32}
 
-Random : U64.(
+Pcg32 : U64.(
   # One advance of `increment + value`: advancing from zero is `0·m + i = i`,
   # so PCG's usual seed-then-advance-twice collapses to the constant already
   # written below. `*` and `+` on a `U64` wrap modulo 2^64 and are worked out
   # in machine words wherever they appear, as the 64-bit state is held in
   # them, across calls too.
-  seed : Nat -> Random
-  seed(value) -> Random(
+  seed : Nat -> Pcg32
+  seed(value) -> Pcg32(
     (U64.of_nat(value) + 0x14057b7ef767814f) * 0x5851f42d4c957f2d + 0x14057b7ef767814f
+  )
+
+  # A generator seeded from eight bytes `entropy` draws, so no two runs are
+  # alike: `Pcg32.seed_from!(host.entropy)`. Printing the seed `seed` was
+  # handed, rather than the generator, is how a run is repeated; to do that,
+  # draw the bytes yourself and hand `seed` their number.
+  seed_from! : e -> Result(Pcg32, error) where
+    e.bytes! : (e, Nat) -> Result(List(U8), error)
+  seed_from!(entropy) -> (
+    drawn = entropy.bytes!(8)
+    bytes = drawn?
+    Ok(seed(bytes.fold(0, |value, byte| value * 256 + byte.to_nat())))
   )
 
   # One draw: the output is the state's high bits xor-shifted and rotated by
   # its top five, and the new state is one more multiply-and-add.
-  next : Random -> (U32, Random)
-  next(Random(state)) -> (
+  next : Pcg32 -> (U32, Pcg32)
+  next(Pcg32(state)) -> (
     xorshifted = ((state >> 18) ^ state) >> 27
     rotation = (state >> 59).to_nat()
     value = U32.wrap(xorshifted).rotate_right(rotation)
-    (value, Random(state * 0x5851f42d4c957f2d + 0x14057b7ef767814f))
+    (value, Pcg32(state * 0x5851f42d4c957f2d + 0x14057b7ef767814f))
   )
 
   # A uniformly chosen element of `xs`, paired with the state after the draw
@@ -39,7 +58,7 @@ Random : U64.(
   # An empty list has no index at all, so what the reduction answers at a
   # zero length never reaches the caller: every index misses, and that miss
   # names the empty list.
-  choice : (Random, List(a)) -> Result((a, Random), [Empty])
+  choice : (Pcg32, List(a)) -> Result((a, Pcg32), [Empty])
   choice(state, xs) -> (
     (value, after) = next(state)
     picked = xs.get(value.to_nat() % xs.len()).err_as(Empty)?
@@ -52,13 +71,13 @@ Random : U64.(
   # in `0..n`, and the walk continues on the `n - 1` before it. The draw is
   # `mod n` of a 32-bit word, whose bias is below one part in eight million
   # at any length the buffer representation supports.
-  shuffle : (Random, List(a)) -> (List(a), Random)
+  shuffle : (Pcg32, List(a)) -> (List(a), Pcg32)
   shuffle(state, xs) -> walk(xs, xs.len(), state)
 )
 
 # The swaps land in place on the list threaded through the recursion; the
 # count of unplaced elements is the descent.
-walk : (List(a), Nat, Random) -> (List(a), Random)
+walk : (List(a), Nat, Pcg32) -> (List(a), Pcg32)
 walk(xs, 0, state) -> (xs, state)
 walk(xs, count is Succ(m), state) -> (
   (value, next) = state.next()
@@ -68,14 +87,14 @@ walk(xs, count is Succ(m), state) -> (
 # Drawing with replacement: `count` choices from `xs`, each from the state
 # the one before it left. A miss reports the empty list once for the whole
 # run, since a list with nothing to choose has nothing to choose twice.
-draws : (Random, List(a), Nat) -> Result(List(a), [Empty])
+draws : (Pcg32, List(a), Nat) -> Result(List(a), [Empty])
 draws(state, xs, 0) -> Ok([])
 draws(state, xs, Succ(rest)) -> (
   (picked, after) = state.choice(xs)?
   draws(after, xs, rest).map_ok(|rest_drawn| rest_drawn.prepend(picked))
 )
 
-random_take : (Random, Nat) -> List(U32)
+random_take : (Pcg32, Nat) -> List(U32)
 random_take(state, 0) -> []
 random_take(state, Succ(rest)) -> (
   (value, next_state) = state.next()
@@ -85,20 +104,20 @@ random_take(state, Succ(rest)) -> (
 # A permutation this short is still sensitive to every draw before it, so a
 # fixed vector pins the placement order and the `mod i+1` convention together.
 expect (
-  (shuffled, after) = Random.seed(42).shuffle([1, 2, 3, 4, 5, 6, 7, 8])
+  (shuffled, after) = Pcg32.seed(42).shuffle([1, 2, 3, 4, 5, 6, 7, 8])
   shuffled == [3, 5, 6, 2, 1, 8, 4, 7]
 )
 
 # A single element still draws once — `mod 1` places it at zero — so the
 # returned state has advanced.
 expect (
-  (shuffled, after) = Random.seed(7).shuffle([9])
+  (shuffled, after) = Pcg32.seed(7).shuffle([9])
   shuffled == [9]
 )
 
 # A fixed vector pins the state transition, output permutation, and seeding
 # convention rather than merely checking that two runs happen to agree.
-expect random_take(Random.seed(42), 6) == [
+expect random_take(Pcg32.seed(42), 6) == [
   0xc2f57bd6,
   0x6b07c4a9,
   0x72b7b29b,
@@ -109,13 +128,13 @@ expect random_take(Random.seed(42), 6) == [
 
 # The same three words `random_take` pins, reduced `mod 5`: 3270867926,
 # 1795671209, and 1924641435 land on indices 1, 4, and 0.
-expect draws(Random.seed(42), [10, 20, 30, 40, 50], 3) == Ok([20, 50, 10])
+expect draws(Pcg32.seed(42), [10, 20, 30, 40, 50], 3) == Ok([20, 50, 10])
 
 # A one-element list answers with that element at every draw, and an empty
 # one answers with the miss instead of a value.
-expect draws(Random.seed(7), [9], 4) == Ok([9, 9, 9, 9])
-expect Random.seed(7).choice(List.range(0)).is_err()
+expect draws(Pcg32.seed(7), [9], 4) == Ok([9, 9, 9, 9])
+expect Pcg32.seed(7).choice(List.range(0)).is_err()
 
 # A choice is always a member: 64 draws over a four-element list stay inside
 # it, whatever the reduction does to the word.
-expect draws(Random.seed(3), [2, 4, 6, 8], 64).ok_or([]).all(|x| [2, 4, 6, 8].contains(x))
+expect draws(Pcg32.seed(3), [2, 4, 6, 8], 64).ok_or([]).all(|x| [2, 4, 6, 8].contains(x))

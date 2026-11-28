@@ -14,12 +14,12 @@ package {
   }
 }
 
-import random {Random}
+import random {Pcg32}
 
 app : {args: List(Str)} -> Result(Str, [Empty, Malformed, OutOfBounds])
 app(input) -> (
   seed = Nat.from_str(input.args.get(0)?)?
-  (winner, after) = Random.seed(seed).choice(input.args.drop(1))?
+  (winner, after) = Pcg32.seed(seed).choice(input.args.drop(1))?
   Ok(winner)
 )
 

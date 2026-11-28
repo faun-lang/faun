@@ -3,12 +3,12 @@
 
 export {RandomBot}
 
-import pcg {Random}
+import pcg {Pcg32}
 import throw {Throw}
 
-RandomBot : Random.(
+RandomBot : Pcg32.(
   start : Nat -> RandomBot
-  start(seed) -> RandomBot(Random.seed(seed))
+  start(seed) -> RandomBot(Pcg32.seed(seed))
 
   name : RandomBot -> Str
   name(_) -> "random"

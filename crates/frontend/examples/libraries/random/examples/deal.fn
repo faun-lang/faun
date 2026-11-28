@@ -1,0 +1,33 @@
+# A deck of 52 dealt in an order nobody can predict: the generator is seeded
+# once from the host's entropy, and every draw after that is pure.
+#
+# Only the seed is effectful. The shuffle is the same pure `shuffle` a fixed
+# seed drives, so a run that needs repeating is the same program handed the
+# seed it printed.
+
+package {
+  uses: {
+    random: "../src/random"
+  }
+}
+
+import random {Pcg32}
+import std.host {Host, EntropyError}
+
+main! : Host -> []
+main!(host) -> (
+  seeded = Pcg32.seed_from!(host.entropy)
+  status = dealt!(host, seeded)
+  host.exit!(status)
+)
+
+dealt! : (Host, Result(Pcg32, EntropyError)) -> U8
+dealt!(host, Err(EntropyUnavailable)) -> (
+  told = host.stderr.write_all!("no entropy to seed from\n".to_utf8())
+  1
+)
+dealt!(host, Ok(generator)) -> (
+  (deck, after) = generator.shuffle(List.range(52))
+  printed = host.println!(deck.map(Nat.to_str).join(" "))
+  0
+)
