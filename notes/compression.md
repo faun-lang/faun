@@ -128,12 +128,12 @@ it writes, as RFC 1951 asks. A hundred million appends, half of them
 reading back from the list, took 170 ms, since nothing else holds the
 buffer.
 
-### Narrowing between words goes through `Nat`
+### Word conversions distinguish widening, checking, and wrapping
 
-Widening is complete: `U64.of_u8`, `of_u16`, `of_u32`, and the same on
-`U32` and `U16`. Narrowing is not: `U64` has `to_u32` and `to_u8` but no
-`to_u16`, and `U32` and `U16` have no `to_` at all, so a narrowing that
-is not there is `U16.of_nat(x.to_nat())`.
+Use `U64.of_u32(word)` for exact widening. Use `U16.wrap(word)` when
+the low sixteen bits are the intended result, or
+`U16.from_nat(word.to_nat())` when a value outside the destination's range
+must be rejected.
 
 ### A test of binary output builds natively
 

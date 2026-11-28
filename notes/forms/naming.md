@@ -16,7 +16,9 @@ choosing a particular way to lose information:
 - `T.from_x(x) -> Result(T, …)` makes a `T` from an `x` where one fits,
   checked: `U8.from_nat`, `Nat.from_str`, `F64.from_nat`.
 - `t.to_x() -> X` is an `X` from a `t`: `to_str`, `to_nat`, `to_list`,
-  `to_bits`.
+  `to_bits`. For new numeric conversions, use plain `to_*` only when the
+  numeric value is preserved. The older `U64.to_u8` and `U64.to_u32` wrap
+  for compatibility; use the destination's `wrap` in new code.
 
 ```ruby
 expect U8.wrap(300) == 44
