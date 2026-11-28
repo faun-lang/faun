@@ -156,7 +156,7 @@ source, named for what it grants rather than `random`. A generator is named
 for its algorithm, `Pcg32`, never `Random`. `random` is the library that
 turns any generator into the draws a program wants: today
 `crates/frontend/examples/libraries/random`, holding `Pcg32` with `choice`,
-`shuffle` and `seed_from!`, and later ranges without modulo bias and floats.
+`shuffle`, `seed(U64)` and `from_entropy!`, and later ranges without modulo bias and floats.
 
 ## Representing resources
 

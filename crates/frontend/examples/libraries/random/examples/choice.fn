@@ -16,9 +16,9 @@ package {
 
 import random {Pcg32}
 
-app : {args: List(Str)} -> Result(Str, [Empty, Malformed, OutOfBounds])
+app : {args: List(Str)} -> Result(Str, [Empty, Malformed, OutOfBounds, TooBig])
 app(input) -> (
-  seed = Nat.from_str(input.args.get(0)?)?
+  seed = U64.from_nat(Nat.from_str(input.args.get(0)?)?)?
   (winner, after) = Pcg32.seed(seed).choice(input.args.drop(1))?
   Ok(winner)
 )
@@ -30,5 +30,5 @@ expect app({args: []}) == Err(OutOfBounds)
 
 main!(host) -> host.run!(cli)
 
-cli : {args: List(Str)} -> Result(Str, [Empty, Malformed, OutOfBounds])
+cli : {args: List(Str)} -> Result(Str, [Empty, Malformed, OutOfBounds, TooBig])
 cli(input) -> app({args: input.args.drop(1)})

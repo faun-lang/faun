@@ -21,10 +21,11 @@ draw(state, Succ(rest)) -> (
 app : {stdin: List(U8), *} -> Result(Str, _)
 app(input) -> (
   stdin = Str.from_utf8(input.stdin)?
-  Nat.from_str(stdin.trim()).map_ok(report_draws)
+  seed = U64.from_nat(Nat.from_str(stdin.trim())?)?
+  Ok(report_draws(seed))
 )
 
-report_draws : Nat -> Str
+report_draws : U64 -> Str
 report_draws(seed) -> draw(Pcg32.seed(seed), 6).map(U32.to_str).join("\n")
 
 # The same fixed vector random.ori pins, seen through the decimal printer.

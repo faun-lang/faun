@@ -16,7 +16,7 @@ import std.host {Host, EntropyError}
 
 main! : Host -> []
 main!(host) -> (
-  seeded = Pcg32.seed_from!(host.entropy)
+  seeded = Pcg32.from_entropy!(host.entropy)
   status = dealt!(host, seeded)
   host.exit!(status)
 )

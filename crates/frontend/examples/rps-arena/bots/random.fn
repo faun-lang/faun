@@ -8,7 +8,7 @@ import throw {Throw}
 
 RandomBot : Pcg32.(
   start : Nat -> RandomBot
-  start(seed) -> RandomBot(Pcg32.seed(seed))
+  start(seed) -> RandomBot(Pcg32.seed(U64.wrap(seed)))
 
   name : RandomBot -> Str
   name(_) -> "random"
