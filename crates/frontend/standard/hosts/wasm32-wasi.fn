@@ -16,7 +16,7 @@
 # A `File` is a resource: what opens one is the program's to close, once,
 # on every way it goes on, and nothing is asked of it afterwards.
 
-import hosts.common {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, filled, drawn, fill_random!, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
+import hosts.common {Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError, filled, read_chunks!, read_text!, read_lines!, write_everything!, finish!, serve_stdin!}
 import bounds {Printable}
 
 export {Host, Stdin, Stdout, Stderr, Files, File, Entropy, Bytes, Chunk, Mode.*, IoError, OpenError, ReadError, WriteError, CloseError, EntropyError}
@@ -176,17 +176,8 @@ File : [File(Fd)].(
 Entropy : [Entropy].(
   # Exactly `count` random bytes, or `EntropyUnavailable` where the
   # generator has none to give.
-  fill! : (Entropy, Nat) -> Result(List(U8), EntropyError)
-  fill!(entropy, count) -> fill_random!(entropy, count, [])
-
-  # Up to `count` random bytes, and no more than 65536: fewer where fewer
-  # came. Asked for none, it answers none and asks the target nothing.
-  some! : (Entropy, Nat) -> Result(List(U8), EntropyError)
-  some!(_, 0) -> Ok([])
-  some!(entropy, count) -> (
-    (bytes, answer) = random_fill!(entropy, 65536 - (65536 - count))
-    drawn(bytes, outcome(answer))
-  )
+  bytes! : (Entropy, Nat) -> Result(List(U8), EntropyError)
+  bytes!(entropy, count) -> drawing!(entropy, count, [])
 )
 
 # What WASI names an open stream by. Only this module makes one, so no
@@ -203,6 +194,22 @@ fd_read! : (Fd, Nat) -> (List(U8), Nat)
 fd_open! : (Files, List(U8), Nat, Nat) -> Nat
 fd_close! : File -> Nat
 random_fill! : (Entropy, Nat) -> (List(U8), Nat)
+
+# Exactly `count` more random bytes after `got`, drawing no more than 65536
+# at once and however few each draw answers. A draw that answers none where
+# some were asked is the generator having none to give, rather than a
+# reason to ask forever.
+drawing! : (Entropy, Nat, List(U8)) -> Result(List(U8), EntropyError)
+drawing!(_, 0, got) -> Ok(got)
+drawing!(entropy, count, got) -> (
+  (bytes, answer) = random_fill!(entropy, 65536 - (65536 - count))
+  drew!(entropy, count, got, bytes, outcome(answer))
+)
+
+drew! : (Entropy, Nat, List(U8), List(U8), Result(Nat, Nat)) -> Result(List(U8), EntropyError)
+drew!(_, _, _, _, Err(_)) -> Err(EntropyUnavailable)
+drew!(_, _, _, [], Ok(_)) -> Err(EntropyUnavailable)
+drew!(entropy, count, got, bytes, Ok(_)) -> drawing!(entropy, count - bytes.len(), got.concat(bytes))
 
 # WASI's `path_open` flags for each mode, with its descriptor flags above
 # the low byte. WASI starts no programs, so nothing need be kept from one.

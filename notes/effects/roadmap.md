@@ -101,9 +101,10 @@ host modules are per target anyway.
 
 ### 1. Entropy
 
-**Status: done.** `host.entropy` is an `Entropy`, whose `fill!(count)`
-answers exactly `count` bytes or `Err(EntropyUnavailable)`; `some!(count)`
-answers one draw of up to 65536.
+**Status: done.** `host.entropy` is an `Entropy`, whose `bytes!(count)`
+answers exactly `count` bytes or `Err(EntropyUnavailable)`. One method: a
+partial draw is no use to a program, and the capability already says where
+the bytes come from, so the method names only what it answers.
 
 - **Shape:** fill a buffer, as `fd_read!` does. `Built::Read` now hands its
   primitive any leading scalars, then the buffer and the count, so
@@ -115,8 +116,8 @@ answers one draw of up to 65536.
 - **Failure is a value.** Faun has no panics, so the one tag is answered
   rather than the program aborted. It is rare: a sandbox refusing the call, or
   a WASI runner that has no generator.
-- **The loop is in Faun.** `fill_random!` in `hosts/common.fn` draws until it
-  has `count`, since Linux may answer fewer than asked past 256 bytes, and a
+- **The loop is in Faun.** Each host module's `drawing!` draws until it has
+  `count`, since Linux may answer fewer than asked past 256 bytes, and a
   draw answering none where some were asked is `EntropyUnavailable` rather
   than a reason to ask forever. Nothing is buffered between draws.
 - **Why first:** it's the smallest possible new routine, and it unlocks

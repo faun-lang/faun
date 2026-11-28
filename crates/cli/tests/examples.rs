@@ -1047,17 +1047,17 @@ fn files_answer_what_opening_one_met() {
 /// draws differ, and so do two runs, on every target with a generator;
 /// the 6502 has none, so a program asking for one is refused there.
 #[test]
-fn entropy_fills_exactly_what_was_asked() {
+fn entropy_draws_exactly_what_was_asked() {
     let package = support::Package::new(
         "entropy",
         "import std.host {EntropyError}
 
          main! : Host -> []
          main!(host) -> (
-           none = host.entropy.fill!(0)
-           a = host.entropy.fill!(32)
-           b = host.entropy.fill!(32)
-           big = host.entropy.fill!(100000)
+           none = host.entropy.bytes!(0)
+           a = host.entropy.bytes!(32)
+           b = host.entropy.bytes!(32)
+           big = host.entropy.bytes!(100000)
            printed = host.println!(\"${a}\")
            host.exit!(checked(none, a, b, big))
          )
