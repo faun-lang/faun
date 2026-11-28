@@ -205,6 +205,9 @@ pub(super) enum Inline {
 pub(super) struct Counting {
     /// The count an immortal object holds, which no claim changes.
     immortal: u64,
+    /// How many bytes a word takes, so a count is reached through a
+    /// natural's handle, one past its object, a byte short of a word on.
+    word_bytes: i32,
 }
 
 /// Whether a claim is taken or given up.
@@ -228,8 +231,48 @@ impl Counting {
         self.count(b, at, Claim::Give, last);
     }
 
+    /// Take another claim to the object a natural's `handle` names, read
+    /// through the handle itself: the object is reached only where the
+    /// call needs it.
+    pub(super) fn take_named(self, b: &mut Builder<'_>, handle: ValueId, retain: FunctionId) {
+        self.count_through(b, handle, self.through_handle(), Claim::Take, |b| {
+            let at = object(b, handle);
+            b.call(retain, &[at]);
+        });
+    }
+
+    /// Give up a claim to the object a natural's `handle` names, as
+    /// [`Self::take_named`] reads it.
+    pub(super) fn give_named(self, b: &mut Builder<'_>, handle: ValueId, last: FunctionId) {
+        self.count_through(b, handle, self.through_handle(), Claim::Give, |b| {
+            let at = object(b, handle);
+            b.call(last, &[at]);
+        });
+    }
+
+    /// Where an object's count lies from a handle one past the object: a
+    /// word on, less the byte the handle's tag adds.
+    const fn through_handle(self) -> Offset {
+        Offset::Bytes(self.word_bytes - 1)
+    }
+
     fn count(self, b: &mut Builder<'_>, at: ValueId, claim: Claim, otherwise: FunctionId) {
-        let refs = b.load(Width::Word, at, Offset::Words(1));
+        self.count_through(b, at, Offset::Words(1), claim, |b| {
+            b.call(otherwise, &[at]);
+        });
+    }
+
+    /// Count a claim in the word at `count` from `base`, and where that
+    /// count fails, is an immortal's or frees, do `otherwise`.
+    fn count_through(
+        self,
+        b: &mut Builder<'_>,
+        base: ValueId,
+        count: Offset,
+        claim: Claim,
+        otherwise: impl FnOnce(&mut Builder<'_>),
+    ) {
+        let refs = b.load(Width::Word, base, count);
         let (least, then) = match claim {
             Claim::Take => (1, 2),
             Claim::Give => (2, 1),
@@ -247,11 +290,11 @@ impl Counting {
             |b| {
                 let then = number(b, then);
                 let next = add(b, above, then);
-                b.store(Width::Word, at, Offset::Words(1), next);
+                b.store(Width::Word, base, count, next);
                 b.yield_(&[]);
             },
             |b| {
-                b.call(otherwise, &[at]);
+                otherwise(b);
                 b.yield_(&[]);
             },
         );
@@ -304,7 +347,7 @@ impl Library {
     /// Take another claim to a natural, where it is an object.
     pub(super) fn retain_value(&self, b: &mut Builder<'_>, value: ValueId) -> ValueId {
         match self.counting {
-            Some(counting) => where_object(b, value, |b, at| counting.take(b, at, self.retain)),
+            Some(counting) => where_named(b, value, |b| counting.take_named(b, value, self.retain)),
             None => {
                 b.call(self.keep, &[value]);
             }
@@ -315,7 +358,9 @@ impl Library {
     /// Give up a claim to a natural, where it is an object.
     pub(super) fn release_value(&self, b: &mut Builder<'_>, value: ValueId) {
         match self.counting {
-            Some(counting) => where_object(b, value, |b, at| counting.give(b, at, self.release)),
+            Some(counting) => {
+                where_named(b, value, |b| counting.give_named(b, value, self.release));
+            }
             None => {
                 b.call(self.drop, &[value]);
             }
@@ -708,7 +753,10 @@ pub(super) fn append(
         keep: unless_small(program, "nat.keep", retain),
         drop: unless_small(program, "nat.drop", release),
         inline_small: config.inline_small,
-        counting: config.inline_counts.then_some(Counting { immortal: max }),
+        counting: config.inline_counts.then_some(Counting {
+            immortal: max,
+            word_bytes: i32::from(config.word_bits / 8),
+        }),
         half,
         helpers: [None; Helper::ALL.len()],
     };
@@ -817,13 +865,11 @@ fn object(b: &mut Builder<'_>, handle: ValueId) -> ValueId {
     b.convert(A, at)
 }
 
-/// Do `then` with the object a natural names, where it names one.
-fn where_object(b: &mut Builder<'_>, value: ValueId, then: impl FnOnce(&mut Builder<'_>, ValueId)) {
+/// Do `then` where a natural names an object, reaching it, if at all,
+/// through the handle.
+fn where_named(b: &mut Builder<'_>, value: ValueId, then: impl FnOnce(&mut Builder<'_>)) {
     let named = is_object(b, value);
-    b.when(named, |b| {
-        let at = object(b, value);
-        then(b, at);
-    });
+    b.when(named, then);
 }
 
 /// The handle naming the object at `address`: one more.
