@@ -1422,10 +1422,8 @@ impl<'a> Lowering<'a> {
                             return Err("x86 branch condition is spilled".to_owned());
                         }
                     };
-                    if let Some(set) = self.asm.just_set(condition) {
+                    if let Some(set) = self.asm.nonzero_by_flags(condition) {
                         (set, set.inverse())
-                    } else if self.asm.just_masked(condition) {
-                        (Condition::NotEqual, Condition::Equal)
                     } else {
                         self.asm.alu(Alu::Test, condition, condition, 64);
                         (Condition::NotEqual, Condition::Equal)
