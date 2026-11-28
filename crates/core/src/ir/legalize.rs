@@ -1212,7 +1212,8 @@ impl Pass<'_> {
                         }
                         _ => {
                             let from = self.library.require(Helper::FromWord);
-                            (b.call_one(from, &[v(right)]), true)
+                            let number = word(b, v(right));
+                            (self.library.promoted(b, from, number), true)
                         }
                     };
                     let moved = b.call_one(function, &[v(left), by]);
@@ -1308,7 +1309,9 @@ impl Pass<'_> {
                         Library::small_word(b, number)
                     }
                     (_, Class::Natural) => {
-                        b.call_one(self.library.require(Helper::FromWord), &[v(value)])
+                        let number = word(b, v(value));
+                        let from = self.library.require(Helper::FromWord);
+                        self.library.promoted(b, from, number)
                     }
                     (Class::Natural, _) if self.checked_words.unbox.contains(&results[0]) => {
                         let number = natural::unwrapped(b, v(value));

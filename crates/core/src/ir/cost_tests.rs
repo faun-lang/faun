@@ -255,7 +255,9 @@ fn a_claim_read_last_by_a_branch_is_released_in_each_arm() {
                 then_region,
                 else_region,
                 ..
-            } if !results.is_empty() => Some((then_region, else_region)),
+            } if results.len() == 1 && scalar.class(results[0]) == Class::Word => {
+                Some((then_region, else_region))
+            }
             _ => None,
         })
         .unwrap();
