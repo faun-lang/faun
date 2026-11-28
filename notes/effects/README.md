@@ -138,8 +138,25 @@ Clocks and entropy are small enough not to need their own notes:
   (Monotonic, Duration) -> {}`.
 - `Entropy.bytes! : (Entropy, Nat) -> Result(List(U8), [EntropyUnavailable])`
   returns cryptographically secure bytes (built; see the
-  [roadmap](roadmap.md)). Seeded pseudo-random generation is pure library code and needs
-  no capability.
+  [roadmap](roadmap.md)). It is the one method: a number, a float or a range
+  is library code over bytes. It has two uses. A secret (a key, a nonce, a
+  session token, an unguessable id) is drawn from it directly, every time.
+  Anything wanting many draws or a repeatable run (simulations, shuffles,
+  games, tests) seeds a generator once from it, and every draw after is pure.
+  There is deliberately no generator kept in the program for secrets: its
+  state would be an ordinary immutable value, and one copy kept or used twice
+  draws the same key twice; a process that forks or a machine restored from a
+  snapshot would repeat it too. The operating system's generator has no state
+  a program can copy, and a syscall per secret is cheap at the rate anyone
+  makes secrets; Linux 6.11's vDSO `getrandom` would make it cheaper still,
+  where a target reads the vDSO.
+
+Names follow the layers other ecosystems settled on. `Entropy` is the
+source, named for what it grants rather than `random`. A generator is named
+for its algorithm, `Pcg32`, never `Random`. `random` is the library that
+turns any generator into the draws a program wants: today
+`crates/frontend/examples/libraries/random`, holding `Pcg32` with `choice`,
+`shuffle` and `seed_from!`, and later ranges without modulo bias and floats.
 
 ## Representing resources
 

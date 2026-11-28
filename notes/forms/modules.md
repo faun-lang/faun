@@ -16,7 +16,7 @@ path, and names each one it takes. From the arena example's
 ```ruby ignore
 export {RandomBot}
 
-import pcg {Random}
+import pcg {Pcg32}
 import throw {Throw}
 ```
 
@@ -262,8 +262,8 @@ chosen no longer counts. There is no lock file, because the headers and
 this rule decide every package a build reads.
 
 Two packages that are used side by side, two majors of one library or two
-URLs without versions, have two sets of types: a `Random` from one is not a
-`Random` from the other, and passing one where the other is wanted is a
+URLs without versions, have two sets of types: a `Pcg32` from one is not a
+`Pcg32` from the other, and passing one where the other is wanted is a
 type error.
 
 #### Commands

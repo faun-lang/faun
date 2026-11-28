@@ -13,18 +13,18 @@ package {
   }
 }
 
-import random {Random}
+import random {Pcg32}
 
 app : {args: List(Str)} -> Result(Str, [OutOfBounds, Malformed])
 app(input) -> (
   count = Nat.from_str(input.args.get(0)?)?
   seed = Nat.from_str(input.args.get(1)?)?
-  (mixed, after) = Random.seed(seed).shuffle(List.range(count))
+  (mixed, after) = Pcg32.seed(seed).shuffle(List.range(count))
   Ok(mixed.map(Nat.to_str).join(" "))
 )
 
 expect (
-  (mixed, after) = Random.seed(42).shuffle(List.range(8))
+  (mixed, after) = Pcg32.seed(42).shuffle(List.range(8))
   mixed == [2, 4, 5, 1, 0, 7, 3, 6]
 )
 

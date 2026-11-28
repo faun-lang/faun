@@ -5,7 +5,7 @@
 # noise that happened to find it.
 #
 # Three ingredients, all ordinary total functions:
-#   a generator `Random -> (a Random)` draws a value and threads the PCG state;
+#   a generator `Pcg32 -> (a Pcg32)` draws a value and threads the PCG state;
 #   a property  `a -> Bool` is the law under test;
 #   a shrinker  `a -> List(a)` proposes smaller candidates for a failing value.
 #
@@ -20,14 +20,14 @@ package {
   }
 }
 
-import random {Random}
+import random {Pcg32}
 
 export {Verdict, gen_nat, gen_list, shrink_nat, shrink_list}
 
 Verdict(a) : [Passed, Falsified(a, a)].(
   # Run `prop` against `trials` drawn values. The first failure is shrunk
   # before it is reported: `Falsified(as_found smallest)`.
-  forall : (Nat, Random, Random -> (a, Random), a -> Bool, a -> List(a)) -> Verdict(a)
+  forall : (Nat, Pcg32, Pcg32 -> (a, Pcg32), a -> Bool, a -> List(a)) -> Verdict(a)
   forall(0, state, gen, prop, shrink) -> Passed
   forall(Succ(rest), state, gen, prop, shrink) -> (
     (value, next) = gen(state)
@@ -36,7 +36,7 @@ Verdict(a) : [Passed, Falsified(a, a)].(
 
   # The drawn value either upholds the law and the trials continue, or it is
   # the counterexample to shrink. The verdict is computed, so it enters a head.
-  forall_step : (Bool, a, Random, Nat, Random -> (a, Random), a -> Bool, a -> List(a)) -> Verdict(a)
+  forall_step : (Bool, a, Pcg32, Nat, Pcg32 -> (a, Pcg32), a -> Bool, a -> List(a)) -> Verdict(a)
   forall_step(True, _, next, rest, gen, prop, shrink) -> forall(rest, next, gen, prop, shrink)
   forall_step(False, value, _, _, _, prop, shrink) ->
     Falsified(value, proptest_minimize(value, prop, shrink, 1000))
@@ -75,20 +75,20 @@ proptest_refute([c, *rest], prop) if prop(c) -> proptest_refute(rest, prop)
 proptest_refute([c, *rest], prop) -> Ok(c)
 
 # Draw a `Nat` in `0 ..= bound`.
-gen_nat : (Random, Nat) -> (Nat, Random)
+gen_nat : (Pcg32, Nat) -> (Nat, Pcg32)
 gen_nat(state, bound) -> (
   (value, next) = state.next()
   (value.to_nat().mod(bound.add(1)), next)
 )
 
 # Draw a list of at most `longest` elements, each drawn by `element`.
-gen_list : (Random, Nat, Random -> (a, Random)) -> (List(a), Random)
+gen_list : (Pcg32, Nat, Pcg32 -> (a, Pcg32)) -> (List(a), Pcg32)
 gen_list(state, longest, element) -> (
   (len, next) = gen_nat(state, longest)
   proptest_elements(next, len, element)
 )
 
-proptest_elements : (Random, Nat, Random -> (a, Random)) -> (List(a), Random)
+proptest_elements : (Pcg32, Nat, Pcg32 -> (a, Pcg32)) -> (List(a), Pcg32)
 proptest_elements(state, 0, element) -> ([], state)
 proptest_elements(state, Succ(rest), element) -> (
   (head, after_head) = element(state)

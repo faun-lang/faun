@@ -170,9 +170,10 @@ File : [File(Fd)].(
 )
 
 # Where a program asks for random bytes: the runner's cryptographically secure
-# generator, asked afresh every time, so nothing a program holds can be
-# copied into another and repeat what it draws. A seeded generator is
-# ordinary library code and needs none of this.
+# generator, asked afresh every time. A key, a nonce or a token is drawn
+# here, every time: nothing a program holds can be copied and repeat it.
+# Anything wanting many draws, or a run it can repeat, seeds a generator
+# once from here and draws from that, which is ordinary pure library code.
 Entropy : [Entropy].(
   # Exactly `count` random bytes, or `EntropyUnavailable` where the
   # generator has none to give.

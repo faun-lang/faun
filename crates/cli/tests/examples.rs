@@ -1084,6 +1084,28 @@ fn entropy_draws_exactly_what_was_asked() {
     assert!(error.contains("`EntropyError` is not exported"), "{error}");
 }
 
+/// A generator seeded from the host's entropy deals the whole deck, each
+/// card once, and two runs deal it differently, on every target with a
+/// generator.
+#[test]
+fn a_generator_seeded_from_entropy_deals_differently() {
+    let deal = example("libraries/random/examples/deal.fn");
+    for target in ["x86_64-linux", "wasm32-wasi"] {
+        let run = || support::faun(&["run", "--target", target], &deal, &[], b"");
+        let (status, first, error) = run();
+        assert_eq!(status, Some(0), "{target}: {error}");
+        let mut cards: Vec<u32> = first
+            .split_whitespace()
+            .map(|card| card.parse().unwrap())
+            .collect();
+        cards.sort_unstable();
+        assert_eq!(cards, (0..52).collect::<Vec<_>>(), "{target}: {first}");
+        let (status, second, error) = run();
+        assert_eq!(status, Some(0), "{target}: {error}");
+        assert_ne!(first, second, "{target}: two runs dealt alike");
+    }
+}
+
 /// Appending writes after a list's end where nothing else holds its
 /// buffer, and otherwise grows it with room after: twenty thousand appends
 /// are linear work, which a copy per append would not finish.
