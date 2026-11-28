@@ -2514,7 +2514,7 @@ fn a_sixty_four_bit_words_arithmetic_wraps_in_the_machine() {
            state = n * 0x5851f42d4c957f2d + 0x14057b7ef767814f
            below = n - 2
            mixed = (state ^ below) * 0x100000001b3 - state
-           host.exit!(mixed.shift_right(58).to_u8())
+           host.exit!(U8.wrap(mixed.shift_right(58)))
          )",
     )
     .expect("a program of words");
