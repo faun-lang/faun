@@ -256,6 +256,11 @@ impl rewrite::Pass for Simplify {
                     || self.regrouped(rebuild, b, (right, left), results[0])
             }
             Op::Binary {
+                op: Binary::Monus,
+                left,
+                right,
+            } => self.complemented(rebuild, b, left, right, results[0]),
+            Op::Binary {
                 op: Binary::Mul,
                 left,
                 right,
@@ -639,11 +644,41 @@ impl Simplify {
         true
     }
 
+    /// Every bit of a sixty-four-bit word less `x`, where `x` is held in the
+    /// word, is `x` with every bit flipped: an exclusive or, which takes no
+    /// borrow from one digit to the next where a target holds the word in
+    /// several, as a 16-bit or 32-bit one does. The ones go first, so a
+    /// machine flipping in place flips them rather than `x`, which may
+    /// still be read.
+    fn complemented(
+        &self,
+        rebuild: &rewrite::Rebuild<'_>,
+        b: &mut Builder,
+        left: ValueId,
+        right: ValueId,
+        result: ValueId,
+    ) -> bool {
+        let source = rebuild.source();
+        let class = source.class(result);
+        let in_word = class.facts().and_then(|facts| facts.high) == Some(u64::MAX);
+        if !in_word || self.number(left) != Some(u64::MAX) || !self.no_less(source, left, right) {
+            return false;
+        }
+        let flipped = b.binary_at(
+            class,
+            Binary::Xor,
+            rebuild.value(left),
+            rebuild.value(right),
+        );
+        rebuild.stands_for(result, flipped);
+        true
+    }
+
     /// A number added to a difference from a number, in a sixty-four-bit
     /// word, is the difference from their sum: `(c - x) + k` is
     /// `(c + k) - x`, the sum taken in the word. The difference is one that
-    /// never borrows, a word's or a monus whose left is at least the most
-    /// its right can be. So `!x + 1`, every bit less `x` and one more, is
+    /// never borrows: a word's, a monus whose left is at least the most its
+    /// right can be, or every bit flipped, which is every bit less it. So `!x + 1`, every bit less `x` and one more, is
     /// `0 - x`, the negation the word holds, with nothing written for it.
     fn folded_past(
         &self,
@@ -662,9 +697,15 @@ impl Simplify {
         else {
             return false;
         };
+        let (left, right) = match op {
+            // Every bit flipped is every bit less the word.
+            Binary::Xor if self.number(right) == Some(u64::MAX) => (right, left),
+            _ => (left, right),
+        };
         let never_borrows = match op {
             Binary::Sub => in_word(held),
             Binary::Monus => self.no_less(source, left, right),
+            Binary::Xor => in_word(held) && self.number(left) == Some(u64::MAX),
             _ => false,
         };
         let Some(c) = self.number(left) else {
