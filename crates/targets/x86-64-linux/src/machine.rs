@@ -1025,30 +1025,36 @@ impl AllocatedBuilder {
         });
     }
 
-    /// The condition `reg` was just set from, where nothing jumps in after
-    /// it: the flags that set it still say it, so a branch on `reg` reads
-    /// them rather than testing it again.
-    pub(crate) fn just_set(&self, reg: Reg) -> Option<Condition> {
+    /// The condition on which `reg` is not nought, as the flags the last
+    /// instruction left say it, where that instruction wrote `reg` and
+    /// nothing jumps in after it: a branch on `reg` reads them rather than
+    /// testing it again. A register set from a condition is not nought where
+    /// the condition holds; one an arithmetic or logical step answered, at a
+    /// width that leaves the whole register what it worked out, is not
+    /// nought where the step's answer was not.
+    pub(crate) fn nonzero_by_flags(&self, reg: Reg) -> Option<Condition> {
         let len = self.code.insts().len();
-        match self.code.insts().last() {
-            Some(&Inst::SetIf { condition, dst })
-                if dst == reg && !self.code.labelled_from(len) =>
+        if self.code.labelled_from(len) {
+            return None;
+        }
+        let answered = |op: Alu, dst: Reg, bits: u16| {
+            dst == reg
+                && bits >= 32
+                && matches!(op, Alu::Add | Alu::Subtract | Alu::And | Alu::Or | Alu::Xor)
+        };
+        match *self.code.insts().last()? {
+            Inst::SetIf { condition, dst } if dst == reg => Some(condition),
+            Inst::Narrow {
+                dst,
+                bits: 1..=7 | 9..=31,
+            } if dst == reg => Some(Condition::NotEqual),
+            Inst::Alu { op, dst, bits, .. } | Inst::AluImmediate { op, dst, bits, .. }
+                if answered(op, dst, bits) =>
             {
-                Some(condition)
+                Some(Condition::NotEqual)
             }
             _ => None,
         }
-    }
-
-    /// Whether `reg` was just narrowed by an `and`, where nothing jumps in
-    /// after it: the flags it set say whether what it left is nought, so a
-    /// branch on `reg` reads them rather than testing it again.
-    pub(crate) fn just_masked(&self, reg: Reg) -> bool {
-        let len = self.code.insts().len();
-        matches!(
-            self.code.insts().last(),
-            Some(&Inst::Narrow { dst, bits: 1..=7 | 9..=31 }) if dst == reg
-        ) && !self.code.labelled_from(len)
     }
 
     pub(crate) fn jump_if(&mut self, condition: Condition, target: Label) {
