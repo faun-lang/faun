@@ -165,7 +165,7 @@ const SIZES: &[(&str, [usize; 3])] = &[
     ("eight bits", [133, 49, 104]),
     ("a flag", [205, 98, 131]),
     ("a carried total", [156, 82, 152]),
-    ("a step first", [205, 86, 168]),
+    ("a step first", [203, 86, 168]),
     ("a long arm", [265, 559, 237]),
     // The examples.
     ("exit", [128, 17, 96]),

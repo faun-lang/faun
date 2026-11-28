@@ -107,6 +107,7 @@ impl Selected {
                 .filter(|&reg| !(frame_pointers && reg == Reg::Rbp))
                 .collect(),
             copies: Some(COPY_SCRATCH),
+            rare: self.rare_blocks(),
         }
     }
 }

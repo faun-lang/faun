@@ -49,6 +49,7 @@ fn code(values: usize) -> Code<Reg> {
         }],
         registers: vec![Reg::G0, Reg::G1, Reg::F0, Reg::F1],
         copies: Some(Reg::Copy),
+        rare: Vec::new(),
     }
 }
 

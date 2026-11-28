@@ -556,6 +556,11 @@ impl Program {
         self.functions[function].inert = true;
     }
 
+    /// Say that `function` is reached only on a way taken rarely.
+    pub fn mark_cold(&mut self, function: FunctionId) {
+        self.functions[function].cold = true;
+    }
+
     /// Declare an external with explicit parameter names.
     pub fn external_named(
         &mut self,
@@ -577,6 +582,7 @@ impl Program {
             returns,
             definition: Definition::External,
             inert: false,
+            cold: false,
         })
     }
 
@@ -617,6 +623,7 @@ impl Program {
             returns: Returns::Values(returns),
             definition: Definition::Declared(body),
             inert: false,
+            cold: false,
         })
     }
 

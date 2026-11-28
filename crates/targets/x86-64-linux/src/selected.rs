@@ -573,6 +573,8 @@ struct Function {
     entry: BlockId,
     stack_params: usize,
     stack_results: usize,
+    /// Whether a program reaches it only on a way taken rarely.
+    cold: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -619,6 +621,29 @@ pub(crate) struct Selected {
 }
 
 impl Selected {
+    /// Whether each block, by block, calls what a program reaches only on a
+    /// way taken rarely.
+    pub(crate) fn rare_blocks(&self) -> Vec<bool> {
+        let cold: Vec<Owner> = self
+            .functions
+            .iter()
+            .filter(|function| function.cold)
+            .map(|function| function.source)
+            .collect();
+        self.blocks
+            .iter()
+            .map(|block| {
+                self.order[block.instructions.range()].iter().any(|&id| {
+                    let inst = self.instructions[id];
+                    matches!(
+                        (inst.opcode, inst.immediate),
+                        (Opcode::Call, Immediate::Function(callee)) if cold.contains(&allocated(callee))
+                    )
+                })
+            })
+            .collect()
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "the phase boundary verifies all flat pools in one pass"
@@ -1512,6 +1537,7 @@ pub(crate) fn select(source: &Program) -> Result<Selected, String> {
             entry,
             stack_params: params.len().saturating_sub(ARG_COUNT),
             stack_results: function.returns.classes().len().saturating_sub(1),
+            cold: function.cold,
         });
         selector.region(
             allocated(source_id),
