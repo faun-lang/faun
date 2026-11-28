@@ -733,8 +733,12 @@ fn word_bits(word: usize) -> u16 {
     u16::try_from(word * 8).expect("a word's bits fit u16")
 }
 
+/// A routine of this library, reached only where a natural is too large
+/// for a word: so taken rarely.
 fn declare(p: &mut Program, name: &str, params: &[Class], result: &[Class]) -> FunctionId {
-    p.declare(name, params, result)
+    let f = p.declare(name, params, result);
+    p.mark_cold(f);
+    f
 }
 
 /// Append only the requested arithmetic families and their dependencies.

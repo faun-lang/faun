@@ -134,6 +134,9 @@ pub struct Code<R> {
     /// lowering must transfer a complete scalar bit pattern between any
     /// allocatable register, this scratch register, and a frame slot.
     pub copies: Option<R>,
+    /// Whether each block, by block, runs rarely: it calls what a program
+    /// reaches only on a way taken rarely.
+    pub rare: Vec<bool>,
 }
 
 impl<R: Register> Code<R> {
@@ -949,6 +952,7 @@ impl<'a, R: Register> Allocator<'a, R> {
             self.placement.keep(|_| false);
             self.inherit(layout, &predecessors[layout.block.index()]);
             self.wait_out_loop(layout, &predecessors[layout.block.index()])?;
+            self.settle_for_loop(layout, &predecessors[layout.block.index()]);
             self.allocate_entry(layout)?;
             for points in &layout.instructions {
                 self.allocate_instruction(layout.block, points)?;
@@ -1012,15 +1016,7 @@ impl<'a, R: Register> Allocator<'a, R> {
         layout: &BlockPoints,
         predecessors: &[(BlockId, Range)],
     ) -> Result<(), String> {
-        let Some(last) = predecessors
-            .iter()
-            .filter(|&&(from, _)| {
-                self.state(self.liveness.blocks[from.index()].terminator)
-                    .is_none()
-            })
-            .map(|&(from, _)| from.index())
-            .max()
-        else {
+        let Some(last) = self.loop_end(predecessors) else {
             return Ok(());
         };
         let mut waiting = self.unread_in_loop(layout);
@@ -1047,6 +1043,81 @@ impl<'a, R: Register> Allocator<'a, R> {
             self.placement.set(value, slot);
         }
         Ok(())
+    }
+
+    /// At the head of a loop, each value held in a register the loop
+    /// overwrites -- a clobber, a scratch or a fixed result of something in
+    /// it -- moves to a free one it leaves alone: once, on the way in,
+    /// rather than out of the way and back each time round. A value the
+    /// loop reads in that very register stays.
+    fn settle_for_loop(&mut self, layout: &BlockPoints, predecessors: &[(BlockId, Range)]) {
+        let Some(last) = self.loop_end(predecessors) else {
+            return;
+        };
+        let (disturbed, wanted) = self.disturbed_in_loop(layout, last);
+        for value in self.liveness.live(layout.entry).iter() {
+            let Some(Location::Register(held)) = self.placement.get(value) else {
+                continue;
+            };
+            if !disturbed.contains(held) || wanted.contains(&(value, held)) {
+                continue;
+            }
+            let reserved = RegSet(!self.homes[value.index()].0 | disturbed.0);
+            if let Some(free) = self.free_register(reserved) {
+                self.placement.set(value, Location::Register(free));
+            }
+        }
+    }
+
+    /// The last block of the loop `predecessors` say a block heads: the
+    /// furthest of them not yet allocated, which goes back to it.
+    fn loop_end(&self, predecessors: &[(BlockId, Range)]) -> Option<usize> {
+        predecessors
+            .iter()
+            .filter(|&&(from, _)| {
+                self.state(self.liveness.blocks[from.index()].terminator)
+                    .is_none()
+            })
+            .map(|&(from, _)| from.index())
+            .max()
+    }
+
+    /// The registers the loop from `layout`'s block to the block numbered
+    /// `last` overwrites, and each value it reads in a fixed register,
+    /// with that register.
+    fn disturbed_in_loop(&self, layout: &BlockPoints, last: usize) -> (RegSet, Vec<(VReg, R)>) {
+        let start = self
+            .liveness
+            .blocks
+            .iter()
+            .position(|other| other.block == layout.block)
+            .expect("a block laid out");
+        let mut disturbed = RegSet::EMPTY;
+        let mut wanted = Vec::new();
+        let inner = self.liveness.blocks[start..]
+            .iter()
+            .take_while(|inner| inner.block.index() <= last);
+        for points in inner.flat_map(|inner| &inner.instructions) {
+            let inst = self.code.instructions[points.instruction];
+            disturbed = disturbed.union(inst.clobbers).union(inst.scratch);
+            let offset = usize::from(inst.result.is_some());
+            if inst.result.is_some()
+                && let Some(Constraint::Fixed(reg)) =
+                    self.code.spec(&inst, 0).map(|spec| spec.constraint)
+            {
+                disturbed = disturbed.union(RegSet::of(&[reg]));
+            }
+            for (at, &operand) in self.code.operands[inst.operands.range()].iter().enumerate() {
+                if let Some(Constraint::Fixed(reg)) = self
+                    .code
+                    .spec(&inst, offset + at)
+                    .map(|spec| spec.constraint)
+                {
+                    wanted.push((operand, reg));
+                }
+            }
+        }
+        (disturbed, wanted)
     }
 
     /// What a loop's head holds in registers that nothing in the loop reads
@@ -1083,10 +1154,18 @@ impl<'a, R: Register> Allocator<'a, R> {
         layout: &BlockPoints,
         predecessors: &[(BlockId, Range)],
     ) -> Vec<(VReg, Location<R>)> {
-        let Some((state, args)) = predecessors.iter().find_map(|&(from, args)| {
+        // A block starts where a predecessor run often left its values,
+        // where one did: what had to outlast a call made rarely comes back
+        // on the rare way, not on the other.
+        let allocated = predecessors.iter().filter_map(|&(from, args)| {
             let exit = self.liveness.blocks[from.index()].terminator;
-            self.state(exit).map(|state| (state, args))
-        }) else {
+            self.state(exit).map(|state| (from, state, args))
+        });
+        let Some((_, state, args)) = allocated
+            .clone()
+            .find(|&(from, ..)| !self.code.rare.get(from.index()).copied().unwrap_or(false))
+            .or_else(|| allocated.clone().next())
+        else {
             return Vec::new();
         };
         let held = |value: VReg| state.location(value);
@@ -2736,6 +2815,7 @@ mod tests {
             }],
             registers: vec![Two::A, Two::B],
             copies: None,
+            rare: Vec::new(),
         };
         let make = |code: &mut Code<Two>, operands: &[VReg], result: Option<VReg>| {
             let start = code.operands.len();

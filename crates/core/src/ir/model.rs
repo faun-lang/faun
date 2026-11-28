@@ -492,6 +492,9 @@ pub struct Function {
     /// answer nothing reads may go. Only a body this tier writes itself is,
     /// since nothing below can tell what a body does beyond answering.
     pub inert: bool,
+    /// Whether it is reached only on a way taken rarely, as what handles a
+    /// natural too large for a word is.
+    pub cold: bool,
 }
 
 impl Function {
